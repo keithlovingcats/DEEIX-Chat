@@ -2295,6 +2295,10 @@ definitions:
         type: integer
       model:
         type: string
+      parallelModels:
+        items:
+          type: string
+        type: array
       projectID:
         type: string
       projectName:
@@ -2335,6 +2339,7 @@ definitions:
     - lastShareAccessedAt
     - messageCount
     - model
+    - parallelModels
     - projectID
     - projectName
     - provider
@@ -2694,6 +2699,17 @@ definitions:
     required:
     - key
     - name
+    type: object
+  CreateNoteRequest:
+    properties:
+      content:
+        maxLength: 100000
+        type: string
+      title:
+        maxLength: 200
+        type: string
+    required:
+    - title
     type: object
   CreatePermissionGroupRequest:
     properties:
@@ -4907,6 +4923,86 @@ definitions:
     - type
     - unit
     type: object
+  NoteDataResponse:
+    properties:
+      note:
+        $ref: '#/definitions/NoteResponse'
+    required:
+    - note
+    type: object
+  NoteDeleteDataResponse:
+    properties:
+      deleted:
+        type: boolean
+    required:
+    - deleted
+    type: object
+  NoteDeleteResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/NoteDeleteDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  NoteErrorDoc:
+    properties:
+      errorMsg:
+        type: string
+    required:
+    - errorMsg
+    type: object
+  NotePageResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/NoteResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  NoteResponse:
+    properties:
+      content:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: integer
+      title:
+        type: string
+      updatedAt:
+        type: string
+    required:
+    - content
+    - createdAt
+    - id
+    - title
+    - updatedAt
+    type: object
+  NoteResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/NoteDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   OpenRouterOfficialPricingDataResponse:
     properties:
       cached:
@@ -5105,6 +5201,15 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  PatchNoteRequest:
+    properties:
+      content:
+        maxLength: 100000
+        type: string
+      title:
+        maxLength: 200
+        type: string
     type: object
   PatchPromptPresetRequest:
     properties:
@@ -6396,6 +6501,11 @@ definitions:
       options:
         additionalProperties: true
         type: object
+      parallelModels:
+        items:
+          type: string
+        maxItems: 20
+        type: array
       parentMessagePublicID:
         maxLength: 32
         type: string
@@ -16242,6 +16352,177 @@ paths:
       summary: 查询可用模型目录
       tags:
       - llm
+  /notes:
+    get:
+      consumes:
+      - application/json
+      description: 分页返回当前用户笔记，支持标题+内容搜索与排序
+      parameters:
+      - description: 搜索关键词（标题+内容）
+        in: query
+        name: q
+        type: string
+      - description: 排序：updated_desc（默认）/ created_desc / title_asc
+        enum:
+        - updated_desc
+        - created_desc
+        - title_asc
+        in: query
+        name: sort
+        type: string
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NotePageResponseDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询我的笔记
+      tags:
+      - notes
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 笔记内容
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CreateNoteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NoteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 创建笔记
+      tags:
+      - notes
+  /notes/{id}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: 笔记ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NoteDeleteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 删除笔记
+      tags:
+      - notes
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: 笔记ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NoteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询笔记详情
+      tags:
+      - notes
+    patch:
+      consumes:
+      - application/json
+      description: 部分更新标题或内容，字段为空时保持不变
+      parameters:
+      - description: 笔记ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 更新字段
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/PatchNoteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NoteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/NoteErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 更新笔记
+      tags:
+      - notes
   /prompt-presets:
     get:
       consumes:

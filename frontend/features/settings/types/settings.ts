@@ -3,6 +3,7 @@ import type { ChatFontOption, ChatFontWeightOption } from "@/features/settings/u
 import type { FontSizeOption } from "@/features/settings/utils/font-size";
 import type { ThemePreset } from "@/shared/components/theme-provider";
 import type { PublicModelDTO } from "@/shared/api/model.types";
+import type { MermaidTheme } from "@/shared/components/markdown/markdown-themes";
 
 export type SendShortcut = "enter" | "ctrl_enter" | "meta_enter";
 export type FileMode = "auto" | "full_context" | "rag";
@@ -25,6 +26,8 @@ export type ChatSettings = {
   reasoningContentPassback: boolean;
   inputHeight: ChatInputHeight;
   contentWidth: ChatContentWidth;
+  codeHighlightTheme: string;
+  mermaidTheme: MermaidTheme;
   fileMode: FileMode;
 };
 

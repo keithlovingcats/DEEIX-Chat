@@ -66,7 +66,7 @@ const CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS = 45_000;
 const CONVERSATION_METADATA_REFRESH_INITIAL_DELAY_MS = 800;
 const CONVERSATION_METADATA_REFRESH_MAX_DELAY_MS = 5_000;
 const CONVERSATION_METADATA_REFRESH_BACKOFF = 1.5;
-const MAX_CONCURRENT_RUNS = 5;
+const MAX_CONCURRENT_RUNS = 20;
 const GENERATION_CANCEL_SETTLEMENT_TIMEOUT_MS = 25_000;
 
 function resolveSubmitBlockDescription(
@@ -195,6 +195,8 @@ type QueuedChatSubmission = BranchScope & {
   content: string;
   attachments: PendingAttachment[];
   platformModelName: string;
+  // 入队时快照的附加并行模型列表，出队发送时与空闲路径走同一 fan-out。
+  parallelPlatformModelNames: string[];
   options: ConversationOptions;
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -445,6 +447,7 @@ export function useChatMessageSubmit({
   conversationScopeKey,
   activeConversation,
   selectedPlatformModelName,
+  parallelPlatformModelNames,
   modelOptions,
   selectedToolIDs,
   selectedSkills,
@@ -491,6 +494,7 @@ export function useChatMessageSubmit({
   conversationScopeKey: string;
   activeConversation: ConversationDTO | null;
   selectedPlatformModelName: string;
+  parallelPlatformModelNames?: string[];
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -545,6 +549,14 @@ export function useChatMessageSubmit({
   const dispatchingQueuedSubmissionIDsRef = React.useRef(new Set<string>());
   const [queuedSubmissions, setQueuedSubmissions] = React.useState<QueuedChatSubmission[]>([]);
   const queuedSubmissionsRef = React.useRef<QueuedChatSubmission[]>([]);
+  // 多模型并行：以 ref 读取最新选择，避免 submitMessage 闭包过期。
+  const parallelPlatformModelNamesRef = React.useRef<string[]>(parallelPlatformModelNames ?? []);
+  React.useEffect(() => {
+    const names = (parallelPlatformModelNames ?? [])
+      .map((name) => name.trim())
+      .filter(Boolean);
+    parallelPlatformModelNamesRef.current = Array.from(new Set(names));
+  }, [parallelPlatformModelNames]);
   const isRunActive = React.useCallback((runID: string) => activeStreamsRef.current.has(runID), []);
   const {
     getStatus: getHiddenParentRunStatus,
@@ -714,6 +726,9 @@ export function useChatMessageSubmit({
       sourceMessagePublicID,
       branchReason,
       queuedSubmission,
+      fanOutModels,
+      programmaticFanOut,
+      overridePlatformModelName,
     }: {
       content: string;
       currentAttachments: PendingAttachment[];
@@ -722,9 +737,19 @@ export function useChatMessageSubmit({
       sourceMessagePublicID?: string | null;
       branchReason?: "default" | "retry" | "edit";
       queuedSubmission?: QueuedChatSubmission;
+      /** 主请求携带：message_created 后需要并行 fan-out 的附加模型列表。 */
+      fanOutModels?: string[];
+      /** 内部 fan-out 请求：跳过发送守卫（队列/上传/重复流），不重置输入框。 */
+      programmaticFanOut?: boolean;
+      /** 内部 fan-out 请求：覆盖发送使用的平台模型名。 */
+      overridePlatformModelName?: string;
     }) => {
       const payloadContent = content || t("attachmentOnlyContent");
-      const requestPlatformModelName = (queuedSubmission?.platformModelName ?? selectedPlatformModelName).trim();
+      const requestPlatformModelName = (
+        queuedSubmission?.platformModelName ??
+        overridePlatformModelName ??
+        selectedPlatformModelName
+      ).trim();
       const requestOptions = queuedSubmission?.options ?? options;
       const requestSelectedToolIDs = queuedSubmission?.selectedToolIDs ?? selectedToolIDs;
       const requestSelectedSkills = queuedSubmission?.selectedSkills ?? selectedSkills;
@@ -740,13 +765,15 @@ export function useChatMessageSubmit({
         branchScopeRunID: queuedSubmission?.branchScopeRunID ?? clientRunID,
       };
       const shouldFollowSubmittedBranch =
-        !queuedSubmission ||
-        branchRunIsVisible(
-          targetBranchScope,
-          clientRunID,
-          conversationScopeKeyRef.current,
-          visibleBranchScopePathRef.current,
-          visibleMessagesRef.current,
+        !queuedSubmission &&
+        !programmaticFanOut && (
+          branchRunIsVisible(
+            targetBranchScope,
+            clientRunID,
+            conversationScopeKeyRef.current,
+            visibleBranchScopePathRef.current,
+            visibleMessagesRef.current,
+          )
         );
       const selectedModel = modelOptions.find((item) => item.platformModelName === requestPlatformModelName) ?? null;
       const resolvedBranchReason = branchReason ?? "default";
@@ -760,8 +787,8 @@ export function useChatMessageSubmit({
       );
       if (
         (!content && currentAttachments.length === 0) ||
-        (!queuedSubmission && uploading) ||
-        (!concurrentBranchRun && targetConversationHasActiveStream)
+        (!programmaticFanOut && !queuedSubmission && uploading) ||
+        (!concurrentBranchRun && !programmaticFanOut && targetConversationHasActiveStream)
       ) {
         return false;
       }
@@ -809,13 +836,37 @@ export function useChatMessageSubmit({
         return false;
       }
 
+      // 多模型并行：仅主请求（default 分支）且全部选中模型都是 chat task 时 fan-out；
+      // 图片/视频生成或混合任务退化为单模型。
+      // 队列路径从入队快照取并行列表，出队发送与空闲路径走同一 fan-out。
+      let pendingFanOutModels: string[] = [];
+      if (
+        resolvedBranchReason === "default" &&
+        submitTask === "chat" &&
+        (fanOutModels ?? queuedSubmission?.parallelPlatformModelNames ?? []).length > 0
+      ) {
+        const fanOutModelNames = fanOutModels ?? queuedSubmission?.parallelPlatformModelNames ?? [];
+        const chatModels = fanOutModelNames.filter((name) => {
+          const candidate = modelOptions.find((item) => item.platformModelName === name);
+          const decision = resolveChatSubmitDecision(candidate ?? null, effectiveAttachments, sanitizedOptions);
+          return !decision.blockedReason && decision.task === "chat";
+        });
+        if (chatModels.length < fanOutModelNames.length) {
+          toast(t("parallelChatOnly"), { description: t("parallelChatOnlyDescription") });
+        }
+        pendingFanOutModels = chatModels;
+      }
+
       const wasConversationMode = showConversationLayout || visibleMessageCount > 0;
       const exchangeKey = `local-exchange-${clientRunID}`;
       const resolvedSourcePublicID = resolvePersistedPublicID(sourceMessagePublicID);
       const assistantOnlyBranch =
         resolvedBranchReason === "retry" &&
         Boolean(resolvedParentPublicID && resolvedSourcePublicID) &&
-        combinedMessages.some((item) => item.publicID === resolvedSourcePublicID && item.role === "assistant");
+        // programmaticFanOut 由 message_created 事件提供真实 parent/source，跳过本地树校验
+        // （fan-out 调用发生时闭包里的 combinedMessages 还不含刚创建的消息）。
+        (programmaticFanOut ||
+          combinedMessages.some((item) => item.publicID === resolvedSourcePublicID && item.role === "assistant"));
       const reusedUserMessage = assistantOnlyBranch
         ? combinedMessages.find(
             (item) => item.publicID === resolvedParentPublicID && item.role === "user",
@@ -1031,6 +1082,13 @@ export function useChatMessageSubmit({
         }
         const commonStreamPayload = {
           model: requestPlatformModelName,
+          // 多模型并行组合随主请求持久化到会话（服务端按会话存储，供后续轮次/刷新恢复）。
+          // 单模型也写回单元素组合，覆盖会话中放弃并行的旧组合。
+          // 队列出队发送同样回写，保证组合与实际发送行为一致。
+          parallelModels:
+            !programmaticFanOut && resolvedBranchReason === "default"
+              ? [requestPlatformModelName, ...pendingFanOutModels]
+              : undefined,
           options: Object.keys(sanitizedOptions).length > 0 ? sanitizedOptions : undefined,
           clientRunID: clientRunID,
           fileIDs: effectiveAttachments.length > 0 ? effectiveAttachments.map((item) => item.fileID) : undefined,
@@ -1043,6 +1101,90 @@ export function useChatMessageSubmit({
           signal: streamAbortController.signal,
           onInterrupted: (event) => {
             terminalStreamError = event;
+          },
+          // 服务端持久化并行组合失败时提示用户：本次不受影响，刷新后组合会回退。
+          onParallelModelsPersistFailed: () => {
+            toast.warning(t("parallelModelsPersistFailed"), {
+              description: t("parallelModelsPersistFailedDescription"),
+            });
+          },
+          // 服务端过滤掉不可用模型（不存在/无权限）时提示用户。
+          onParallelModelsFiltered: (invalidModels) => {
+            if (invalidModels.length === 0) {
+              return;
+            }
+            toast.warning(t("parallelModelsFiltered"), {
+              description: t("parallelModelsFilteredDescription", { count: invalidModels.length }),
+            });
+          },
+          onMessageCreated: (event) => {
+            if (programmaticFanOut) {
+              return;
+            }
+            const createdUserPublicID = event.userMessage.publicID?.trim() || "";
+            const createdAssistantPublicID = event.assistantMessage.publicID?.trim() || "";
+            if (!createdUserPublicID || !createdAssistantPublicID) {
+              return;
+            }
+            // 立即用服务端 publicID 替换临时 ID，fan-out 请求与分支树据此建立关系。
+            updatePendingExchange(exchangeKey, (current) => ({
+              ...current,
+              userPublicID: createdUserPublicID,
+              assistantPublicID: createdAssistantPublicID,
+            }));
+            // 同步 remap 分支选中态：fan-out 兄弟此时已挂真实 user publicID，
+            // 主支若仍指临时 ID 会与 ModelBranchTabs 短暂对不上，在此消除窗口期。
+            if (conversationScopeKeyRef.current === targetConversationScopeKey) {
+              setBranchSelections((current) =>
+                replaceCompletedBranchSelection(
+                  current,
+                  {
+                    parentPublicID: resolvedParentPublicID,
+                    tempUserPublicID,
+                    tempAssistantPublicID,
+                    reuseUserMessage: assistantOnlyBranch,
+                  },
+                  createdUserPublicID,
+                  createdAssistantPublicID,
+                ),
+              );
+            }
+            if (pendingFanOutModels.length === 0) {
+              return;
+            }
+            const fanOutModelList = pendingFanOutModels;
+            pendingFanOutModels = [];
+            // fan-out 为 fire-and-forget；失败的模型无气泡反馈，需一次性提示避免静默丢模型。
+            const fanOutResults: Promise<boolean>[] = [];
+            for (const fanOutModelName of fanOutModelList) {
+              const submission = submitMessage({
+                content: payloadContent,
+                currentAttachments: effectiveAttachments,
+                resetComposer: false,
+                parentMessagePublicID: createdUserPublicID,
+                sourceMessagePublicID: createdAssistantPublicID,
+                branchReason: "retry",
+                programmaticFanOut: true,
+                overridePlatformModelName: fanOutModelName,
+              });
+              fanOutResults.push(
+                submission.catch(
+                  () => false,
+                ),
+              );
+            }
+            if (fanOutResults.length > 0) {
+              void Promise.allSettled(fanOutResults).then((settled) => {
+                const failedCount = settled.filter(
+                  (item) => item.status === "rejected" || item.value !== true,
+                ).length;
+                if (failedCount > 0) {
+                  toast.warning(t("parallelFanOutPartialFailed"), {
+                    description: t("parallelFanOutPartialFailedDescription", { count: failedCount }),
+                  });
+                }
+              });
+            }
           },
           onFileProc: (message) => {
             updatePendingExchange(exchangeKey, (current) => ({
@@ -1604,6 +1746,10 @@ export function useChatMessageSubmit({
           content,
           attachments: currentAttachments,
           platformModelName: selectedPlatformModelName,
+          // 入队时快照当前并行选择，避免出队时用户已改选导致组合漂移。
+          parallelPlatformModelNames: parallelPlatformModelNamesRef.current.filter(
+            (name) => name.trim() && name.trim() !== selectedPlatformModelName.trim(),
+          ),
           options: sanitizeConversationOptions(options),
           selectedToolIDs: selectedToolIDs.slice(),
           selectedSkills: selectedSkills.slice(),
@@ -1653,6 +1799,22 @@ export function useChatMessageSubmit({
       )
         ? visibleActiveCandidate
         : undefined;
+    // 多模型并行：停止只作用于当前可见 run，其余 sibling 仍在运行时提示用户，
+    // 避免误以为全部已停而持续消耗余额。
+    const notifyParallelRunsRemaining = (stoppedRunID: string) => {
+      const remainingCount = Array.from(activeStreamsRef.current.values()).filter(
+        (item) =>
+          item.runID !== stoppedRunID &&
+          !item.cancelRequested &&
+          item.conversationScopeKey === conversationScopeKeyRef.current,
+      ).length;
+      if (remainingCount > 0) {
+        toast(t("parallelStopPartial"), {
+          description: t("parallelStopPartialDescription", { count: remainingCount }),
+        });
+      }
+    };
+
     if (!visibleActive && visibleRunPending) {
       void resolveAccessToken().then(async (token) => {
         if (!token) {
@@ -1684,10 +1846,12 @@ export function useChatMessageSubmit({
     }
     if (!active.accessToken) {
       active.controller.abort();
+      notifyParallelRunsRemaining(active.runID);
       return true;
     }
 
     active.cancelRequested = true;
+    notifyParallelRunsRemaining(active.runID);
     active.cancelSettlementTimer = window.setTimeout(() => {
       if (activeStreamsRef.current.get(active.runID) !== active) {
         return;
@@ -1733,6 +1897,7 @@ export function useChatMessageSubmit({
     currentLeafMessage?.runID,
     currentLeafMessage?.status,
     reload,
+    t,
   ]);
 
   const onDeleteQueuedMessage = React.useCallback((id: string) => {
@@ -1795,14 +1960,29 @@ export function useChatMessageSubmit({
       resolvePersistedPublicID(currentLeafMessage?.publicID) ??
       resolveDefaultSubmissionParentMessage(visibleMessages)?.publicID ??
       null;
+    // 多模型并行：主模型以外的附加模型在 message_created 后 fan-out。
+    const fanOutModels = parallelPlatformModelNamesRef.current.filter(
+      (name) => name.trim() && name.trim() !== selectedPlatformModelName.trim(),
+    );
     await submitMessage({
       content,
       currentAttachments: attachments,
       resetComposer: true,
       parentMessagePublicID,
       branchReason: "default",
+      fanOutModels: fanOutModels.length > 0 ? fanOutModels : undefined,
     });
-  }, [attachments, currentLeafMessage?.publicID, draft, enqueueSubmission, resumeGenerationActive, sending, submitMessage, visibleMessages]);
+  }, [
+    attachments,
+    currentLeafMessage?.publicID,
+    draft,
+    enqueueSubmission,
+    resumeGenerationActive,
+    selectedPlatformModelName,
+    sending,
+    submitMessage,
+    visibleMessages,
+  ]);
 
   React.useEffect(() => {
     const currentBranchHasPendingServerGeneration = visibleMessages.some(
@@ -2105,8 +2285,22 @@ export function useChatMessageSubmit({
     [combinedMessages, setBranchSelections],
   );
 
+  const onSelectMessageBranch = React.useCallback(
+    (parentPublicID: string | null, childPublicID: string) => {
+      if (!childPublicID.trim()) {
+        return;
+      }
+      setBranchSelections((prev) => ({
+        ...prev,
+        [toBranchKey(parentPublicID)]: childPublicID,
+      }));
+    },
+    [setBranchSelections],
+  );
+
   return {
     onCycleMessageBranch,
+    onSelectMessageBranch,
     onEditAssistantMessage,
     onEditUserMessage,
     onContinueAssistantMessage,

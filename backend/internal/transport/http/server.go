@@ -26,6 +26,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	promptpresethttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/promptpreset"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
+	notehttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/note"
 	skillhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/skill"
 	userhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/user"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
@@ -63,15 +64,17 @@ type Modules struct {
 	Announcement      *announcementhttp.Module
 	PromptPreset      *promptpresethttp.Module
 	Skill             *skillhttp.Module
+	Notes             *notehttp.Module
 	Settings          *settingshttp.Module
 	User              *userhttp.Module
 	UserSettings      *usersettingshttp.Module
-	StartupLog        func(*zap.Logger)
 }
 
 // NewEngine 创建并注册 API 路由。
 func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthChecker, limiter middleware.RateLimiter) (*gin.Engine, error) {
 	snapshot := cfg.Snapshot()
+	// 仅屏蔽 Gin 路由注册时的 [GIN-debug] 刷屏；其他业务/访问日志保持原样。
+	gin.DebugPrintRouteFunc = func(httpMethod string, absolutePath string, handlerName string, nuHandlers int) {}
 	if snapshot.Env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -168,6 +171,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Skill != nil {
 		modules.Skill.RegisterRoutes(authRequired)
 	}
+	if modules.Notes != nil {
+		modules.Notes.RegisterRoutes(authRequired)
+	}
 	if modules.UserSettings != nil {
 		modules.UserSettings.RegisterRoutes(authRequired)
 	}
@@ -212,9 +218,6 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 	}
 
-	if modules.StartupLog != nil {
-		modules.StartupLog(log)
-	}
 	if modules.Settings != nil {
 		modules.Settings.RegisterFrontendRoutes(engine)
 	}

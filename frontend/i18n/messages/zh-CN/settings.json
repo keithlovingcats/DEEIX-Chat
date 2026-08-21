@@ -8,19 +8,13 @@
   "navigation": "设置导航",
   "aboutPage": {
     "title": "关于",
-    "description": "DEEIX Chat 是面向多用户 AI 应用的模型接入与对话运营平台。它将模型目录、多上游路由、参数治理、文件与 RAG、MCP 工具、用量计费、身份安全、审计与运维配置整合到同一套控制面。",
+    "description": "Jun's Chat 是面向多用户 AI 应用的模型接入与对话运营平台。它将模型目录、多上游路由、参数治理、文件与 RAG、MCP 工具、用量计费、身份安全、审计与运维配置整合到同一套控制面。",
     "details": "产品信息",
     "product": "产品",
     "version": "版本",
     "console": "控制台",
     "userConsole": "用户端",
-    "official": "官方",
-    "website": "官网",
-    "repository": "仓库",
-    "social": "X",
-    "blog": "博客",
-    "contact": "联系与支持",
-    "copyright": "© 2026 DEEIX. DEEIX Chat.",
+    "copyright": "© 2026 Jun. Jun's Chat.",
     "license": "代码遵循 Apache License 2.0 授权。"
   },
   "appearance": "外观",
@@ -230,7 +224,7 @@
         "description": {
           "bootstrapVerified": "首次设置邮箱需要验证新邮箱所有权。",
           "saveOnly": "保存后将更新邮箱。",
-          "change": "DEEIX Chat 会根据当前账号安全状态要求必要验证，通过后保存修改。"
+          "change": "Jun's Chat 会根据当前账号安全状态要求必要验证，通过后保存修改。"
         },
         "labels": {
           "newEmail": "新邮箱"
@@ -401,7 +395,15 @@
         "medium": "中等",
         "semibold": "半粗",
         "bold": "粗体"
-      }
+      },
+      "codeThemeTitle": "代码高亮主题",
+      "codeThemeDescription": "Markdown 代码块的配色主题",
+      "codeThemeAuto": "跟随界面",
+      "codeThemeLightGroup": "浅色主题",
+      "codeThemeDarkGroup": "深色主题",
+      "mermaidThemeTitle": "Mermaid 主题",
+      "mermaidThemeDescription": "流程图等 Mermaid 图表的配色主题",
+      "themePreviewTitle": "预览"
     },
     "context": {
       "sectionTitle": "上下文管理",

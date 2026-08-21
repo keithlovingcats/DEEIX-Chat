@@ -475,7 +475,7 @@ func usageReservationRequest(userID uint, amountNanousd int64, refNo string) dom
 	}
 }
 
-func TestReserveUsageBalanceDefaultBudgetAllowsFiveConcurrentCalls(t *testing.T) {
+func TestReserveUsageBalanceDefaultBudgetAllowsMaxConcurrentCalls(t *testing.T) {
 	db := openBillingSQLiteTestDB(t)
 	repo := NewRepo(db)
 	ctx := context.Background()
@@ -483,14 +483,43 @@ func TestReserveUsageBalanceDefaultBudgetAllowsFiveConcurrentCalls(t *testing.T)
 		t.Fatalf("create billing account: %v", err)
 	}
 
+	// 默认预算按槽位均分并应用单槽保底：均分值低于 floor 时取 floor。
+	// 余额 100 nanousd 远小于 floor（0.1 USD）：首槽取全部 100，
+	// 后续槽因余额耗尽而拒绝——不再满足“占满全部槽位”的旧行为。
+	if _, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, "run_0")); err != nil {
+		t.Fatalf("reserve request 0: %v", err)
+	}
+	if _, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, "run_1")); !errors.Is(err, repository.ErrInsufficientBalance) {
+		t.Fatalf("reserve request 1 error = %v, want ErrInsufficientBalance", err)
+	}
+	if err := repo.ReleaseUsageBalanceReservation(ctx, 1, "run_0"); err != nil {
+		t.Fatalf("release first reservation: %v", err)
+	}
+	if _, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, "run_after_release")); err != nil {
+		t.Fatalf("reserve after release: %v", err)
+	}
+}
+
+func TestReserveUsageBalanceDefaultBudgetDividesLargeBalance(t *testing.T) {
+	db := openBillingSQLiteTestDB(t)
+	repo := NewRepo(db)
+	ctx := context.Background()
+	// 余额充足时均分值高于 floor，行为与纯均分一致，可占满全部槽位。
+	// 余额量级需覆盖 floor（0.1 USD = 1e8 nanousd）× 槽位数。
+	balance := domainbilling.UsageReservationDefaultFloorNanousd() * 10 * int64(domainbilling.UsageReservationMaxActivePerUser)
+	if err := db.Create(&model.BillingAccount{UserID: 1, Currency: "USD", BalanceNanousd: balance, Status: "active"}).Error; err != nil {
+		t.Fatalf("create billing account: %v", err)
+	}
+
+	wantBudget := (balance + int64(domainbilling.UsageReservationMaxActivePerUser) - 1) / int64(domainbilling.UsageReservationMaxActivePerUser)
 	reservations := make([]*domainbilling.UsageBalanceReservation, 0, domainbilling.UsageReservationMaxActivePerUser)
 	for index := 0; index < domainbilling.UsageReservationMaxActivePerUser; index++ {
 		reservation, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, fmt.Sprintf("run_%d", index)))
 		if err != nil {
 			t.Fatalf("reserve request %d: %v", index, err)
 		}
-		if reservation.BalanceNanousd != 20 || reservation.PeriodCreditNanousd != 0 {
-			t.Fatalf("reservation %d = %+v, want balance budget 20", index, reservation)
+		if reservation.BalanceNanousd != wantBudget || reservation.PeriodCreditNanousd != 0 {
+			t.Fatalf("reservation %d = %+v, want balance budget %d", index, reservation, wantBudget)
 		}
 		reservations = append(reservations, reservation)
 	}
@@ -505,22 +534,65 @@ func TestReserveUsageBalanceDefaultBudgetAllowsFiveConcurrentCalls(t *testing.T)
 	}
 }
 
+func TestReserveUsageBalanceDefaultBudgetAppliesFloor(t *testing.T) {
+	db := openBillingSQLiteTestDB(t)
+	repo := NewRepo(db)
+	ctx := context.Background()
+	// 余额介于「一次 floor」与「全部槽位均分后仍达 floor」之间：
+	// 首槽拿 floor，之后剩余均分不足 floor 时仍受 available 收敛。
+	floor := domainbilling.UsageReservationDefaultFloorNanousd()
+	balance := floor * 3
+	if err := db.Create(&model.BillingAccount{UserID: 1, Currency: "USD", BalanceNanousd: balance, Status: "active"}).Error; err != nil {
+		t.Fatalf("create billing account: %v", err)
+	}
+
+	first, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, "run_first"))
+	if err != nil {
+		t.Fatalf("reserve first: %v", err)
+	}
+	if first.BalanceNanousd != floor {
+		t.Fatalf("first budget = %d, want floor %d", first.BalanceNanousd, floor)
+	}
+	second, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, "run_second"))
+	if err != nil {
+		t.Fatalf("reserve second: %v", err)
+	}
+	if second.BalanceNanousd != floor {
+		t.Fatalf("second budget = %d, want floor %d (remaining %d >= floor)", second.BalanceNanousd, floor, balance-floor)
+	}
+	third, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, "run_third"))
+	if err != nil {
+		t.Fatalf("reserve third: %v", err)
+	}
+	if third.BalanceNanousd != floor {
+		t.Fatalf("third budget = %d, want floor %d", third.BalanceNanousd, floor)
+	}
+	if _, err := repo.ReserveUsageBalance(ctx, usageReservationRequest(1, 0, "run_fourth")); !errors.Is(err, repository.ErrInsufficientBalance) {
+		t.Fatalf("reserve fourth error = %v, want ErrInsufficientBalance (balance exhausted)", err)
+	}
+}
+
 func TestSettledReservationReopensSlotOnlyWhenBudgetRemains(t *testing.T) {
+	maxSlots := int64(domainbilling.UsageReservationMaxActivePerUser)
+	// 初始余额需足够占满全部槽位（均分值高于 floor）并留出结算后可再预留的结余。
+	initialBalance := domainbilling.UsageReservationDefaultFloorNanousd() * 10 * maxSlots
 	tests := []struct {
 		name                  string
 		settledNanousd        int64
 		wantReservationBudget int64
 		wantErr               error
 	}{
-		{name: "budget remains", settledNanousd: 10, wantReservationBudget: 10},
-		{name: "actual charge exhausts budget", settledNanousd: 50, wantErr: repository.ErrInsufficientBalance},
+		// 占满全部槽位后结算一笔（消耗 10），仅剩 1 个空闲槽位；
+		// refill 默认预算 = 剩余余额 / 1。
+		{name: "budget remains", settledNanousd: 10, wantReservationBudget: initialBalance - 10 - (maxSlots-1)*(initialBalance/maxSlots)},
+		{name: "actual charge exhausts budget", settledNanousd: initialBalance, wantErr: repository.ErrInsufficientBalance},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := openBillingSQLiteTestDB(t)
 			repo := NewRepo(db)
 			ctx := context.Background()
-			if err := db.Create(&model.BillingAccount{UserID: 1, Currency: "USD", BalanceNanousd: 100, Status: "active"}).Error; err != nil {
+			if err := db.Create(&model.BillingAccount{UserID: 1, Currency: "USD", BalanceNanousd: initialBalance, Status: "active"}).Error; err != nil {
 				t.Fatalf("create billing account: %v", err)
 			}
 
@@ -705,7 +777,7 @@ func TestMarkUsageReservationReconciliationRejectsMissingReservation(t *testing.
 	}
 }
 
-func TestReservePeriodUsageDefaultBudgetAllowsFiveConcurrentCalls(t *testing.T) {
+func TestReservePeriodUsageDefaultBudgetAllowsMaxConcurrentCalls(t *testing.T) {
 	db := openBillingSQLiteTestDB(t)
 	repo := NewRepo(db)
 	ctx := context.Background()
@@ -723,14 +795,52 @@ func TestReservePeriodUsageDefaultBudgetAllowsFiveConcurrentCalls(t *testing.T) 
 		PeriodCreditNanousd: 1000,
 	}
 
+	// 周期额度 1000 远小于单槽 floor：首槽取全部额度，后续槽余额不足拒绝。
+	request.RefNo = "run_period_first"
+	first, err := repo.ReserveUsageBalance(ctx, request)
+	if err != nil {
+		t.Fatalf("reserve period first: %v", err)
+	}
+	if first.PeriodCreditNanousd != 1000 || first.BalanceNanousd != 0 {
+		t.Fatalf("period reservation first = %+v, want credit budget 1000", first)
+	}
+	request.RefNo = "run_period_second"
+	if _, err := repo.ReserveUsageBalance(ctx, request); !errors.Is(err, repository.ErrInsufficientBalance) {
+		t.Fatalf("reserve period second error = %v, want ErrInsufficientBalance", err)
+	}
+}
+
+func TestReservePeriodUsageDefaultBudgetDividesLargeCredit(t *testing.T) {
+	db := openBillingSQLiteTestDB(t)
+	repo := NewRepo(db)
+	ctx := context.Background()
+	now := time.Now()
+	periodStart := now.Add(-time.Hour)
+	periodEnd := now.Add(time.Hour)
+	// 周期额度足够大时均分值高于 floor，可占满全部槽位，行为与纯均分一致。
+	// 额度量级需覆盖 floor（0.1 USD = 1e8 nanousd）× 槽位数。
+	periodCredit := domainbilling.UsageReservationDefaultFloorNanousd() * 10 * int64(domainbilling.UsageReservationMaxActivePerUser)
+	if err := db.Create(&model.BillingAccount{UserID: 1, Currency: "USD", BalanceNanousd: 0, Status: "active"}).Error; err != nil {
+		t.Fatalf("create billing account: %v", err)
+	}
+	request := domainbilling.UsageBalanceReservationRequest{
+		UserID:              1,
+		Mode:                "period",
+		PeriodStartAt:       &periodStart,
+		PeriodEndAt:         &periodEnd,
+		PeriodCreditNanousd: periodCredit,
+	}
+
+	// 默认预算按槽位均分：周期额度 / 最大槽位数，向上取整。
+	wantBudget := (periodCredit + int64(domainbilling.UsageReservationMaxActivePerUser) - 1) / int64(domainbilling.UsageReservationMaxActivePerUser)
 	for index := 0; index < domainbilling.UsageReservationMaxActivePerUser; index++ {
 		request.RefNo = fmt.Sprintf("run_period_%d", index)
 		reservation, err := repo.ReserveUsageBalance(ctx, request)
 		if err != nil {
 			t.Fatalf("reserve period request %d: %v", index, err)
 		}
-		if reservation.PeriodCreditNanousd != 200 || reservation.BalanceNanousd != 0 {
-			t.Fatalf("period reservation %d = %+v, want credit budget 200", index, reservation)
+		if reservation.PeriodCreditNanousd != wantBudget || reservation.BalanceNanousd != 0 {
+			t.Fatalf("period reservation %d = %+v, want credit budget %d", index, reservation, wantBudget)
 		}
 	}
 	request.RefNo = "run_period_over_limit"

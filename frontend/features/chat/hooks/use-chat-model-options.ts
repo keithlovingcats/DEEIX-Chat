@@ -13,6 +13,7 @@ import { parseProtocolsJSON } from "@/shared/lib/model-protocols";
 import { sanitizeConversationOptions } from "@/features/chat/model/conversation-options";
 import {
   DEFAULT_CHAT_CONTENT_WIDTH,
+  isChatContentWidth,
   parseChatContentWidth,
   type ChatContentWidth,
 } from "@/shared/model/chat-content-width";
@@ -20,7 +21,7 @@ import { listConversationRuns } from "@/shared/api/conversation";
 import { listPublicModels } from "@/shared/api/model";
 import { getBillingConfig } from "@/shared/api/billing";
 import { getMCPPolicy, getModelOptionPolicy } from "@/shared/api/settings";
-import { getUserSettings } from "@/shared/api/user-settings";
+import { getUserSettings, patchUserSettings } from "@/shared/api/user-settings";
 import type { PublicModelDTO } from "@/shared/api/model.types";
 import type { ModelNativeToolConfig, ModelOptionPolicy } from "@/shared/lib/model-option-policy";
 import { nativeToolDefinitionVariantsFromConfig, nativeToolPayloadSignature } from "@/shared/lib/native-tool-payload";
@@ -29,11 +30,18 @@ import { resolveConversationDefaultModel } from "@/shared/model/conversation-def
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 import type { SendShortcut } from "@/features/settings/types/settings";
 import { parseSendShortcut } from "@/features/settings/utils/chat-settings";
-import { USER_SETTINGS_UPDATED_EVENT } from "@/features/settings/events/user-settings-events";
+import {
+  dispatchUserSettingsUpdated,
+  USER_SETTINGS_UPDATED_EVENT,
+} from "@/features/settings/events/user-settings-events";
 import {
   normalizeBillingDisplayCurrency,
   type BillingDisplayCurrency,
 } from "@/shared/lib/billing-display";
+
+// 多模型并行上限：与 use-chat-message-submit 的 MAX_CONCURRENT_RUNS 对齐，
+// 后端计费预留上限（UsageReservationMaxActivePerUser）同为 20。
+export const MAX_PARALLEL_MODELS = 20;
 
 type ModelCatalogRefreshResult = {
   models: PublicModelDTO[];
@@ -360,10 +368,16 @@ function toChatModelOption(
 export function useChatModelOptions({
   conversationPublicID,
   conversationModel,
+  conversationParallelModels,
+  locallyCreatedConversationID,
   resetToken,
 }: {
   conversationPublicID: string | null;
   conversationModel?: string | null;
+  /** 服务端会话记录的多模型并行组合（首元素为主模型）；null/空数组表示单模型。 */
+  conversationParallelModels?: string[] | null;
+  /** 本页刚创建的会话 ID：首次发送把 draft 转正时保留用户已选组合（服务端尚未写回）。 */
+  locallyCreatedConversationID?: string | null;
   resetToken?: number;
 }) {
   const t = useTranslations("chat.models");
@@ -371,8 +385,9 @@ export function useChatModelOptions({
   const [modelsLoading, setModelsLoading] = React.useState(true);
   const [modelsErrorMsg, setModelsErrorMsg] = React.useState("");
   const [selectedPlatformModelName, setSelectedPlatformModelName] = React.useState("");
+  const [additionalPlatformModelNames, setAdditionalPlatformModelNames] = React.useState<string[]>([]);
   const [userDefaultModel, setUserDefaultModel] = React.useState("");
-  const [sendShortcut, setSendShortcut] = React.useState<SendShortcut>("enter");
+  const [sendShortcut, setSendShortcut] = React.useState<SendShortcut>(() => parseSendShortcut(undefined));
   const [restoreDraftOnFailure, setRestoreDraftOnFailure] = React.useState(true);
   const [preserveConversationDrafts, setPreserveConversationDrafts] = React.useState(true);
   const [inputHeight, setInputHeight] = React.useState<"compact" | "standard" | "loose">("standard");
@@ -388,13 +403,77 @@ export function useChatModelOptions({
   const [mcpMaxSelectedTools, setMCPMaxSelectedTools] = React.useState(32);
   const activeConversationRef = React.useRef<string | null>(null);
   const userSelectedModelRef = React.useRef(false);
+  // toggle 快照：与对应 state 同步，避免嵌套 setState 读取过期值。
+  const selectedPrimaryModelRef = React.useRef("");
+  const additionalModelNamesRef = React.useRef<string[]>([]);
   const runModelRequestRef = React.useRef(0);
   const modelCatalogRequestRef = React.useRef<Promise<ModelCatalogRefreshResult> | null>(null);
 
   const selectPlatformModelName = React.useCallback((platformModelName: string) => {
     userSelectedModelRef.current = true;
     setSelectedPlatformModelName(platformModelName);
+    selectedPrimaryModelRef.current = platformModelName;
+    // 主模型切换时收敛为单选；多选通过 togglePlatformModelName 建立在当前主模型之上。
+    setAdditionalPlatformModelNames([]);
+    additionalModelNamesRef.current = [];
   }, []);
+
+  // 一键清除附加并行模型，收敛回单模型（主模型保留，不可清空）。
+  const clearParallelModels = React.useCallback(() => {
+    setAdditionalPlatformModelNames([]);
+    additionalModelNamesRef.current = [];
+  }, []);
+
+  const togglePlatformModelName = React.useCallback(
+    (platformModelName: string): boolean => {
+      const normalizedName = platformModelName.trim();
+      if (!normalizedName) {
+        return false;
+      }
+      userSelectedModelRef.current = true;
+      // 用当前 ref 快照计算下一状态并立即回写，保证同一事件内连续 toggle 语义正确。
+      const currentPrimary = selectedPrimaryModelRef.current;
+      const currentAdditional = additionalModelNamesRef.current;
+      const alreadySelected =
+        currentPrimary === normalizedName || currentAdditional.includes(normalizedName);
+      if (alreadySelected) {
+        // 移除：最后一个不可移除。
+        if (currentPrimary === normalizedName && currentAdditional.length === 0) {
+          return false;
+        }
+        if (currentPrimary === normalizedName) {
+          // 主模型被移除：提升第一个附加模型为主模型。
+          const [nextPrimary, ...restAdditional] = currentAdditional;
+          setSelectedPlatformModelName(nextPrimary);
+          selectedPrimaryModelRef.current = nextPrimary;
+          setAdditionalPlatformModelNames(restAdditional);
+          additionalModelNamesRef.current = restAdditional;
+        } else {
+          const nextAdditional = currentAdditional.filter((name) => name !== normalizedName);
+          setAdditionalPlatformModelNames(nextAdditional);
+          additionalModelNamesRef.current = nextAdditional;
+        }
+        return true;
+      }
+      // 追加：上限 MAX_PARALLEL_MODELS。
+      if (1 + currentAdditional.length >= MAX_PARALLEL_MODELS) {
+        return false;
+      }
+      const nextAdditional = [...currentAdditional, normalizedName];
+      setAdditionalPlatformModelNames(nextAdditional);
+      additionalModelNamesRef.current = nextAdditional;
+      return true;
+    },
+    [],
+  );
+
+  // ref 快照与 state 保持同步（涵盖 effect 驱动的会话切换/默认模型回填路径）。
+  React.useEffect(() => {
+    selectedPrimaryModelRef.current = selectedPlatformModelName;
+  }, [selectedPlatformModelName]);
+  React.useEffect(() => {
+    additionalModelNamesRef.current = additionalPlatformModelNames;
+  }, [additionalPlatformModelNames]);
 
   const loadModelCatalog = React.useCallback((accessToken?: string): Promise<ModelCatalogRefreshResult> => {
     if (modelCatalogRequestRef.current) {
@@ -527,13 +606,64 @@ export function useChatModelOptions({
     }
 
     const conversationChanged = activeConversationRef.current !== normalizedConversationID;
+    const isLocallyCreated =
+      normalizedConversationID === (locallyCreatedConversationID?.trim() || "");
+    const serverParallelModels = Array.from(
+      new Set(
+        (conversationParallelModels ?? [])
+          .map((name) => name.trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, MAX_PARALLEL_MODELS);
+    const serverSignature = serverParallelModels.join("\0");
+    const currentSignature = [selectedPrimaryModelRef.current, ...additionalModelNamesRef.current]
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .join("\0");
+
+    const applyServerParallelModels = (names: string[]) => {
+      const [primary, ...additional] = names;
+      if (!primary) {
+        setAdditionalPlatformModelNames([]);
+        return false;
+      }
+      setSelectedPlatformModelName(primary);
+      setAdditionalPlatformModelNames(additional);
+      return true;
+    };
+
+    // 恢复过服务端多模型组合的会话，跳过“最近一次 run 模型”回填，
+    // 避免多模型并行时最后完成的模型抢占主模型位。
+    let restoredParallelModels = false;
     if (conversationChanged) {
       activeConversationRef.current = normalizedConversationID;
-      userSelectedModelRef.current = false;
+      // 本页刚创建的会话（首次发送把 draft 转正）保留当前选择；
+      // 服务端 parallelModels 会随本次发送写入，下一轮 reload 即可对齐。
+      if (!isLocallyCreated) {
+        userSelectedModelRef.current = false;
+        if (applyServerParallelModels(serverParallelModels)) {
+          restoredParallelModels = true;
+          userSelectedModelRef.current = true;
+        } else {
+          setAdditionalPlatformModelNames([]);
+        }
+      }
+    } else if (
+      // 直链进入时 conversationID 先到、会话详情后到：parallelModels 晚到也要补恢复。
+      // 仅在用户尚未手动改模型时应用，避免覆盖当前选择器操作。
+      !isLocallyCreated &&
+      !userSelectedModelRef.current &&
+      serverParallelModels.length > 0 &&
+      serverSignature !== currentSignature
+    ) {
+      if (applyServerParallelModels(serverParallelModels)) {
+        restoredParallelModels = true;
+        userSelectedModelRef.current = true;
+      }
     }
 
     const fallbackModel = conversationModel?.trim() || "";
-    if (!userSelectedModelRef.current) {
+    if (!userSelectedModelRef.current && fallbackModel) {
       setSelectedPlatformModelName(fallbackModel);
     }
 
@@ -556,12 +686,14 @@ export function useChatModelOptions({
       setSelectedPlatformModelName(latestRunModel || fallbackModel);
     }
 
-    void loadLatestRunModel().catch(() => undefined);
+    if (!restoredParallelModels) {
+      void loadLatestRunModel().catch(() => undefined);
+    }
 
     return () => {
       cancelled = true;
     };
-  }, [conversationModel, conversationPublicID, resetToken]);
+  }, [conversationModel, conversationParallelModels, conversationPublicID, locallyCreatedConversationID, resetToken]);
 
   React.useEffect(() => {
     if (availableModels.length === 0) {
@@ -603,6 +735,34 @@ export function useChatModelOptions({
     [availableModels, modelOptionPolicy?.nativeTools],
   );
 
+  const selectedPlatformModelNames = React.useMemo(
+    () => [selectedPlatformModelName, ...additionalPlatformModelNames].filter(Boolean),
+    [selectedPlatformModelName, additionalPlatformModelNames],
+  );
+
+  // 对话区宽度即时切换并持久化为用户设置（chat.content_width）。
+  const updateContentWidth = React.useCallback(
+    (value: ChatContentWidth) => {
+      if (!isChatContentWidth(value) || value === contentWidth) {
+        return;
+      }
+      setContentWidth(value);
+      void resolveAccessToken()
+        .then(async (token) => {
+          if (!token) {
+            return null;
+          }
+          const nextSettings = await patchUserSettings(token, { "chat.content_width": value });
+          dispatchUserSettingsUpdated(nextSettings);
+          return nextSettings;
+        })
+        .catch(() => {
+          // 持久化失败不影响本次会话内的即时切换；下次加载回退到旧设置。
+        });
+    },
+    [contentWidth],
+  );
+
   return {
     modelOptions,
     refreshModelCatalog,
@@ -614,6 +774,7 @@ export function useChatModelOptions({
     preserveConversationDrafts,
     inputHeight,
     contentWidth,
+    updateContentWidth,
     markdownRender,
     showModelInfo,
     showLatency,
@@ -625,5 +786,8 @@ export function useChatModelOptions({
     mcpMaxSelectedTools,
     selectedPlatformModelName,
     setSelectedPlatformModelName: selectPlatformModelName,
+    selectedPlatformModelNames,
+    togglePlatformModelName,
+    clearParallelModels,
   };
 }

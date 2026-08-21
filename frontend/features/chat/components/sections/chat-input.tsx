@@ -104,6 +104,7 @@ type ChatInputProps = {
   billingDisplayCurrency: BillingDisplayCurrency;
   billingDisplayUsdToCnyRate: number | null;
   selectedPlatformModelName: string;
+  selectedPlatformModelNames?: string[];
   availableTools: MCPToolDTO[];
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -121,6 +122,8 @@ type ChatInputProps = {
   dropActive?: boolean;
   onDraftChange: (value: string) => void;
   onModelChange: (platformModelName: string) => void;
+  onToggleParallelModel?: (platformModelName: string) => boolean;
+  onClearParallelModels?: () => void;
   onModelCatalogRefresh?: () => void | Promise<void>;
   onSelectedToolsChange: (toolIDs: number[]) => void;
   onSelectedSkillsChange: (skills: SkillSummaryDTO[]) => void;
@@ -236,7 +239,7 @@ function ChatInputComponent({
   uploading,
   isConversationMode,
   fileMode,
-  sendShortcut = "enter",
+  sendShortcut = "ctrl_enter",
   inputHeight = "standard",
   attachments,
   uploadingAttachments,
@@ -244,6 +247,7 @@ function ChatInputComponent({
   billingDisplayCurrency,
   billingDisplayUsdToCnyRate,
   selectedPlatformModelName,
+  selectedPlatformModelNames,
   availableTools,
   selectedToolIDs,
   selectedSkills,
@@ -261,6 +265,8 @@ function ChatInputComponent({
   dropActive = false,
   onDraftChange,
   onModelChange,
+  onToggleParallelModel,
+  onClearParallelModels,
   onModelCatalogRefresh,
   onSelectedToolsChange,
   onSelectedSkillsChange,
@@ -1039,10 +1045,13 @@ function ChatInputComponent({
                 billingDisplayCurrency={billingDisplayCurrency}
                 billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
                 selectedPlatformModelName={selectedPlatformModelName}
+                selectedPlatformModelNames={selectedPlatformModelNames}
                 loading={modelLoading}
                 disabled={modelDisabled}
                 onModelCatalogRefresh={onModelCatalogRefresh}
                 onModelChange={onModelChange}
+                onToggleParallelModel={onToggleParallelModel}
+                onClearParallelModels={onClearParallelModels}
               />
 
               <InputGroupButton

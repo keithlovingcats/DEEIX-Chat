@@ -74,6 +74,7 @@ func TestForkConversationFromMessageBuildsAtomicFork(t *testing.T) {
 			LabelsManuallyManaged: true,
 			Model:                 "model-a",
 			Provider:              "provider-a",
+			ParallelModelsJSON:    `["model-a","model-b"]`,
 			LastResponseID:        "response-to-drop",
 		},
 		message: &model.Message{ID: leafID, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Status: "success"},
@@ -109,6 +110,9 @@ func TestForkConversationFromMessageBuildsAtomicFork(t *testing.T) {
 	}
 	if created.LastResponseID != "" || created.LastCompactedAt != nil {
 		t.Fatalf("fork retained upstream state: lastResponseID=%q lastCompactedAt=%v", created.LastResponseID, created.LastCompactedAt)
+	}
+	if repo.createInput.Conversation.ParallelModelsJSON != `["model-a","model-b"]` {
+		t.Fatalf("fork lost parallel models: %q", repo.createInput.Conversation.ParallelModelsJSON)
 	}
 	if created.ProjectPublicID != repo.conversation.ProjectPublicID ||
 		created.ProjectName != repo.conversation.ProjectName ||

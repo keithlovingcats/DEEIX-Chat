@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 
 import { AppVersionGuard } from "@/features/layouts";
 import { AppearancePreferencesProvider } from "@/features/settings";
+import { MarkdownThemeProvider } from "@/shared/components/markdown/markdown-theme-provider";
 import { AppI18nProvider } from "@/i18n/app-i18n-provider";
 import { BrandingProvider } from "@/shared/config/branding-provider";
 import { DevtoolsBrandBanner } from "@/shared/components/devtools-brand-banner";
@@ -66,11 +67,13 @@ export default function RootLayout({
           <AppI18nProvider>
             <ThemeProvider>
               <AppearancePreferencesProvider>
-                {children}
-                <AppVersionGuard />
-                <LegacyPWAServiceWorkerMigration />
-                <Toaster />
-                <DevtoolsBrandBanner />
+                <MarkdownThemeProvider>
+                  {children}
+                  <AppVersionGuard />
+                  <LegacyPWAServiceWorkerMigration />
+                  <Toaster />
+                  <DevtoolsBrandBanner />
+                </MarkdownThemeProvider>
               </AppearancePreferencesProvider>
             </ThemeProvider>
           </AppI18nProvider>

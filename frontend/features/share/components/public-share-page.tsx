@@ -441,15 +441,9 @@ export function PublicSharePage() {
                 <span aria-hidden="true" className="h-4 w-px bg-border" />
               </>
             ) : null}
-            <a
-              href="https://github.com/DEEIX-AI/DEEIX-Chat"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="DEEIX Chat on GitHub"
-              className="inline-flex h-8 shrink-0 items-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2"
-            >
+            <span className="inline-flex h-8 shrink-0 items-center">
               <DeeixLogo width={78} height={24} className="h-6 w-auto opacity-75" />
-            </a>
+            </span>
           </div>
         </div>
 

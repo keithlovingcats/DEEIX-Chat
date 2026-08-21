@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -341,8 +342,72 @@ func (s *Service) sendMessageInternal(
 	userMessage = pair.user
 	assistantMessage = pair.assistant
 	s.persistInitialConversationFallbackTitle(ctx, *conversation, *userMessage)
+
+	// 多模型并行：消息对落库后立即广播 publicID，客户端可据此发起同 parent 的兄弟请求。
+	if preferStream && input.OnEvent != nil {
+		emitEvent(input.OnEvent, "message_created", map[string]interface{}{
+			"userMessage":      map[string]interface{}{"publicID": userMessage.PublicID, "runID": runID, "role": "user", "status": userMessage.Status, "parentPublicID": userMessage.ParentPublicID, "branchReason": userMessage.BranchReason},
+			"assistantMessage": map[string]interface{}{"publicID": assistantMessage.PublicID, "runID": runID, "role": "assistant", "status": assistantMessage.Status, "parentPublicID": assistantMessage.ParentPublicID, "branchReason": assistantMessage.BranchReason},
+		})
+	}
+
 	traceRecorder = newMessageTraceRecorder(s, ctx, assistantMessage, input.OnEvent)
 	moderationCoord = s.startModerationRun(ctx, input, runID, userMessage, assistantMessage, run)
+
+	// 多模型并行：主请求携带组合时持久化到会话，供后续轮次/刷新恢复。
+	if normalizedParallelModels := normalizeParallelModels(input.ParallelModels); len(normalizedParallelModels) > 0 {
+		if validator, ok := s.routeResolver.(parallelModelAccessValidator); ok {
+			invalid, validateErr := validator.ValidateModelAccessForUser(ctx, input.UserID, normalizedParallelModels)
+			if validateErr != nil {
+				// 目录查询失败不阻断发送：并行组合以请求原样为准，仅记录日志。
+				s.logger.Warn("validate_parallel_models_failed",
+					zap.String("trace_id", traceid.FromContext(ctx)),
+					zap.Uint("conversation_id", input.ConversationID),
+					zap.Error(validateErr),
+				)
+			} else if len(invalid) > 0 {
+				invalidSet := make(map[string]struct{}, len(invalid))
+				for _, name := range invalid {
+					invalidSet[name] = struct{}{}
+				}
+				filtered := normalizedParallelModels[:0:0]
+				for _, name := range normalizedParallelModels {
+					if _, dropped := invalidSet[name]; !dropped {
+						filtered = append(filtered, name)
+					}
+				}
+				s.logger.Warn("parallel_models_filtered",
+					zap.String("trace_id", traceid.FromContext(ctx)),
+					zap.Uint("conversation_id", input.ConversationID),
+					zap.Strings("invalid_models", invalid),
+				)
+				if preferStream {
+					emitEvent(input.OnEvent, "parallel_models_filtered", map[string]interface{}{
+						"invalid_models": invalid,
+					})
+				}
+				normalizedParallelModels = filtered
+			}
+		}
+		if len(normalizedParallelModels) > 0 {
+			if modelsJSON, marshalErr := json.Marshal(normalizedParallelModels); marshalErr == nil {
+				if updateErr := s.repo.UpdateConversationParallelModels(ctx, input.ConversationID, string(modelsJSON)); updateErr != nil {
+					s.logger.Warn("update_conversation_parallel_models_failed",
+						zap.String("trace_id", traceid.FromContext(ctx)),
+						zap.Uint("conversation_id", input.ConversationID),
+						zap.Error(updateErr),
+					)
+					// 持久化失败需让客户端可感知：刷新后并行组合会回退到旧值，
+					// 前端收到该事件后提示用户，避免误以为组合已保存。
+					if preferStream {
+						emitEvent(input.OnEvent, "parallel_models_persist_failed", map[string]interface{}{
+							"parallel_models": normalizedParallelModels,
+						})
+					}
+				}
+			}
+		}
+	}
 
 	if s.routeResolver == nil || s.llmClient == nil {
 		retErr = ErrModelRouteNotConfigured

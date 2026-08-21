@@ -15,7 +15,7 @@
     "mode": "Billing mode",
     "modeDescription": "Self-use records usage only. Subscription billing limits usage by plan credits. Usage billing calculates cost from model pricing.",
     "prepaidAmount": "Per-request reservation",
-    "prepaidAmountDescription": "Risk budget reserved before each paid call; final billing still uses actual usage. Set to 0 to distribute the available budget across up to 5 concurrent paid calls.",
+    "prepaidAmountDescription": "Risk budget reserved before each paid call; final billing still uses actual usage. Set to 0 to distribute the available budget across up to 20 concurrent paid calls (minimum $0.10 per call).",
     "displayCurrency": "Display currency",
     "displayCurrencyDescription": "Controls user-facing cost display globally. Accounting, deductions, and API fields remain recorded in USD / nanousd.",
     "usdToCnyRate": "USD -> CNY rate",

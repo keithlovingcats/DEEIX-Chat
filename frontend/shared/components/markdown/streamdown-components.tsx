@@ -18,6 +18,7 @@ import {
   resolveProtectedMarkdownImageSource,
 } from "@/shared/lib/markdown-image-source";
 import {
+  resolveArtifactCodeViewKind,
   resolveArtifactPreviewKind,
   type ArtifactPreviewKind,
 } from "@/shared/lib/artifact-preview";
@@ -306,7 +307,10 @@ function CodeBlockActions({
   const commonErrors = useTranslations("common.errors");
   const artifactCopy = useTranslations("chat.markdown.artifact");
   const artifactActions = React.useContext(MarkdownArtifactActionsContext);
-  const artifactKind = React.useMemo(() => resolveArtifactPreviewKind(language, code), [code, language]);
+  const artifactKind = React.useMemo(
+    () => resolveArtifactPreviewKind(language, code) ?? resolveArtifactCodeViewKind(language),
+    [code, language],
+  );
   const copyCode = code.replace(/\n$/, "");
 
   const handleOpenArtifact = React.useCallback(() => {
@@ -427,7 +431,9 @@ export function CollapsibleCodePre({ children, node: _node, "data-markdown-sourc
   const lineCount = getLineCount(codeContent);
   const language = childElement ? getCodeLanguage(childElement.props.className) : "";
   const mermaid = isMermaidLanguage(language);
-  const artifactPreviewable = Boolean(resolveArtifactPreviewKind(language, codeContent));
+  const artifactPreviewable = Boolean(
+    resolveArtifactPreviewKind(language, codeContent) ?? resolveArtifactCodeViewKind(language),
+  );
   const isCollapsible =
     childElement != null && !mermaid && lineCount > CODE_BLOCK_COLLAPSE_LINE_THRESHOLD;
   const [expanded, setExpanded] = React.useState(false);

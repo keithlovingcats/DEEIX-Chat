@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDownToLine, Check } from "lucide-react";
+import { ArrowDownToLine, Check, Columns3, Maximize2, RectangleHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { ChatLabel } from "@/features/chat/components/sections/chat-label";
+import { ConversationParallelModelsBar } from "@/features/chat/components/sections/conversation-parallel-models-bar";
 import { useChatMessageFeedback } from "@/features/chat/hooks/use-chat-message-feedback";
 import {
   AssistantMessageSkeleton,
@@ -42,6 +43,11 @@ import {
 import { cn } from "@/lib/utils";
 import { AppLogo, DeeixLogo } from "@/shared/components/app-logo";
 import { useBranding } from "@/shared/config/branding-provider";
+import {
+  CHAT_CONTENT_WIDTH_OPTIONS,
+  type ChatContentWidth,
+} from "@/shared/model/chat-content-width";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PoweredByDeeix } from "@/shared/components/powered-by-deeix";
 
 function ScrollToPendingUser({ scrollKey }: { scrollKey: string }) {
@@ -123,6 +129,16 @@ type ChatAreaProps = {
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
+  onSelectMessageBranch?: (parentPublicID: string | null, childPublicID: string) => void;
+  /** 顶部当前并行模型条；组件按选中列表自判显示（空态隐藏）。 */
+  parallelModelsBar?: {
+    modelOptions: ChatModelOption[];
+    selectedPlatformModelNames: string[];
+    loading?: boolean;
+    disabled?: boolean;
+    onToggle: (platformModelName: string) => boolean;
+    onCatalogRefresh?: () => void | Promise<void>;
+  };
   onToggleStar?: () => void | Promise<void>;
   onRename?: (title: string) => void | Promise<void>;
   onAutoRename?: () => void | Promise<void>;
@@ -142,6 +158,8 @@ type ChatAreaProps = {
   billingDisplayUsdToCnyRate?: number | null;
   splitRightInset?: boolean;
   contentWidthClassName?: string;
+  contentWidth?: ChatContentWidth;
+  onContentWidthChange?: (value: ChatContentWidth) => void;
   onScreenshotFull?: () => void;
   onScreenshotSelect?: () => void;
   screenshot?: {
@@ -286,6 +304,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   attachmentContentLoader,
   onEditImageAttachment,
   onCycleMessageBranch,
+  onSelectMessageBranch,
   onReactAssistantMessage,
   onOpenCodeArtifact,
   markdownRender,
@@ -316,6 +335,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
+  onSelectMessageBranch?: (parentPublicID: string | null, childPublicID: string) => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   markdownRender: boolean;
@@ -394,6 +414,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onEditAssistantMessage={onEditAssistantMessage}
         onForkMessage={onForkMessage}
         onCycleMessageBranch={onCycleMessageBranch}
+        onSelectMessageBranch={onSelectMessageBranch}
         onReactAssistantMessage={onReactAssistantMessage}
         onCopy={() => void onCopy()}
         copySucceeded={isCopied(copyKey)}
@@ -444,6 +465,8 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   previous.selectedPlatformModelName === next.selectedPlatformModelName &&
   previous.onModelChange === next.onModelChange &&
   previous.onModelCatalogRefresh === next.onModelCatalogRefresh &&
+  previous.onCycleMessageBranch === next.onCycleMessageBranch &&
+  previous.onSelectMessageBranch === next.onSelectMessageBranch &&
   previous.attachmentContentLoader === next.attachmentContentLoader &&
   previous.onEditImageAttachment === next.onEditImageAttachment &&
   previous.onOpenCodeArtifact === next.onOpenCodeArtifact &&
@@ -472,6 +495,8 @@ export function ChatArea({
   onEditImageAttachment,
   onOpenCodeArtifact,
   onCycleMessageBranch,
+  onSelectMessageBranch,
+  parallelModelsBar,
   onToggleStar,
   onRename,
   onAutoRename,
@@ -491,6 +516,8 @@ export function ChatArea({
   billingDisplayUsdToCnyRate = null,
   splitRightInset = false,
   contentWidthClassName = "max-w-[1080px]",
+  contentWidth = "compact",
+  onContentWidthChange,
   onScreenshotFull,
   onScreenshotSelect,
   screenshot,
@@ -509,6 +536,9 @@ export function ChatArea({
     onEditImageAttachment?.(attachment, sourceModelName);
   });
   const stableOnCycleMessageBranch = useStableEvent(onCycleMessageBranch);
+  const stableOnSelectMessageBranch = useStableEvent(
+    onSelectMessageBranch ?? ((_parentPublicID: string | null, _childPublicID: string) => undefined),
+  );
   const stableOnReactAssistantMessage = useStableEvent(onReactAssistantMessage);
   const editImageAttachmentHandler = onEditImageAttachment ? stableOnEditImageAttachment : undefined;
   const shareLabel = shareActive ? t("manageShare") : t("shareConversation");
@@ -558,26 +588,71 @@ export function ChatArea({
 
   return (
     <>
-      <div className={cn("px-3 py-2.5 md:pl-0", splitRightInset ? "md:pr-4" : "md:pr-0")}>
-        <div className="flex w-full items-center justify-between gap-3">
-          <ChatLabel
-            title={title}
-            starred={starred}
-            onToggleStar={canOperateConversation ? onToggleStar : undefined}
-            onRename={canOperateConversation ? onRename : undefined}
-            onAutoRename={canOperateConversation ? onAutoRename : undefined}
-            labels={labels}
-            onUpdateLabels={canOperateConversation ? onUpdateLabels : undefined}
-            projectMenu={canOperateConversation ? projectMenu : undefined}
-            onShare={canOperateConversation ? onShare : undefined}
-            shareActive={shareActive}
-            onExport={canOperateConversation ? onExport : undefined}
-            onDelete={canOperateConversation ? onDelete : undefined}
-            screenshotFullLabel={tScreenshot("captureFull")}
-            screenshotSelectLabel={tScreenshot("captureSelect")}
-            onScreenshotFull={onScreenshotFull}
-            onScreenshotSelect={onScreenshotSelect}
-          />
+      {/*
+        顶部条：左侧当前多模型组合（pill + 加减，与 HaloWebUI 一致顶格展示），
+        右侧会话操作（分享/导出/截图）。会话标题不在对话区重复展示（左侧列表已有），
+        改用 sr-only 保留可访问性。
+      */}
+      <div
+        className={cn(
+          "flex items-start justify-between gap-3 px-3 pt-2.5 pb-1 md:pl-0",
+          splitRightInset ? "md:pr-4" : "md:pr-0",
+        )}
+      >
+        <div className="min-w-0 flex-1">
+          <div className={cn("mx-auto w-full", contentWidthClassName)}>
+            <ConversationParallelModelsBar
+              modelOptions={parallelModelsBar?.modelOptions ?? []}
+              selectedPlatformModelNames={parallelModelsBar?.selectedPlatformModelNames ?? []}
+              loading={parallelModelsBar?.loading}
+              disabled={parallelModelsBar?.disabled}
+              onToggleParallelModel={parallelModelsBar?.onToggle}
+              onModelCatalogRefresh={parallelModelsBar?.onCatalogRefresh}
+            />
+          </div>
+          {title ? <span className="sr-only">{title}</span> : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1 pt-0.5" data-screenshot-exclude="true">
+          {onContentWidthChange ? (
+            <div className="inline-flex items-center rounded-full border border-border/70 bg-background/80 p-0.5 shadow-sm">
+              {CHAT_CONTENT_WIDTH_OPTIONS.map((option) => {
+                const active = contentWidth === option.value;
+                const Icon =
+                  option.value === "compact"
+                    ? Columns3
+                    : option.value === "standard"
+                      ? RectangleHorizontal
+                      : Maximize2;
+                const label =
+                  option.value === "compact"
+                    ? t("contentWidth.compact")
+                    : option.value === "standard"
+                      ? t("contentWidth.standard")
+                      : t("contentWidth.wide");
+                return (
+                  <Tooltip key={option.value}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={label}
+                        aria-pressed={active}
+                        className={cn(
+                          "inline-flex size-7 items-center justify-center rounded-full transition-colors",
+                          active
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        )}
+                        onClick={() => onContentWidthChange(option.value)}
+                      >
+                        <Icon className="size-3.5" strokeWidth={1.8} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          ) : null}
           {canOperateConversation ? (
             <ConversationShareExportIconDropdown
               label={shareExportLabel}
@@ -594,6 +669,7 @@ export function ChatArea({
           ) : null}
         </div>
       </div>
+
 
       {selectionMode && screenshot ? (
         <div className={cn("px-3 pb-1 md:px-6")} data-screenshot-exclude="true">
@@ -661,6 +737,7 @@ export function ChatArea({
                       attachmentContentLoader={attachmentContentLoader}
                       onEditImageAttachment={editImageAttachmentHandler}
                       onCycleMessageBranch={stableOnCycleMessageBranch}
+                      onSelectMessageBranch={stableOnSelectMessageBranch}
                       onReactAssistantMessage={stableOnReactAssistantMessage}
                       onOpenCodeArtifact={onOpenCodeArtifact}
                       markdownRender={markdownRender}
@@ -733,7 +810,7 @@ export function ChatArea({
                       key={item.key}
                       messageId={chatMessageScrollerID(item)}
                       scrollAnchor={item.key === liveAnchorMessageKey}
-                      className={spacingClass}
+                      className={cn(spacingClass, "scroll-mt-2")}
                       data-message-public-id={publicID || undefined}
                     >
                       <div>

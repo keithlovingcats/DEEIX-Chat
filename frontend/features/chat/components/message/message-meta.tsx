@@ -46,6 +46,8 @@ import {
 } from "@/shared/lib/billing-display";
 import type { BillingDisplayCurrency, BillingDisplayLabels, BillingDisplayOptions } from "@/shared/lib/billing-display";
 import type { ChatBillingCost, ChatMessageBranchNavigator } from "@/features/chat/types/messages";
+import { ModelIcon } from "@/shared/components/model-icon";
+import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
 import { usePointerInteraction } from "@/shared/hooks/use-pointer-interaction";
 import { cn } from "@/lib/utils";
 
@@ -171,6 +173,97 @@ function BranchSwitcher({
       >
         <ChevronRight size={14} strokeWidth={1.8} animateOnHover="default" />
       </button>
+    </div>
+  );
+}
+
+function resolveSiblingTabLabel(
+  sibling: NonNullable<ChatMetaMessage["branchNavigator"]>["siblings"] extends (infer S)[] | undefined ? S : never,
+  index: number,
+): string {
+  const modelName = sibling.platformModelName?.trim() || "";
+  return modelName || `#${index + 1}`;
+}
+
+export function ModelBranchTabs({
+  item,
+  onSelectBranch,
+}: {
+  item: ChatMetaMessage;
+  onSelectBranch: (parentPublicID: string | null, childPublicID: string) => void;
+}) {
+  const t = useTranslations("chat.messages");
+  const siblings = item.branchNavigator?.siblings;
+  if (!siblings || siblings.length <= 1) {
+    return null;
+  }
+  const labelCounts = new Map<string, number>();
+  for (const sibling of siblings) {
+    const label = sibling.platformModelName?.trim() || "";
+    if (label) {
+      labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+    }
+  }
+
+  return (
+    <div
+      className="mb-2 inline-flex max-w-full flex-wrap items-center gap-1 self-start rounded-xl border border-border/70 bg-muted/30 p-1"
+      data-screenshot-exclude="true"
+      role="tablist"
+      aria-label={t("modelBranches")}
+    >
+      {siblings.map((sibling, index) => {
+        const label = resolveSiblingTabLabel(sibling, index);
+        const duplicated = (labelCounts.get(sibling.platformModelName?.trim() || "") ?? 0) > 1;
+        const active = sibling.publicID === item.publicID;
+        const generating = Boolean(sibling.isPending || sibling.isStreaming || sibling.status?.trim().toLowerCase() === "pending");
+        const failed = sibling.status?.trim().toLowerCase() === "error";
+        return (
+          <button
+            key={sibling.publicID}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            title={sibling.platformModelName?.trim() || label}
+            className={cn(
+              "relative inline-flex h-8 max-w-48 items-center gap-1.5 rounded-lg px-2.5 text-[12px] leading-none transition-all",
+              active
+                ? "border border-foreground/20 bg-background font-semibold text-foreground shadow-sm ring-2 ring-foreground/20"
+                : "border border-transparent bg-transparent font-medium text-muted-foreground hover:bg-background/90 hover:text-foreground",
+              !active && generating && "animate-pulse",
+              !active && failed && "text-destructive/80 hover:text-destructive",
+            )}
+            onClick={() => {
+              if (!active) {
+                onSelectBranch(item.branchNavigator?.parentPublicID ?? null, sibling.publicID);
+              }
+            }}
+          >
+            <ModelIcon
+              iconUrl={resolveModelIconURL(
+                resolveModelIdentity({ code: sibling.platformModelName ?? "" }).modelIcon,
+              )}
+              label={label}
+            />
+            <span className="truncate">
+              {duplicated ? `${label} ${index + 1}` : label}
+            </span>
+            {active ? (
+              <span
+                className="absolute inset-x-2 -bottom-[5px] h-0.5 rounded-full bg-foreground"
+                aria-hidden="true"
+              />
+            ) : null}
+            {sibling.hasBranches ? (
+              <span
+                className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-sky-500 ring-2 ring-background"
+                aria-hidden="true"
+                title={t("modelHasBranches")}
+              />
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1040,7 +1133,10 @@ export function AssistantMessageMeta({
   const canEdit = Boolean(canRetry && !busy && onEdit);
   const canContinue = Boolean(canRetry && !busy && item.status === "interrupted");
   const canFork = Boolean(canRetry && onFork);
-  const canShowBranchNavigator = Boolean(showBranchNavigator && item.branchNavigator);
+  // 多模型并行时顶部已有模型 tab 条，底部箭头切换器冗余，隐藏。
+  const canShowBranchNavigator = Boolean(
+    showBranchNavigator && item.branchNavigator && (item.branchNavigator.siblings?.length ?? 0) <= 1,
+  );
   const hasTokenUsage = Boolean(
     (item.inputTokens ?? 0) > 0 ||
     (item.outputTokens ?? 0) > 0 ||

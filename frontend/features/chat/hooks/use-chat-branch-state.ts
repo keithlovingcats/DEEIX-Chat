@@ -51,7 +51,9 @@ function appendPendingExchangeMessages({
   const userPublicID = pendingExchange.userPublicID || pendingExchange.tempUserPublicID;
   const assistantPublicID = pendingExchange.assistantPublicID || pendingExchange.tempAssistantPublicID;
 
-  if (!serverMessagePublicIDs.has(userPublicID)) {
+  // 多模型并行 fan-out 与主请求共享同一条 user 消息；已插入过的 user 气泡不重复 append。
+  const userAlreadyInThread = nextMessages.some((item) => item.publicID === userPublicID && userPublicID);
+  if (!userAlreadyInThread && !serverMessagePublicIDs.has(userPublicID)) {
     const pendingAttachments = pendingExchange.userAttachments;
     const attachments: MessageAttachment[] | undefined =
       pendingAttachments && pendingAttachments.length > 0

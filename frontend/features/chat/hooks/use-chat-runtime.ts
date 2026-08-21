@@ -92,6 +92,7 @@ export function useChatRuntime({
   messages,
   activeConversation,
   selectedPlatformModelName,
+  parallelPlatformModelNames,
   modelOptions,
   selectedToolIDs,
   selectedSkills,
@@ -123,6 +124,7 @@ export function useChatRuntime({
   messages: MessageDTO[];
   activeConversation: ConversationDTO | null;
   selectedPlatformModelName: string;
+  parallelPlatformModelNames?: string[];
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -196,6 +198,7 @@ export function useChatRuntime({
     conversationScopeKey,
     activeConversation,
     selectedPlatformModelName,
+    parallelPlatformModelNames,
     modelOptions,
     selectedToolIDs,
     selectedSkills,
@@ -254,6 +257,7 @@ export function useChatRuntime({
   return {
     currentLeafMessage: branchState.currentLeafMessage,
     onCycleMessageBranch: submitState.onCycleMessageBranch,
+    onSelectMessageBranch: submitState.onSelectMessageBranch,
     onEditAssistantMessage: submitState.onEditAssistantMessage,
     onEditUserMessage: submitState.onEditUserMessage,
     onForkMessage: submitState.onForkMessage,

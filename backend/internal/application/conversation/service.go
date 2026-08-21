@@ -40,6 +40,12 @@ type routeResolver interface {
 	MarkRouteSuccess(ctx context.Context, route *channel.ResolvedRoute)
 }
 
+// parallelModelAccessValidator 校验多模型并行组合中的模型对用户是否可用。
+// conversation 只依赖窄接口，避免直接耦合 channel.Service。
+type parallelModelAccessValidator interface {
+	ValidateModelAccessForUser(ctx context.Context, userID uint, platformModelNames []string) ([]string, error)
+}
+
 // defaultRouteResolver 表示按任务类型解析默认路由的可选能力。
 // conversation 只依赖这个窄接口，不直接感知 channel.Service 的具体实现。
 type defaultRouteResolver interface {
@@ -167,6 +173,8 @@ type SendMessageInput struct {
 	ContentType             string
 	Content                 string
 	PlatformModelName       string
+	// ParallelModels 多模型并行组合（首元素为主模型）；非空时随发送持久化到会话。
+	ParallelModels          []string
 	Options                 map[string]interface{}
 	ClientRunID             string
 	FileIDs                 []string

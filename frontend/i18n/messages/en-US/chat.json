@@ -2,7 +2,7 @@
   "newChat": "New chat",
   "untitledConversation": "New chat",
   "modelListLoadFailed": "Could not load models.",
-  "placeholder": "Message DEEIX Chat",
+  "placeholder": "Message Jun's Chat",
   "projectMode": "Project mode",
   "projectModeTooltip": "In this mode, new chats are created in the current project. Project instructions apply only to chat model requests; image generation, image editing, and other non-chat capabilities do not use them.",
   "send": "Send",
@@ -192,6 +192,8 @@
     "generationInterrupted": "Generation interrupted",
     "streamInterrupted": "The generation connection was interrupted. Retry this message.",
     "imageRunning": "Generating image",
+    "modelBranches": "Model responses",
+    "backToModelTabs": "Back to model tabs",
     "contextCompressed": "Context was automatically compressed",
     "scrollToBottom": "Scroll to bottom",
     "processing": "Processing...",
@@ -221,7 +223,8 @@
     "memoryNamePlaceholder": "Preference name, e.g. response style",
     "memoryValuePlaceholder": "Preference content, e.g. answer concisely",
     "savingPreference": "Saving...",
-    "savePreference": "Save preference"
+    "savePreference": "Save preference",
+    "modelHasBranches": "This model has branch conversations"
   },
   "loadError": {
     "title": "Failed to load conversation",
@@ -272,6 +275,18 @@
     "processingAttachments": "Processing attachments...",
     "retrievingContent": "Retrieving relevant content...",
     "retryLater": "Please try again later.",
+    "parallelChatOnly": "Parallel models support text chat only",
+    "parallelChatOnlyDescription": "Some selected models do not support parallel text chat. Only supported models are used.",
+    "parallelFanOutPartialFailed": "Some models failed to start",
+    "parallelFanOutPartialFailedDescription": "{count} parallel model request(s) were not started; retry manually later.",
+    "parallelStopPartial": "Stopped the current model",
+    "parallelStopPartialDescription": "{count} other parallel model(s) are still responding. Switch tabs to stop them individually.",
+    "parallelModelsPersistFailed": "Parallel model selection was not saved",
+    "parallelModelsPersistFailedDescription": "This turn still runs in parallel, but the selection may be lost after refreshing. Re-select models if needed.",
+    "parallelModelsFiltered": "Some parallel models are unavailable",
+    "parallelModelsFilteredDescription": "{count} model(s) do not exist or are not accessible; they were removed from the selection.",
+    "parallelFanOutMissedOnReconnect": "Parallel replies were not resumed",
+    "parallelFanOutMissedOnReconnectDescription": "A dropped connection prevented some models from starting; retry them manually from the reply.",
     "concurrentGenerationLimit": "Up to {count} generations can run at once. Wait for an active generation to finish.",
     "imagePreviewAlt": "Generated image preview",
     "mediaInputUnsupported": "The selected model cannot process this input",
@@ -508,6 +523,10 @@
     "empty": "No models",
     "group": "Group",
     "viewPricing": "View pricing",
+    "parallelCount": "{count} models",
+    "parallelGroup": "Parallel models",
+    "addParallelModel": "Add to parallel comparison",
+    "removeParallelModel": "Remove from parallel comparison",
     "freeModel": "Free model",
     "freeModelDescription": "No usage balance will be deducted",
     "tieredPricing": "Tiered pricing",
@@ -530,7 +549,10 @@
     "perCall": "Per call",
     "perSecond": "Per second",
     "callUnit": "call",
-    "secondUnit": "second"
+    "secondUnit": "second",
+    "clearParallelModels": "Keep primary only",
+    "parallelModelLimit": "Cannot adjust parallel models",
+    "parallelModelLimitDescription": "Up to {count} models can be selected, and at least one model must remain"
   },
   "processTrace": {
     "fileBadges": {
@@ -917,5 +939,10 @@
     "advisor": "Advisor",
     "toolSearchRegex": "Tool search (Regex)",
     "toolSearchBm25": "Tool search (BM25)"
+  },
+  "contentWidth": {
+    "compact": "Default width",
+    "standard": "Standard width",
+    "wide": "Full width"
   }
 }

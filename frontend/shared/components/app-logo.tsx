@@ -36,7 +36,7 @@ export function AppLogo({
 }
 
 export function DeeixLogo({
-  alt = "DEEIX Chat",
+  alt = "Jun's Chat",
   width,
   height,
   priority,

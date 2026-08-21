@@ -2,6 +2,7 @@ import type { ChatAreaMessage } from "@/features/chat/types/messages";
 import { getBrandingSnapshot } from "@/shared/config/branding";
 import {
   type ArtifactPreviewKind,
+  resolveArtifactCodeViewKind,
   resolveArtifactPreviewKind,
 } from "@/shared/lib/artifact-preview";
 import type { HTMLVisualThemeSnapshot } from "@/shared/lib/html-visual-theme";
@@ -233,7 +234,7 @@ body { margin: 0; font: 14px/1.5 var(--font-sans); color: var(--foreground); bac
 }
 
 export function buildArtifactPreviewDocument(
-  kind: Exclude<ArtifactPreviewKind, "svg">,
+  kind: Exclude<ArtifactPreviewKind, "svg" | "code">,
   code: string,
   theme: HTMLVisualThemeSnapshot,
 ): string {
@@ -242,10 +243,26 @@ export function buildArtifactPreviewDocument(
   return htmlPreviewDocument(code, theme);
 }
 
-export function resolveArtifactDownloadName(kind: ArtifactPreviewKind): string {
+// 常见语言的下载扩展名；未知语言回退 .txt。
+const CODE_VIEW_EXTENSIONS: Record<string, string> = {
+  go: "go", c: "c", cpp: "cpp", cc: "cpp", cxx: "cpp", h: "h", hpp: "hpp",
+  cs: "cs", "csharp": "cs", java: "java", kt: "kt", kts: "kt", swift: "swift",
+  py: "py", python: "py", rb: "rb", ruby: "rb", php: "php", rs: "rs", rust: "rs",
+  ts: "ts", typescript: "ts", jsx: "jsx", tsx: "tsx", vue: "vue", svelte: "svelte",
+  sh: "sh", bash: "sh", zsh: "sh", shell: "sh", sql: "sql", yaml: "yaml", yml: "yaml",
+  toml: "toml", json: "json", xml: "xml", ini: "ini", diff: "diff", patch: "diff",
+  dart: "dart", scala: "scala", lua: "lua", pl: "pl", r: "r", matlab: "m",
+};
+
+export function resolveArtifactDownloadName(kind: ArtifactPreviewKind, language = ""): string {
   if (kind === "css") return "artifact-css-preview.html";
   if (kind === "javascript") return "artifact-js-preview.html";
   if (kind === "svg") return "artifact.svg";
+  if (kind === "code") {
+    const normalized = language.trim().toLowerCase();
+    const ext = CODE_VIEW_EXTENSIONS[normalized] ?? "txt";
+    return `artifact-code.${ext}`;
+  }
   return "artifact-preview.html";
 }
 
@@ -263,7 +280,7 @@ export function extractArtifactsFromContent(
   let blockIndex = 0;
 
   const pushArtifact = (code: string, complete: boolean) => {
-    const kind = resolveArtifactPreviewKind(language, code);
+    const kind = resolveArtifactPreviewKind(language, code) ?? resolveArtifactCodeViewKind(language);
     if (!kind || !code.trim()) {
       return;
     }

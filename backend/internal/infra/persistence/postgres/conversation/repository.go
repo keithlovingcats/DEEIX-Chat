@@ -895,6 +895,15 @@ func (r *Repo) UpdateConversationModel(ctx context.Context, conversationID uint,
 		Error)
 }
 
+// UpdateConversationParallelModels 更新会话多模型并行组合（首元素为主模型）。
+func (r *Repo) UpdateConversationParallelModels(ctx context.Context, conversationID uint, modelsJSON string) error {
+	return translateError(r.db.WithContext(ctx).
+		Model(&models.Conversation{}).
+		Where("id = ?", conversationID).
+		Update("parallel_models_json", modelsJSON).
+		Error)
+}
+
 // ListAllConversationsAfterID 按主键游标分页列出会话（管理员导出用）。
 func (r *Repo) ListAllConversationsAfterID(ctx context.Context, afterID uint, limit int) ([]domainconversation.Conversation, error) {
 	var rows []models.Conversation
@@ -3588,6 +3597,7 @@ func toConversationDomain(item models.Conversation) domainconversation.Conversat
 		LabelsManuallyManaged: item.LabelsManuallyManaged,
 		Model:                 item.Model,
 		Provider:              item.Provider,
+		ParallelModelsJSON:    item.ParallelModelsJSON,
 		SessionKey:            item.SessionKey,
 		IsStarred:             item.IsStarred,
 		StarredAt:             item.StarredAt,
@@ -3646,6 +3656,7 @@ func toConversationModel(item *domainconversation.Conversation) models.Conversat
 		LabelsManuallyManaged: item.LabelsManuallyManaged,
 		Model:                 item.Model,
 		Provider:              item.Provider,
+		ParallelModelsJSON:    item.ParallelModelsJSON,
 		SessionKey:            item.SessionKey,
 		IsStarred:             item.IsStarred,
 		StarredAt:             item.StarredAt,

@@ -21,12 +21,24 @@ export type MessageAttachment = {
   ocrUsed?: boolean;
 };
 
+export type ChatMessageBranchSibling = {
+  publicID: string;
+  platformModelName?: string;
+  isPending?: boolean;
+  isStreaming?: boolean;
+  status?: string;
+  /** 该模型回答下是否还有继续追问/分支会话。 */
+  hasBranches?: boolean;
+};
+
 export type ChatMessageBranchNavigator = {
   parentPublicID: string | null;
   index: number;
   total: number;
   canPrevious: boolean;
   canNext: boolean;
+  /** 同 parent 的兄弟回答摘要；多模型并行时用于渲染模型标签页。 */
+  siblings?: ChatMessageBranchSibling[];
 };
 
 export type RAGCitation = {

@@ -1,4 +1,8 @@
-import type { ChatAreaMessage, MessageAttachment } from "@/features/chat/types/messages";
+import type {
+  ChatAreaMessage,
+  ChatMessageBranchSibling,
+  MessageAttachment,
+} from "@/features/chat/types/messages";
 import type { MessageDTO, UpstreamDebugInfo } from "@/shared/api/conversation.types";
 
 function parseAttachmentDurationSeconds(value: unknown): number | undefined {
@@ -281,6 +285,21 @@ export function toBranchKey(publicID?: string | null): string {
   return publicID?.trim() || ROOT_BRANCH_KEY;
 }
 
+function toBranchSibling(
+  item: ChatAreaMessage,
+  children: Map<string, ChatAreaMessage[]>,
+): ChatMessageBranchSibling {
+  const descendantCount = children.get(toBranchKey(item.publicID))?.length ?? 0;
+  return {
+    publicID: item.publicID,
+    platformModelName: item.platformModelName,
+    isPending: item.isPending,
+    isStreaming: item.isStreaming,
+    status: item.status,
+    hasBranches: descendantCount > 0,
+  };
+}
+
 export function buildChildrenIndex(messages: ChatAreaMessage[]) {
   const children = new Map<string, ChatAreaMessage[]>();
   for (const item of messages) {
@@ -389,6 +408,10 @@ export function buildVisibleMessages(
         total: siblings.length,
         canPrevious: currentIndex > 0,
         canNext: currentIndex < siblings.length - 1,
+        siblings:
+          item.role === "assistant"
+            ? siblings.map((sibling) => toBranchSibling(sibling, children))
+            : undefined,
       },
     };
   });

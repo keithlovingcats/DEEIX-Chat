@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,6 +30,7 @@ import (
 	apprag "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/rag"
 	appruntime "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/runtime"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/settings"
+	appnote "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/note"
 	appskill "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/skill"
 	appsystemevent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
@@ -59,6 +61,7 @@ import (
 	memoryrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/memory"
 	promptpresetrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/promptpreset"
 	settingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/settings"
+	noterepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/note"
 	skillrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/skill"
 	systemeventrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/systemevent"
 	userrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/user"
@@ -76,6 +79,7 @@ import (
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
 	promptpresethttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/promptpreset"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
+	notehttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/note"
 	skillhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/skill"
 	userhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/user"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
@@ -100,6 +104,7 @@ type App struct {
 	mediaArtifactClient    *mediaartifact.Client
 	moderationClient       *moderationclient.Client
 	backgroundCancel       context.CancelFunc
+	bootstrapSuperAdmin    *auth.BootstrapSuperAdmin
 }
 
 type subscriptionGroupAdapter struct {
@@ -358,6 +363,10 @@ func NewApp() (*App, error) {
 	conversationService.SetSkillResolver(skillService)
 	skillHandler := skillhttp.NewHandler(skillService)
 	skillModule := skillhttp.NewModule(skillHandler)
+	noteRepo := noterepo.NewRepo(db)
+	noteService := appnote.NewService(noteRepo)
+	noteHandler := notehttp.NewHandler(noteService)
+	noteModule := notehttp.NewModule(noteHandler)
 
 	hc := newHealthChecker(db, cfg.CacheDriver, redisClient)
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
@@ -374,18 +383,10 @@ func NewApp() (*App, error) {
 		Announcement:      announcementModule,
 		PromptPreset:      promptPresetModule,
 		Skill:             skillModule,
+		Notes:             noteModule,
 		Settings:          settingsModule,
 		UserSettings:      userSettingsModule,
 		User:              userModule,
-		StartupLog: func(log *zap.Logger) {
-			if log == nil || bootstrapSuperAdmin == nil {
-				return
-			}
-			log.Info("bootstrap superadmin created",
-				zap.String("username", bootstrapSuperAdmin.Username),
-				zap.String("password", bootstrapSuperAdmin.Password),
-			)
-		},
 	}, hc, rateLimiter)
 	if err != nil {
 		return nil, err
@@ -410,6 +411,7 @@ func NewApp() (*App, error) {
 		mediaArtifactClient:    mediaArtifactClient,
 		moderationClient:       moderationClient,
 		backgroundCancel:       backgroundCancel,
+		bootstrapSuperAdmin:    bootstrapSuperAdmin,
 	}, nil
 }
 
@@ -426,9 +428,26 @@ func (a *App) Run() error {
 	}
 
 	errCh := make(chan error, 1)
+	serveReady := make(chan struct{})
 	go func() {
 		a.logger.Info("server_starting", zap.String("port", a.cfg.HTTPPort))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			errCh <- err
+			close(errCh)
+			return
+		}
+		// 端口绑定成功即视为 ready：bootstrap 凭据在全部 debug 日志之后独立打印，避免被淹没。
+		if a.bootstrapSuperAdmin != nil {
+			log := a.logger
+			log.Info("bootstrap superadmin created",
+				zap.String("username", a.bootstrapSuperAdmin.Username),
+				zap.String("password", a.bootstrapSuperAdmin.Password),
+			)
+			fmt.Printf("\nDEEIX Chat 初始管理员已创建（仅此一次显示）\n  用户名: %s\n  密码:   %s\n\n", a.bootstrapSuperAdmin.Username, a.bootstrapSuperAdmin.Password)
+		}
+		close(serveReady)
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 		close(errCh)
@@ -437,6 +456,12 @@ func (a *App) Run() error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	select {
+	case err := <-errCh:
+		return err
+	case <-serveReady:
+		// 监听成功；等待退出信号或 Serve 错误。
+	}
 	select {
 	case err := <-errCh:
 		return err

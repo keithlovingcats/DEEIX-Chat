@@ -1,5 +1,6 @@
 import { Layers } from "@/components/animate-ui/icons/layers";
 import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more";
+import { NotebookPen } from "lucide-react";
 import { PlusIcon } from "@/components/ui/plus";
 import { Search } from "@/components/animate-ui/icons/search";
 import { Blend } from "@/components/animate-ui/icons/blend";
@@ -40,6 +41,13 @@ export const NAVIGATION_ITEMS = [
     kind: "link",
     href: "/skills-prompt",
     icon: Blend,
+    group: "secondary",
+  },
+  {
+    id: "notes",
+    kind: "link",
+    href: "/notes",
+    icon: NotebookPen,
     group: "secondary",
   },
 ] as const satisfies readonly NavigationItem[];

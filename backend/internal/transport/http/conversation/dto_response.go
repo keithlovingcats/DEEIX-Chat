@@ -23,6 +23,7 @@ type ConversationResponse struct {
 	LabelsJSON          string     `json:"labelsJSON"`
 	Model               string     `json:"model"`
 	Provider            string     `json:"provider"`
+	ParallelModels      []string   `json:"parallelModels"`
 	SessionKey          string     `json:"sessionKey"`
 	IsStarred           bool       `json:"isStarred"`
 	StarredAt           *time.Time `json:"starredAt" extensions:"x-nullable,!x-omitempty"`
@@ -109,6 +110,7 @@ func toConversationResponse(item *model.Conversation) ConversationResponse {
 		LabelsJSON:          labelsJSON,
 		Model:               item.Model,
 		Provider:            item.Provider,
+		ParallelModels:      parseStringJSONArray(strings.TrimSpace(item.ParallelModelsJSON)),
 		SessionKey:          item.SessionKey,
 		IsStarred:           item.IsStarred,
 		StarredAt:           item.StarredAt,

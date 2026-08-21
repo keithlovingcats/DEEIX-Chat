@@ -278,7 +278,7 @@ export function ChatMessageUser({
         />
       ) : null}
       <div
-        className="chat-font-content min-w-0 max-w-[70%] overflow-hidden rounded-xl bg-muted/60 p-3 text-[15px] leading-8 text-foreground [overflow-wrap:anywhere] max-sm:max-w-[88%]"
+        className="chat-font-content min-w-0 max-w-[70%] overflow-hidden rounded-2xl rounded-br-md border border-primary/15 bg-primary px-3.5 py-3 text-[15px] leading-8 text-primary-foreground shadow-[0_8px_24px_-16px_hsl(var(--primary)/0.85)] [overflow-wrap:anywhere] max-sm:max-w-[88%]"
         style={{ fontFamily: "var(--font-chat)", fontWeight: "var(--font-chat-weight)" }}
       >
         {item.content.trim() ? (
@@ -292,14 +292,18 @@ export function ChatMessageUser({
                 transition={USER_MESSAGE_EXPAND_TRANSITION}
                 style={contentMaxHeight == null ? { maxHeight: "none" } : { maxHeight: contentMaxHeight }}
               >
-                <StreamdownRender content={item.content} variant="user" />
+                <StreamdownRender
+                  content={item.content}
+                  variant="user"
+                  className="text-primary-foreground [&_a]:text-primary-foreground [&_blockquote]:border-primary-foreground/35 [&_blockquote]:text-primary-foreground/90 [&_code:not(pre_code)]:bg-primary-foreground/12 [&_code:not(pre_code)]:text-primary-foreground [&_em]:text-primary-foreground/95 [&_h1]:text-primary-foreground [&_h2]:text-primary-foreground [&_h3]:text-primary-foreground [&_h4]:text-primary-foreground [&_h5]:text-primary-foreground [&_h6]:text-primary-foreground [&_li]:text-primary-foreground [&_p]:text-primary-foreground [&_strong]:text-primary-foreground [&_td]:text-primary-foreground/90 [&_th]:text-primary-foreground"
+                />
               </motion.div>
             </div>
             {measured && canCollapse ? (
               <button
                 type="button"
                 data-screenshot-exclude="true"
-                className="mt-1 inline-flex items-center gap-1 rounded-md p-0 text-[15px] font-medium leading-8 text-foreground/80 transition-colors hover:text-foreground"
+                className="mt-1 inline-flex items-center gap-1 rounded-md p-0 text-[15px] font-medium leading-8 text-primary-foreground/80 transition-colors hover:text-primary-foreground"
                 aria-expanded={expanded}
                 onClick={() =>
                   setExpandedContentKey((current) => (current === measurementKey ? "" : measurementKey))

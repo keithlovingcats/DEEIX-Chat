@@ -551,6 +551,30 @@ func normalizeBranchReason(raw string) string {
 	}
 }
 
+// normalizeParallelModels 清洗多模型并行组合：去空白、去重、上限 20（与计费预留上限一致）。
+func normalizeParallelModels(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(raw))
+	normalized := make([]string, 0, len(raw))
+	for _, item := range raw {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+		if len(normalized) >= 20 {
+			break
+		}
+	}
+	return normalized
+}
+
 func normalizeMessageFeedback(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "up":

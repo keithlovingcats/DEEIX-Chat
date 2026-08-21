@@ -1,4 +1,7 @@
-export type ArtifactPreviewKind = "html" | "css" | "javascript" | "svg";
+export type ArtifactPreviewKind = "html" | "css" | "javascript" | "svg" | "code";
+
+// 预览类 kind（浏览器可渲染）。
+export type RenderableArtifactKind = Exclude<ArtifactPreviewKind, "code">;
 
 const HTML_LIKE_RE = /^\s*(?:<!doctype\s+html|<html\b|<head\b|<body\b|<(?:article|canvas|div|main|section|style|script)\b)/i;
 const SVG_DOCTYPE_RE = /^<!doctype\s+svg(?:\s|\[|>)/i;
@@ -98,4 +101,19 @@ export function resolveArtifactPreviewKind(language: string, code: string): Arti
   }
   if ((!normalized || normalized === "markdown") && HTML_LIKE_RE.test(code)) return "html";
   return null;
+}
+
+/**
+ * 代码阅读视图：任何带语言标注的 fence（go/c#/java 等）都可打开 Artifact 面板
+ * 以大屏源码视图阅读。与浏览器可执行的预览 kind 分离，互不影响。
+ */
+export function resolveArtifactCodeViewKind(language: string): ArtifactPreviewKind | null {
+  const normalized = normalizeLanguage(language);
+  if (!normalized || normalized === "markdown" || normalized === "text") {
+    return null;
+  }
+  if (resolveArtifactPreviewKind(normalized, "") !== null) {
+    return null;
+  }
+  return "code";
 }

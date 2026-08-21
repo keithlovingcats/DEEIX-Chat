@@ -32,9 +32,9 @@ security:
 
 branding:
   # Optional. Frontend product branding; changes take effect after restarting the app.
-  title: DEEIX Chat
-  short_name: DEEIX
-  description: DEEIX Chat is a multi-model AI conversation system.
+  title: Jun Chat
+  short_name: Jun
+  description: Jun Chat is a multi-model AI conversation system.
   logo_url: ""
   favicon_url: /favicon.ico
   pwa_icon_192_url: /pwa/icon-192.png

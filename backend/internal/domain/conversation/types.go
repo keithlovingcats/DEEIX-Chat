@@ -21,6 +21,7 @@ type Conversation struct {
 	LabelsManuallyManaged bool
 	Model                 string
 	Provider              string
+	ParallelModelsJSON    string
 	SessionKey            string
 	IsStarred             bool
 	StarredAt             *time.Time

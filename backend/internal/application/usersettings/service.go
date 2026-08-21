@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ func (e *ErrValidation) Error() string { return e.Msg }
 // allowedKeys 是用户可配置的 key 集合及其默认值。
 var allowedKeys = map[string]string{
 	"chat.file_mode":                            "auto",
-	"chat.send_on_enter":                        "enter",
+	"chat.send_on_enter":                        "ctrl_enter",
 	"chat.show_token_usage":                     "true",
 	"chat.show_model_info":                      "true",
 	"chat.show_latency":                         "true",
@@ -39,6 +40,8 @@ var allowedKeys = map[string]string{
 	"chat.reasoning_content_passback":           "true",
 	"chat.input_height":                         "standard",
 	"chat.content_width":                        "compact",
+	"chat.code_highlight_theme":                 "",
+	"chat.mermaid_theme":                        "default",
 	"chat.default_mcp_tool_ids":                 "[]",
 }
 
@@ -65,6 +68,13 @@ var enumKeys = map[string]map[string]bool{
 	"chat.send_on_enter": {"enter": true, "ctrl_enter": true, "meta_enter": true},
 	"chat.input_height":  {"compact": true, "standard": true, "loose": true},
 	"chat.content_width": {"compact": true, "standard": true, "wide": true},
+	"chat.mermaid_theme": {"default": true, "base": true, "dark": true, "forest": true, "neutral": true},
+}
+
+// patternKeys 形状校验 key：合法值由 slug 正则约束（主题 id 为 shiki bundled theme 命名，
+// 名单在前端 markdown-themes.ts 维护，服务端只挡形状不挡名单，未知值由前端回落默认主题）。
+var patternKeys = map[string]*regexp.Regexp{
+	"chat.code_highlight_theme": regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`),
 }
 
 // validateValue 校验 key 对应 value 的合法性。
@@ -84,6 +94,11 @@ func validateValue(key, value string) error {
 				valid = append(valid, "'"+v+"'")
 			}
 			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be one of %s", key, strings.Join(valid, ", "))}
+		}
+	}
+	if pattern, ok := patternKeys[key]; ok && value != "" {
+		if !pattern.MatchString(value) {
+			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a lowercase slug (letters, digits, hyphens)", key)}
 		}
 	}
 	return nil

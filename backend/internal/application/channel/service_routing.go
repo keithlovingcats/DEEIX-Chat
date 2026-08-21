@@ -20,6 +20,40 @@ import (
 // 路由解析：权重随机负载均衡 + 上游/模型两级熔断
 // ---------------------------------------------------------------------------
 
+// ValidateModelAccessForUser 校验一批平台模型名对用户是否可用（存在、启用、权限组可见）。
+// 返回不可用的模型名集合；目录查询失败时返回错误（调用方决定放行或拒绝）。
+func (s *Service) ValidateModelAccessForUser(ctx context.Context, userID uint, platformModelNames []string) ([]string, error) {
+	invalid := make([]string, 0)
+	for _, rawName := range platformModelNames {
+		name, err := normalizePlatformModelName(rawName)
+		if err != nil {
+			invalid = append(invalid, strings.TrimSpace(rawName))
+			continue
+		}
+		platformModel, err := s.repo.GetActiveModelByName(ctx, name)
+		if err != nil {
+			if errors.Is(err, repository.ErrModelNotFound) {
+				invalid = append(invalid, name)
+				continue
+			}
+			return nil, err
+		}
+		if !routeScopeAllowsModelAccess(RouteScopeUser, platformModel.AccessScope) {
+			invalid = append(invalid, name)
+			continue
+		}
+		accessible, err := s.isModelAccessible(ctx, platformModel.ID, userID)
+		if err != nil {
+			return nil, err
+		}
+		if !accessible {
+			invalid = append(invalid, name)
+			continue
+		}
+	}
+	return invalid, nil
+}
+
 // ResolveRoute 解析模型路由，应用权重随机负载均衡与两级熔断过滤。
 func (s *Service) ResolveRoute(ctx context.Context, input ResolveRouteInput) (*ResolvedRoute, error) {
 	platformModelName, err := normalizePlatformModelName(input.PlatformModelName)

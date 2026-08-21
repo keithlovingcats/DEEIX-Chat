@@ -28,8 +28,8 @@ func defaultSettings() []domainsettings.SystemSetting {
 		{Namespace: "auth", Key: "login_default_next_path", Value: "/chat", ValueType: "string", Description: "无 next 参数时登录成功后的默认跳转路径"},
 		{Namespace: "auth", Key: "username_login_enabled", Value: "true", ValueType: "bool", Description: "是否允许用户名密码登录"},
 		{Namespace: "auth", Key: "email_login_enabled", Value: "true", ValueType: "bool", Description: "是否允许邮箱登录"},
-		{Namespace: "auth", Key: "third_party_login_enabled", Value: "true", ValueType: "bool", Description: "是否启用第三方登录入口"},
-		{Namespace: "auth", Key: "email_registration_enabled", Value: "true", ValueType: "bool", Description: "是否允许邮箱注册"},
+		{Namespace: "auth", Key: "third_party_login_enabled", Value: "false", ValueType: "bool", Description: "是否启用第三方登录入口"},
+		{Namespace: "auth", Key: "email_registration_enabled", Value: "false", ValueType: "bool", Description: "是否允许邮箱注册"},
 		{Namespace: "auth", Key: "email_verification_enabled", Value: "false", ValueType: "bool", Description: "邮箱注册时是否要求邮箱验证码"},
 		{Namespace: "auth", Key: "password_reset_enabled", Value: "false", ValueType: "bool", Description: "是否允许用户在登录页重置密码"},
 		{Namespace: "auth", Key: "smtp_host", Value: "", ValueType: "string", Description: "邮箱验证码 SMTP 主机"},
@@ -46,7 +46,7 @@ func defaultSettings() []domainsettings.SystemSetting {
 
 		// 计费配置
 		{Namespace: "billing", Key: "mode", Value: "self", ValueType: "string", Description: "计费方式：self=自用模式，period=周期计费，usage=按量计费"},
-		{Namespace: "billing", Key: "prepaid_amount_usd", Value: "0", ValueType: "string", Description: "每个付费调用预留的风险预算(美元)，0表示按剩余槽位动态分配可用预算，最多5个并发调用"},
+		{Namespace: "billing", Key: "prepaid_amount_usd", Value: "0", ValueType: "string", Description: "每个付费调用预留的风险预算(美元)，0表示按剩余槽位动态分配可用预算并保底0.1美元，最多20个并发调用"},
 		{Namespace: "billing", Key: "native_tool_billing_enabled", Value: "true", ValueType: "bool", Description: "是否按官方默认价格计费模型原生工具调用"},
 		{Namespace: "billing", Key: "native_tool_pricing_json", Value: nativetool.DefaultPricingJSON(), ValueType: "json", Description: "官方原生工具计费覆盖 JSON，按 toolKey 配置 priceNanousd、unit、priceLabel、billable"},
 		{Namespace: "billing", Key: "usd_to_cny_rate", Value: "7.2", ValueType: "string", Description: "易支付美元兑人民币汇率"},

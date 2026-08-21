@@ -935,6 +935,7 @@ export interface ConversationResponse {
   lastShareAccessedAt: string | null;
   messageCount: number;
   model: string;
+  parallelModels: string[];
   projectID: string;
   projectName: string;
   provider: string;
@@ -1124,6 +1125,13 @@ export interface CreateModelVendorRequest {
   key: string;
   /** @maxLength 64 */
   name: string;
+}
+
+export interface CreateNoteRequest {
+  /** @maxLength 100000 */
+  content?: string;
+  /** @maxLength 200 */
+  title: string;
 }
 
 export interface CreatePermissionGroupRequest {
@@ -2125,6 +2133,44 @@ export interface NativeToolPricingResponse {
   unit: string;
 }
 
+export interface NoteDataResponse {
+  note: NoteResponse;
+}
+
+export interface NoteDeleteDataResponse {
+  deleted: boolean;
+}
+
+export interface NoteDeleteResponseDoc {
+  data: NoteDeleteDataResponse;
+  errorMsg: string;
+}
+
+export interface NoteErrorDoc {
+  errorMsg: string;
+}
+
+export interface NotePageResponseDoc {
+  data: {
+    results: NoteResponse[];
+    total: number;
+  };
+  errorMsg: string;
+}
+
+export interface NoteResponse {
+  content: string;
+  createdAt: string;
+  id: number;
+  title: string;
+  updatedAt: string;
+}
+
+export interface NoteResponseDoc {
+  data: NoteDataResponse;
+  errorMsg: string;
+}
+
 export interface OpenRouterOfficialPricingDataResponse {
   cached: boolean;
   fetchedAt: string;
@@ -2227,6 +2273,13 @@ export interface PatchMeRequest {
 export interface PatchMeResponseDoc {
   data: MeResponse;
   errorMsg: string;
+}
+
+export interface PatchNoteRequest {
+  /** @maxLength 100000 */
+  content?: string;
+  /** @maxLength 200 */
+  title?: string;
 }
 
 export interface PatchPromptPresetRequest {
@@ -2814,6 +2867,8 @@ export interface SendMessageRequest {
   /** @maxLength 128 */
   model?: string;
   options?: Record<string, any>;
+  /** @maxItems 20 */
+  parallelModels?: string[];
   /** @maxLength 32 */
   parentMessagePublicID?: string;
   /** @maxItems 128 */
@@ -8196,6 +8251,106 @@ export namespace Models {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = PublicModelListResponseDoc;
+  }
+}
+
+export namespace Notes {
+  /**
+   * @description 分页返回当前用户笔记，支持标题+内容搜索与排序
+   * @tags notes
+   * @name NotesList
+   * @summary 查询我的笔记
+   * @request GET:/notes
+   * @secure
+   */
+  export namespace NotesList {
+    export type RequestParams = {};
+    export type RequestQuery = {
+      /** 页码 */
+      page?: number;
+      /** 每页数量 */
+      page_size?: number;
+      /** 搜索关键词（标题+内容） */
+      q?: string;
+      /** 排序：updated_desc（默认）/ created_desc / title_asc */
+      sort?: "updated_desc" | "created_desc" | "title_asc";
+    };
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NotePageResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags notes
+   * @name NotesCreate
+   * @summary 创建笔记
+   * @request POST:/notes
+   * @secure
+   */
+  export namespace NotesCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = CreateNoteRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = NoteResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags notes
+   * @name NotesDetail
+   * @summary 查询笔记详情
+   * @request GET:/notes/{id}
+   * @secure
+   */
+  export namespace NotesDetail {
+    export type RequestParams = {
+      /** 笔记ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NoteResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags notes
+   * @name NotesDelete
+   * @summary 删除笔记
+   * @request DELETE:/notes/{id}
+   * @secure
+   */
+  export namespace NotesDelete {
+    export type RequestParams = {
+      /** 笔记ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NoteDeleteResponseDoc;
+  }
+
+  /**
+   * @description 部分更新标题或内容，字段为空时保持不变
+   * @tags notes
+   * @name NotesPartialUpdate
+   * @summary 更新笔记
+   * @request PATCH:/notes/{id}
+   * @secure
+   */
+  export namespace NotesPartialUpdate {
+    export type RequestParams = {
+      /** 笔记ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = PatchNoteRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = NoteResponseDoc;
   }
 }
 

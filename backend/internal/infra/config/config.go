@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	defaultAppName                      = "DEEIX Chat"
-	defaultBrandTitle                   = "DEEIX Chat"
-	defaultBrandShortName               = "DEEIX"
-	defaultBrandDescription             = "DEEIX Chat is a multi-model AI conversation system."
+	defaultAppName                      = "Jun's Chat"
+	defaultBrandTitle                   = "Jun's Chat"
+	defaultBrandShortName               = "Jun"
+	defaultBrandDescription             = "Jun's Chat is a multi-model AI conversation system."
 	defaultBrandFaviconURL              = "/favicon.ico"
 	defaultBrandPWAIcon192URL           = "/pwa/icon-192.png"
 	defaultBrandPWAIcon512URL           = "/pwa/icon-512.png"

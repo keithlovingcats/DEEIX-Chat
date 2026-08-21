@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, CircleAlert, Film } from "lucide-react";
+import { ArrowUpToLine, ChevronDown, CircleAlert, Film } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { AssistantMessageMeta } from "@/features/chat/components/message/message-meta";
+import { AssistantMessageMeta, ModelBranchTabs } from "@/features/chat/components/message/message-meta";
 import { MessageAttachmentRow } from "@/features/chat/components/message/message-attachment";
 import { MessageProcessTrace, MessageTraceEventBlocks } from "@/features/chat/components/message/message-process-trace";
 import { GrainientBackground } from "@/components/reactbits/backgrounds/grainient";
@@ -27,6 +27,7 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -132,6 +133,7 @@ type ChatMessageBotProps = {
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
+  onSelectMessageBranch?: (parentPublicID: string | null, childPublicID: string) => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onCopy: () => void;
   copySucceeded?: boolean;
@@ -160,6 +162,7 @@ export function ChatMessageBot({
   onEditAssistantMessage,
   onForkMessage,
   onCycleMessageBranch,
+  onSelectMessageBranch,
   onReactAssistantMessage,
   onCopy,
   copySucceeded = false,
@@ -180,8 +183,60 @@ export function ChatMessageBot({
 }: ChatMessageBotProps) {
   const tCommon = useTranslations("common.actions");
   const submitT = useTranslations("chat.submit");
+  const tMessages = useTranslations("chat.messages");
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingValue, setEditingValue] = React.useState(item.content);
+  // 多模型并行：滚回本条回答顶部（tab 条处），方便切换其他模型查看。
+  // 通过 DOM 最近消息项容器滚动，避免依赖 MessageScroller Provider（分享页无该上下文）。
+  const hasModelBranches = (item.branchNavigator?.siblings?.length ?? 0) > 1;
+  const backToModelTabsRef = React.useRef<HTMLButtonElement | null>(null);
+  const messageRootRef = React.useRef<HTMLDivElement | null>(null);
+  const [showFloatingBackToTop, setShowFloatingBackToTop] = React.useState(false);
+  const scrollToMessageTop = React.useCallback(() => {
+    const messageItem =
+      backToModelTabsRef.current?.closest<HTMLElement>("[data-message-id]") ??
+      messageRootRef.current?.closest<HTMLElement>("[data-message-id]") ??
+      messageRootRef.current;
+    if (!messageItem) {
+      return;
+    }
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    messageItem.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!hasModelBranches || readOnly) {
+      setShowFloatingBackToTop(false);
+      return;
+    }
+    const messageItem =
+      messageRootRef.current?.closest<HTMLElement>("[data-message-id]") ?? messageRootRef.current;
+    const viewport = messageItem?.closest<HTMLElement>("[data-slot='message-scroller-viewport']");
+    if (!messageItem || !viewport) {
+      setShowFloatingBackToTop(false);
+      return;
+    }
+
+    const updateVisibility = () => {
+      const messageRect = messageItem.getBoundingClientRect();
+      const viewportRect = viewport.getBoundingClientRect();
+      // 消息顶部滚出视口，且消息主体仍在视口中时，显示悬浮回顶。
+      const topOutOfView = messageRect.top < viewportRect.top - 48;
+      const bodyStillVisible = messageRect.bottom > viewportRect.top + 96;
+      setShowFloatingBackToTop(topOutOfView && bodyStillVisible);
+    };
+
+    updateVisibility();
+    viewport.addEventListener("scroll", updateVisibility, { passive: true });
+    window.addEventListener("resize", updateVisibility);
+    return () => {
+      viewport.removeEventListener("scroll", updateVisibility);
+      window.removeEventListener("resize", updateVisibility);
+    };
+  }, [hasModelBranches, item.key, item.publicID, readOnly]);
   const onRetry = React.useCallback(() => {
     void onRetryAssistantMessage(item);
   }, [item, onRetryAssistantMessage]);
@@ -334,7 +389,11 @@ export function ChatMessageBot({
   }
 
   return (
-    <div className="group/assistant-message flex w-full flex-col items-start">
+    <div ref={messageRootRef} className="group/assistant-message relative flex w-full flex-col items-start">
+      {/* 多模型并行：tab 头置于回答顶部（与 HaloWebUI 一致），先选模型再看内容。 */}
+      {(item.branchNavigator?.siblings?.length ?? 0) > 1 && onSelectMessageBranch ? (
+        <ModelBranchTabs item={item} onSelectBranch={onSelectMessageBranch} />
+      ) : null}
       <MessageProcessTrace
         trace={processTrace}
         active={messageStreaming}
@@ -406,6 +465,45 @@ export function ChatMessageBot({
       ) : null}
 
       {screenshotMeta}
+
+      {hasModelBranches ? (
+        <div className="mt-2 flex w-full justify-start" data-screenshot-exclude="true">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                ref={backToModelTabsRef}
+                type="button"
+                variant="outline"
+                size="xs"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={scrollToMessageTop}
+              >
+                <ArrowUpToLine className="size-3" strokeWidth={1.8} />
+                {tMessages("backToModelTabs")}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tMessages("backToModelTabs")}</TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
+
+      {hasModelBranches && showFloatingBackToTop ? (
+        <div className="pointer-events-none absolute bottom-6 right-0 z-20" data-screenshot-exclude="true">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
+                aria-label={tMessages("backToModelTabs")}
+                onClick={scrollToMessageTop}
+              >
+                <ArrowUpToLine className="size-4" strokeWidth={1.8} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{tMessages("backToModelTabs")}</TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
 
       <AssistantMessageMeta
         item={item}

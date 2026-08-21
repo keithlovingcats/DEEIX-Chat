@@ -4,6 +4,7 @@ import type { UserSettingsMap } from "@/shared/api/user-settings";
 import type { PublicModelDTO } from "@/shared/api/model.types";
 import { platformSendShortcut } from "@/shared/lib/platform-shortcuts";
 import { resolveModelPresentationGroup } from "@/shared/lib/model-presentation";
+import { normalizeMermaidTheme } from "@/shared/components/markdown/markdown-themes";
 
 const FILE_MODES: FileMode[] = ["auto", "full_context", "rag"];
 const INPUT_HEIGHTS: ChatInputHeight[] = ["compact", "standard", "loose"];
@@ -11,7 +12,7 @@ const SEND_SHORTCUTS: SendShortcut[] = ["enter", "ctrl_enter", "meta_enter"];
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   defaultModel: "",
-  sendShortcut: "enter",
+  sendShortcut: "ctrl_enter",
   showTokenUsage: true,
   showModelInfo: true,
   showLatency: true,
@@ -27,6 +28,8 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   reasoningContentPassback: true,
   inputHeight: "standard",
   contentWidth: "compact",
+  codeHighlightTheme: "",
+  mermaidTheme: "default",
   fileMode: "auto",
 };
 
@@ -54,6 +57,8 @@ export function parseChatSettings(map: UserSettingsMap): ChatSettings {
     reasoningContentPassback: map["chat.reasoning_content_passback"] !== "false",
     inputHeight: INPUT_HEIGHTS.includes(inputHeight as ChatInputHeight) ? (inputHeight as ChatInputHeight) : "standard",
     contentWidth: parseChatContentWidth(contentWidth),
+    codeHighlightTheme: map["chat.code_highlight_theme"]?.trim() ?? "",
+    mermaidTheme: normalizeMermaidTheme(map["chat.mermaid_theme"]),
     fileMode: FILE_MODES.includes(fileMode as FileMode) ? (fileMode as FileMode) : "auto",
   };
 }
@@ -63,9 +68,11 @@ export function parseSendShortcut(value: string | undefined): SendShortcut {
     return "enter";
   }
   if (SEND_SHORTCUTS.includes(value as SendShortcut)) {
+    // ctrl_enter / meta_enter 统一按当前平台映射，避免跨设备设置语义漂移。
     return platformSendShortcut();
   }
-  return "enter";
+  // 默认 Ctrl/Cmd+Enter 发送，Enter 仅换行，降低误发送。
+  return platformSendShortcut();
 }
 
 export function groupModelsForPresentation(models: PublicModelDTO[]): ModelPresentationGroup[] {

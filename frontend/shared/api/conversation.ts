@@ -237,6 +237,21 @@ function handleStreamEvent(event: StreamMessageEvent, options: ConversationStrea
     return null;
   }
 
+  if (event.type === "message_created") {
+    options.onMessageCreated?.(event);
+    return null;
+  }
+
+  if (event.type === "parallel_models_persist_failed") {
+    options.onParallelModelsPersistFailed?.(event.parallel_models ?? []);
+    return null;
+  }
+
+  if (event.type === "parallel_models_filtered") {
+    options.onParallelModelsFiltered?.(event.invalid_models ?? []);
+    return null;
+  }
+
   if (event.type === "compact_done") {
     options.onCompactDone?.({
       method: event.method,
@@ -1013,6 +1028,9 @@ export type ConversationStreamOptions = {
   onInterrupted?: (event: Extract<StreamMessageEvent, { type: "error" }>) => void;
   onModerationChecking?: (event: Extract<StreamMessageEvent, { type: "moderation_checking" }>) => void;
   onModerationBlocked?: (event: Extract<StreamMessageEvent, { type: "moderation_blocked" }>) => void;
+  onMessageCreated?: (event: Extract<StreamMessageEvent, { type: "message_created" }>) => void;
+  onParallelModelsPersistFailed?: (parallelModels: string[]) => void;
+  onParallelModelsFiltered?: (invalidModels: string[]) => void;
 };
 
 type StreamReadResult = {

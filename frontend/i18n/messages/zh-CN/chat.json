@@ -2,7 +2,7 @@
   "newChat": "新对话",
   "untitledConversation": "新对话",
   "modelListLoadFailed": "模型列表加载失败",
-  "placeholder": "发送消息给 DEEIX Chat",
+  "placeholder": "发送消息给 Jun's Chat",
   "projectMode": "项目模式",
   "projectModeTooltip": "在此模式下，新会话会创建到当前项目。项目提示词仅对聊天模型请求生效；图像生成、图像编辑等非聊天能力不会应用。",
   "send": "发送",
@@ -192,6 +192,8 @@
     "generationInterrupted": "生成中断",
     "streamInterrupted": "生成连接已中断，请重试本条消息。",
     "imageRunning": "正在生成图片",
+    "modelBranches": "多模型回答",
+    "backToModelTabs": "回到模型切换",
     "contextCompressed": "上下文已自动压缩",
     "scrollToBottom": "回到底部",
     "processing": "正在处理…",
@@ -221,7 +223,8 @@
     "memoryNamePlaceholder": "偏好名称（如：回复风格）",
     "memoryValuePlaceholder": "偏好内容（如：请用简洁的中文回复）",
     "savingPreference": "保存中…",
-    "savePreference": "保存偏好"
+    "savePreference": "保存偏好",
+    "modelHasBranches": "该模型下有分支会话"
   },
   "loadError": {
     "title": "会话加载失败",
@@ -272,6 +275,18 @@
     "processingAttachments": "正在处理附件…",
     "retrievingContent": "正在检索相关内容…",
     "retryLater": "请稍后重试。",
+    "parallelChatOnly": "多模型并行仅支持文本对话",
+    "parallelChatOnlyDescription": "部分选中模型不支持并行文本对话，本次仅使用支持的模型。",
+    "parallelFanOutPartialFailed": "部分模型未能开始回答",
+    "parallelFanOutPartialFailedDescription": "{count} 个并行模型请求未发起，可稍后手动重试。",
+    "parallelStopPartial": "已停止当前模型",
+    "parallelStopPartialDescription": "另有 {count} 个并行模型仍在回答，请切换标签页单独停止。",
+    "parallelModelsPersistFailed": "并行模型组合未能保存",
+    "parallelModelsPersistFailedDescription": "本次对话仍会并行回答，但刷新页面后组合可能丢失，可重新选择。",
+    "parallelModelsFiltered": "部分并行模型不可用",
+    "parallelModelsFilteredDescription": "{count} 个模型不存在或无权使用，已从组合中移除。",
+    "parallelFanOutMissedOnReconnect": "并行回答未能自动恢复",
+    "parallelFanOutMissedOnReconnectDescription": "连接中断导致部分模型未开始回答，可在对应回答下手动重试。",
     "concurrentGenerationLimit": "最多同时进行 {count} 个生成任务，请等待当前生成完成。",
     "imagePreviewAlt": "生成图片预览",
     "mediaInputUnsupported": "当前输入无法使用所选模型",
@@ -508,6 +523,10 @@
     "empty": "暂无模型",
     "group": "分组",
     "viewPricing": "查看价格",
+    "parallelCount": "{count} 模型",
+    "parallelGroup": "并行模型",
+    "addParallelModel": "加入并行对比",
+    "removeParallelModel": "移出并行对比",
     "freeModel": "免费模型",
     "freeModelDescription": "不会扣除按量余额",
     "tieredPricing": "阶梯计费",
@@ -530,7 +549,10 @@
     "perCall": "每次",
     "perSecond": "每秒",
     "callUnit": "次",
-    "secondUnit": "秒"
+    "secondUnit": "秒",
+    "clearParallelModels": "仅保留主模型",
+    "parallelModelLimit": "无法调整并行模型",
+    "parallelModelLimitDescription": "最多同时选择 {count} 个模型，且至少保留一个模型"
   },
   "processTrace": {
     "fileBadges": {
@@ -917,5 +939,10 @@
     "advisor": "Advisor",
     "toolSearchRegex": "工具搜索（Regex）",
     "toolSearchBm25": "工具搜索（BM25）"
+  },
+  "contentWidth": {
+    "compact": "默认宽度",
+    "standard": "标准宽度",
+    "wide": "全宽"
   }
 }

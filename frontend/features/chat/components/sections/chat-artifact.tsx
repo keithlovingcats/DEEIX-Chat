@@ -27,6 +27,7 @@ import {
 } from "@/features/settings/utils/chat-font";
 import { useFontSizePreference } from "@/features/settings/utils/font-size";
 import { cn } from "@/lib/utils";
+import { ShikiCodeView } from "@/shared/components/markdown/shiki-code-view";
 import { CopyActionButton } from "@/shared/components/copy-action";
 import { useTheme } from "@/shared/components/theme-provider";
 import { downloadBlob } from "@/shared/lib/export-download";
@@ -166,18 +167,21 @@ function ChatArtifactPanel({
     setPreviewTheme(captureHTMLVisualThemeSnapshot(resolvedTheme));
   }, [chatFont, chatFontWeight, fontSize, preset, resolvedTheme]);
 
+  const isCodeView = artifact.kind === "code";
   const artifactPreview = React.useMemo(
     () =>
       artifact.kind === "svg"
         ? ({ mode: "svg" } as const)
-        : ({
-            documentHTML: buildArtifactPreviewDocument(
-              artifact.kind,
-              artifact.code,
-              previewTheme,
-            ),
-            mode: "frame",
-          } as const),
+        : artifact.kind === "code"
+          ? ({ mode: "code" } as const)
+          : ({
+              documentHTML: buildArtifactPreviewDocument(
+                artifact.kind,
+                artifact.code,
+                previewTheme,
+              ),
+              mode: "frame",
+            } as const),
     [artifact.code, artifact.kind, previewTheme],
   );
   const canPreview = artifact.code.trim().length > 0;
@@ -195,11 +199,18 @@ function ChatArtifactPanel({
       );
       return;
     }
+    if (artifactPreview.mode === "code") {
+      downloadBlob(
+        new Blob([artifact.code], { type: "text/plain;charset=utf-8" }),
+        resolveArtifactDownloadName(artifact.kind, artifact.language),
+      );
+      return;
+    }
     downloadBlob(
       new Blob([artifactPreview.documentHTML], { type: "text/html;charset=utf-8" }),
       resolveArtifactDownloadName(artifact.kind),
     );
-  }, [artifact.kind, artifact.code, artifactPreview, canPreview]);
+  }, [artifact.kind, artifact.code, artifact.language, artifactPreview, canPreview]);
 
   return (
     <aside
@@ -209,7 +220,7 @@ function ChatArtifactPanel({
       )}
       aria-label={t("title")}
     >
-      <Tabs defaultValue="preview" className="flex min-h-0 w-full flex-1 flex-col gap-0">
+      <Tabs defaultValue={isCodeView ? "source" : "preview"} className="flex min-h-0 w-full flex-1 flex-col gap-0">
         <div className="relative flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/40 px-3">
           <div className="flex min-w-0 max-w-[calc(50%-72px)] items-center gap-2">
             <h2 className="shrink-0 text-sm font-semibold tracking-tight">{t("title")}</h2>
@@ -276,6 +287,12 @@ function ChatArtifactPanel({
                 theme={previewTheme}
                 title={t("previewTitle")}
               />
+            ) : artifactPreview.mode === "code" ? (
+              <ShikiCodeView
+                code={artifact.code}
+                language={artifact.language || "text"}
+                className="h-full min-h-[320px] overflow-auto [&_.shiki-code-view]:!m-0 [&_.shiki-code-view]:!p-5 [&_.shiki-code-view]:font-mono [&_.shiki-code-view]:text-[13px] [&_.shiki-code-view]:leading-6"
+              />
             ) : (
               <ArtifactPreviewFrame
                 key={artifact.id}
@@ -291,9 +308,11 @@ function ChatArtifactPanel({
         </TabsContent>
 
         <TabsContent value="source" className="mt-0 min-h-0 flex-1 overflow-hidden">
-          <pre className="h-full min-h-[320px] overflow-auto bg-muted/20 p-4 text-xs leading-5 text-foreground">
-            <code className="font-mono">{artifact.code}</code>
-          </pre>
+          <ShikiCodeView
+            code={artifact.code}
+            language={artifact.language || "text"}
+            className="h-full min-h-[320px] overflow-auto text-xs leading-5 [&_.shiki-code-view]:!m-0 [&_.shiki-code-view]:!p-4 [&_.shiki-code-view]:font-mono [&_.shiki-code-view]:text-xs [&_.shiki-code-view]:leading-5"
+          />
         </TabsContent>
       </Tabs>
     </aside>

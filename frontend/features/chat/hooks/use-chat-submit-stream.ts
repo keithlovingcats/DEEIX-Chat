@@ -22,6 +22,7 @@ export function useChatSubmitStream({
   conversationScopeKey,
   activeConversation,
   selectedPlatformModelName,
+  parallelPlatformModelNames,
   modelOptions,
   selectedToolIDs,
   selectedSkills,
@@ -62,6 +63,7 @@ export function useChatSubmitStream({
   conversationScopeKey: string;
   activeConversation: ConversationDTO | null;
   selectedPlatformModelName: string;
+  parallelPlatformModelNames?: string[];
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -107,6 +109,7 @@ export function useChatSubmitStream({
     conversationScopeKey,
     activeConversation,
     selectedPlatformModelName,
+    parallelPlatformModelNames,
     modelOptions,
     selectedToolIDs,
     selectedSkills,

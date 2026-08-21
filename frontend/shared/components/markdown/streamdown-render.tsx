@@ -66,6 +66,9 @@ import {
   type RenderSegment,
 } from "./streamdown-content";
 import { normalizeBareURLRehypePlugin } from "./streamdown-url-normalize";
+import { useMarkdownTheme } from "./markdown-theme-provider";
+import type { BundledTheme } from "streamdown";
+import type { MermaidTheme } from "./markdown-themes";
 
 type StreamdownRenderProps = {
   content: unknown;
@@ -357,8 +360,16 @@ function detectStreamdownFeatures(content: string): StreamdownFeatureFlags {
   };
 }
 
-function getStreamdownPluginKey(features: StreamdownFeatureFlags): string {
-  return [features.code ? "code" : "", features.math ? "math" : "", features.mermaid ? "mermaid" : ""]
+function getStreamdownPluginKey(
+  features: StreamdownFeatureFlags,
+  mermaidTheme: MermaidTheme,
+  shikiThemePair: readonly [BundledTheme, BundledTheme],
+): string {
+  return [
+    features.code ? `code=${shikiThemePair[0]}|${shikiThemePair[1]}` : "",
+    features.math ? "math" : "",
+    features.mermaid ? `mermaid=${mermaidTheme}` : "",
+  ]
     .filter(Boolean)
     .join(":");
 }
@@ -371,8 +382,12 @@ function getInitialStreamdownPlugins(features: StreamdownFeatureFlags): PluginCo
   return STREAMDOWN_MATH_BASE_PLUGINS;
 }
 
-async function loadStreamdownPlugins(features: StreamdownFeatureFlags): Promise<PluginConfig> {
-  const key = getStreamdownPluginKey(features);
+async function loadStreamdownPlugins(
+  features: StreamdownFeatureFlags,
+  mermaidTheme: MermaidTheme,
+  shikiThemePair: [BundledTheme, BundledTheme],
+): Promise<PluginConfig> {
+  const key = getStreamdownPluginKey(features, mermaidTheme, shikiThemePair);
 
   if (!key) {
     return BASE_STREAMDOWN_PLUGINS;
@@ -392,8 +407,9 @@ async function loadStreamdownPlugins(features: StreamdownFeatureFlags): Promise<
     const plugins: PluginConfig = { ...BASE_STREAMDOWN_PLUGINS };
 
     if (features.code) {
-      const { code } = await import("@streamdown/code");
-      plugins.code = code;
+      // 主题必须注入 code plugin（streamdown 内部 plugins.code.getThemes() 优先于 shikiTheme prop）。
+      const { createCodePlugin } = await import("@streamdown/code");
+      plugins.code = createCodePlugin({ themes: shikiThemePair });
     }
 
     if (features.math) {
@@ -404,6 +420,7 @@ async function loadStreamdownPlugins(features: StreamdownFeatureFlags): Promise<
       const { createMermaidPlugin } = await import("@streamdown/mermaid");
       plugins.mermaid = createMermaidPlugin({
         config: {
+          ...(mermaidTheme === "default" ? {} : { theme: mermaidTheme }),
           flowchart: {
             htmlLabels: false,
           },
@@ -425,9 +442,16 @@ async function loadStreamdownPlugins(features: StreamdownFeatureFlags): Promise<
   return promise;
 }
 
-function useStreamdownPlugins(content: string): PluginConfig {
+function useStreamdownPlugins(
+  content: string,
+  mermaidTheme: MermaidTheme,
+  shikiThemePair: [BundledTheme, BundledTheme],
+): PluginConfig {
   const features = React.useMemo(() => detectStreamdownFeatures(content), [content]);
-  const pluginKey = React.useMemo(() => getStreamdownPluginKey(features), [features]);
+  const pluginKey = React.useMemo(
+    () => getStreamdownPluginKey(features, mermaidTheme, shikiThemePair),
+    [features, mermaidTheme, shikiThemePair],
+  );
   const [plugins, setPlugins] = React.useState<PluginConfig>(() => STREAMDOWN_PLUGIN_CACHE.get(pluginKey) ?? getInitialStreamdownPlugins(features));
 
   React.useEffect(() => {
@@ -441,7 +465,7 @@ function useStreamdownPlugins(content: string): PluginConfig {
 
     setPlugins(getInitialStreamdownPlugins(features));
 
-    void loadStreamdownPlugins(features)
+    void loadStreamdownPlugins(features, mermaidTheme, shikiThemePair)
       .then((loadedPlugins) => {
         if (!cancelled) {
           setPlugins(loadedPlugins);
@@ -456,7 +480,7 @@ function useStreamdownPlugins(content: string): PluginConfig {
     return () => {
       cancelled = true;
     };
-  }, [features, pluginKey]);
+  }, [features, mermaidTheme, pluginKey, shikiThemePair]);
 
   return plugins;
 }
@@ -545,7 +569,6 @@ function ThinkingSegmentBlock({
               remend={STREAMDOWN_REMEND}
               mode={streaming ? "streaming" : "static"}
               parseIncompleteMarkdown={streaming || incomplete}
-              shikiTheme={["github-light", "github-dark"]}
               animated={false}
               isAnimating={active}
               translations={translations}
@@ -585,7 +608,6 @@ function HTMLMarkdownRenderProvider({
           linkSafety={STREAMDOWN_LINK_SAFETY}
           mode="static"
           parseIncompleteMarkdown={false}
-          shikiTheme={["github-light", "github-dark"]}
           animated={false}
           isAnimating={false}
           translations={translations}
@@ -613,11 +635,12 @@ export const StreamdownRender = React.memo(function StreamdownRender({
   imageActions,
   artifactActions,
 }: StreamdownRenderProps) {
+  const { shikiThemePair, mermaidTheme } = useMarkdownTheme();
   const normalizedContent = React.useMemo(
     () => normalizeStreamdownContent(content, sourcePositions),
     [content, sourcePositions],
   );
-  const plugins = useStreamdownPlugins(normalizedContent);
+  const plugins = useStreamdownPlugins(normalizedContent, mermaidTheme, shikiThemePair);
   const segments = React.useMemo(
     () =>
       parseStreamdownSegments(normalizedContent, {
@@ -707,7 +730,6 @@ export const StreamdownRender = React.memo(function StreamdownRender({
                 caret={streaming ? STREAMDOWN_CARET : undefined}
                 mode={streaming ? "streaming" : "static"}
                 parseIncompleteMarkdown={streaming}
-                shikiTheme={["github-light", "github-dark"]}
                 animated={false}
                 isAnimating={streaming}
                 translations={translations}

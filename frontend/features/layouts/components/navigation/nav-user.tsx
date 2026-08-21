@@ -36,7 +36,6 @@ import { logout, patchMe } from "@/shared/api/auth";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { clearSessionAndRedirectToLogin } from "@/shared/auth/session";
 import { dispatchUserProfileUpdated } from "@/shared/auth/user-profile-events";
-import { dispatchOpenAnnouncements, getAnnouncementUnread, subscribeAnnouncementUnreadChanged } from "@/shared/events/announcement-events";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
 import { APP_LOCALE_LABELS, APP_LOCALES, type AppLocale } from "@/i18n/config";
 
@@ -57,11 +56,8 @@ export function NavUser({
   const [open, setOpen] = React.useState(false);
   const [loggingOut, setLoggingOut] = React.useState(false);
   const [savingLocale, setSavingLocale] = React.useState<AppLocale | null>(null);
-  const [hasUnreadAnnouncement, setHasUnreadAnnouncement] = React.useState(() => getAnnouncementUnread());
   const skipTriggerFocusRef = React.useRef(false);
   const isAdmin = user.role === "admin" || user.role === "superadmin";
-
-  React.useEffect(() => subscribeAnnouncementUnreadChanged(setHasUnreadAnnouncement), []);
 
   const onLogout = React.useCallback(async () => {
     if (loggingOut) {
@@ -89,13 +85,6 @@ export function NavUser({
     },
     [router],
   );
-
-  const openAnnouncementsFromMenu = React.useCallback((event: Event) => {
-    event.preventDefault();
-    skipTriggerFocusRef.current = true;
-    setOpen(false);
-    dispatchOpenAnnouncements();
-  }, []);
 
   const onLocaleSelect = React.useCallback(
     async (nextLocale: AppLocale) => {
@@ -172,12 +161,6 @@ export function NavUser({
               <DropdownMenuItem onSelect={navigateFromMenu("/setting/general")}>
                 {t("settings")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={openAnnouncementsFromMenu}>
-                <span className="min-w-0 flex-1 truncate">{t("announcements")}</span>
-                <span className="ml-auto flex size-4 shrink-0 items-center justify-center">
-                  {hasUnreadAnnouncement ? <span aria-hidden="true" className="size-1.5 rounded-full bg-destructive" /> : null}
-                </span>
-              </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="focus:bg-accent/40 data-[state=open]:bg-accent/40">
                   {t("language")}
@@ -198,12 +181,6 @@ export function NavUser({
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={navigateFromMenu("/setting/subscription")}>
-                {t("upgradePlan")}
-              </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             {isAdmin ? (

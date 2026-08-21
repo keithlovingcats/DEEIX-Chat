@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { cancelMessageGeneration, listMessagesPage, resumeMessageGenerationStream } from "@/shared/api/conversation";
@@ -331,6 +332,16 @@ export function useChatData(
         await resumeMessageGenerationStream(token, pendingRunID, {
           signal: controller.signal,
           afterSeq,
+          // 重连回放出 message_created：说明发送瞬间断流、并行 fan-out 未启动。
+          // 消息树已落库，此时补发会产生重复兄弟，改为提示用户手动重试其余模型。
+          onMessageCreated: () => {
+            if (isResumeInactive()) {
+              return;
+            }
+            toast.warning(tSubmit("parallelFanOutMissedOnReconnect"), {
+              description: tSubmit("parallelFanOutMissedOnReconnectDescription"),
+            });
+          },
           onEventSeq: (seq) => {
             if (isResumeInactive()) {
               return;

@@ -18,7 +18,7 @@
   },
   "aboutPage": {
     "title": "关于",
-    "description": "DEEIX Chat 是面向多用户 AI 应用的模型接入与对话运营平台。它将模型目录、多上游路由、参数治理、文件与 RAG、MCP 工具、用量计费、身份安全、审计与运维配置整合到同一套控制面。",
+    "description": "Jun's Chat 是面向多用户 AI 应用的模型接入与对话运营平台。它将模型目录、多上游路由、参数治理、文件与 RAG、MCP 工具、用量计费、身份安全、审计与运维配置整合到同一套控制面。",
     "details": "产品信息",
     "product": "产品",
     "version": "版本",
@@ -47,13 +47,7 @@
     },
     "console": "控制台",
     "adminConsole": "管理端",
-    "official": "官方",
-    "website": "官网",
-    "repository": "仓库",
-    "social": "X",
-    "blog": "博客",
-    "contact": "联系与支持",
-    "copyright": "© 2026 DEEIX. DEEIX Chat.",
+    "copyright": "© 2026 Jun. Jun's Chat.",
     "license": "代码遵循 Apache License 2.0 授权。"
   },
   "accessDeniedTitle": "服务加载失败",

@@ -3,25 +3,11 @@
 const OPEN_ANNOUNCEMENTS_EVENT = "deeix-chat:open-announcements";
 const ANNOUNCEMENT_UNREAD_CHANGED_EVENT = "deeix-chat:announcement-unread-changed";
 
-let announcementUnread = false;
-
-export function dispatchOpenAnnouncements(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.dispatchEvent(new Event(OPEN_ANNOUNCEMENTS_EVENT));
-}
-
 export function dispatchAnnouncementUnreadChanged(hasUnread: boolean): void {
-  announcementUnread = hasUnread;
   if (typeof window === "undefined") {
     return;
   }
   window.dispatchEvent(new CustomEvent<boolean>(ANNOUNCEMENT_UNREAD_CHANGED_EVENT, { detail: hasUnread }));
-}
-
-export function getAnnouncementUnread(): boolean {
-  return announcementUnread;
 }
 
 export function subscribeOpenAnnouncements(handler: () => void): () => void {

@@ -27,6 +27,7 @@ import { useChatScreenshot } from "@/features/chat/hooks/use-chat-screenshot";
 import { parseConversationLabelsJSON } from "@/shared/lib/conversation-labels";
 import { useChatVisualPrompt } from "@/features/chat/hooks/use-chat-visual-prompt";
 import { ChatInput } from "@/features/chat/components/sections/chat-input";
+import { ConversationParallelModelsBar } from "@/features/chat/components/sections/conversation-parallel-models-bar";
 import { ChatScreenshotPreviewDialog } from "@/features/chat/components/sections/chat-screenshot-preview-dialog";
 import { resolveChatContentWidthClassName } from "@/shared/model/chat-content-width";
 import { DeleteFilesOption } from "@/shared/components/delete-files-option";
@@ -347,6 +348,7 @@ export function AppChatArea() {
     preserveConversationDrafts,
     inputHeight,
     contentWidth,
+    updateContentWidth,
     markdownRender,
     showModelInfo,
     showLatency,
@@ -358,9 +360,14 @@ export function AppChatArea() {
     mcpMaxSelectedTools,
     selectedPlatformModelName,
     setSelectedPlatformModelName,
+    selectedPlatformModelNames,
+    togglePlatformModelName,
+    clearParallelModels,
   } = useChatModelOptions({
     conversationPublicID: conversationID,
     conversationModel: currentConversation?.model ?? null,
+    conversationParallelModels: currentConversation?.parallelModels ?? null,
+    locallyCreatedConversationID,
     resetToken: newConversationRevision,
   });
   const {
@@ -629,6 +636,7 @@ export function AppChatArea() {
   const {
     currentLeafMessage,
     onCycleMessageBranch,
+    onSelectMessageBranch,
     onEditAssistantMessage,
     onEditUserMessage,
     onContinueAssistantMessage,
@@ -651,6 +659,7 @@ export function AppChatArea() {
     messages,
     activeConversation: currentConversation,
     selectedPlatformModelName,
+    parallelPlatformModelNames: selectedPlatformModelNames,
     modelOptions,
     selectedToolIDs,
     selectedSkills,
@@ -1181,6 +1190,7 @@ export function AppChatArea() {
     billingDisplayCurrency,
     billingDisplayUsdToCnyRate,
     selectedPlatformModelName,
+    selectedPlatformModelNames,
     availableTools,
     selectedToolIDs,
     selectedSkills,
@@ -1196,6 +1206,8 @@ export function AppChatArea() {
     dropActive: fileDragActive,
     onDraftChange: setDraft,
     onModelChange: setSelectedPlatformModelName,
+    onToggleParallelModel: togglePlatformModelName,
+    onClearParallelModels: clearParallelModels,
     onModelCatalogRefresh: refreshModelCatalogForComposer,
     onSelectedToolsChange,
     maxSelectedSkills: mcpMaxSelectedTools,
@@ -1231,6 +1243,17 @@ export function AppChatArea() {
     >
       {shouldUseCenteredComposer ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="px-3 pt-2.5 pb-1 md:pl-0" data-screenshot-exclude="true">
+            <div className={cn("mx-auto w-full", chatContentWidthClassName)}>
+              <ConversationParallelModelsBar
+                modelOptions={modelOptions}
+                selectedPlatformModelNames={selectedPlatformModelNames}
+                loading={modelsLoading}
+                onToggleParallelModel={togglePlatformModelName}
+                onModelCatalogRefresh={refreshModelCatalogForComposer}
+              />
+            </div>
+          </div>
           <ChatEmptyState
             greetingTitle={activeRouteProject?.name || greetingTitle}
             badgeLabel={activeRouteProject ? t("projectMode") : undefined}
@@ -1280,6 +1303,15 @@ export function AppChatArea() {
                   onEditImageAttachment={onEditGeneratedImageAttachment}
                   onOpenCodeArtifact={artifactWorkspace.openArtifact}
                   onCycleMessageBranch={onCycleMessageBranch}
+                  onSelectMessageBranch={onSelectMessageBranch}
+                  parallelModelsBar={{
+                    modelOptions,
+                    selectedPlatformModelNames,
+                    loading: modelsLoading,
+                    disabled: false,
+                    onToggle: togglePlatformModelName,
+                    onCatalogRefresh: refreshModelCatalogForComposer,
+                  }}
                   onToggleStar={onToggleActiveConversationStar}
                   onRename={onRenameActiveConversation}
                   onAutoRename={onAutoRenameActiveConversation}
@@ -1305,6 +1337,8 @@ export function AppChatArea() {
                   billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
                   splitRightInset={hasInlineArtifact}
                   contentWidthClassName={chatContentWidthClassName}
+                  contentWidth={contentWidth}
+                  onContentWidthChange={updateContentWidth}
                   onScreenshotFull={screenshot.captureFullConversation}
                   onScreenshotSelect={screenshot.startSelectionScreenshot}
                   screenshot={{

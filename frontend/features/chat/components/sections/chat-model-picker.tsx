@@ -1,13 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, TicketSlash } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Plus, TicketSlash, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { InputGroupButton } from "@/components/ui/input-group";
+import { MAX_PARALLEL_MODELS } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import {
   resolveDesktopMenuListMaxHeight,
@@ -31,10 +33,13 @@ type ChatModelPickerProps = {
   billingDisplayCurrency: BillingDisplayCurrency;
   billingDisplayUsdToCnyRate: number | null;
   selectedPlatformModelName: string;
+  selectedPlatformModelNames?: string[];
   loading: boolean;
   disabled: boolean;
   onModelCatalogRefresh?: () => void | Promise<void>;
   onModelChange: (platformModelName: string) => void;
+  onToggleParallelModel?: (platformModelName: string) => boolean;
+  onClearParallelModels?: () => void;
 };
 
 const MODEL_MENU_COLLISION_PADDING = 24;
@@ -367,19 +372,29 @@ function formatTokenQuantity(value: number): string {
 function ChatModelMenuItem({
   model,
   selected,
+  parallelSelected,
+  canToggleParallel,
   onSelect,
+  onToggleParallel,
   billingDisplay,
   pricingLabels,
   viewPricingLabel,
+  addParallelModelLabel,
+  removeParallelModelLabel,
   pricingTooltipSide,
   buttonRef,
 }: {
   model: ChatModelOption;
   selected: boolean;
+  parallelSelected?: boolean;
+  canToggleParallel?: boolean;
   onSelect: () => void;
+  onToggleParallel?: () => void;
   billingDisplay: BillingDisplayOptions;
   pricingLabels: React.ComponentProps<typeof ModelPricingTooltipContent>["labels"];
   viewPricingLabel: string;
+  addParallelModelLabel: string;
+  removeParallelModelLabel: string;
   pricingTooltipSide: "right";
   buttonRef?: React.Ref<HTMLButtonElement>;
 }) {
@@ -414,6 +429,21 @@ function ChatModelMenuItem({
           {selected ? <Check className="size-3 text-current" strokeWidth={1.7} /> : null}
         </span>
       </button>
+      {canToggleParallel && onToggleParallel ? (
+        <button
+          type="button"
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+            parallelSelected
+              ? "text-foreground/85 hover:text-foreground"
+              : "text-muted-foreground/60 hover:text-current focus-visible:text-current group-hover:text-current group-focus-within:text-current group-data-[selected=true]:text-current",
+          )}
+          aria-label={parallelSelected ? removeParallelModelLabel : addParallelModelLabel}
+          onClick={onToggleParallel}
+        >
+          {parallelSelected ? <X className="size-3.5" strokeWidth={1.8} /> : <Plus className="size-3.5" strokeWidth={1.8} />}
+        </button>
+      ) : null}
       {model.pricing ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -454,10 +484,13 @@ export function ChatModelPicker({
   billingDisplayCurrency,
   billingDisplayUsdToCnyRate,
   selectedPlatformModelName,
+  selectedPlatformModelNames,
   loading,
   disabled,
   onModelCatalogRefresh,
   onModelChange,
+  onToggleParallelModel,
+  onClearParallelModels,
 }: ChatModelPickerProps) {
   const t = useTranslations("chat.modelPicker");
   const isMobile = useIsMobile();
@@ -474,6 +507,10 @@ export function ChatModelPicker({
   const desktopSubmenuRef = React.useRef<HTMLDivElement | null>(null);
   const selectedModelButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const desktopGroupItemRefs = React.useRef(new Map<string, HTMLButtonElement>());
+  const parallelModelNames = React.useMemo(() => {
+    const names = (selectedPlatformModelNames ?? []).map((name) => name.trim()).filter(Boolean);
+    return Array.from(new Set(names));
+  }, [selectedPlatformModelNames]);
   const selectedModel = React.useMemo(
     () => modelOptions.find((item) => item.platformModelName === selectedPlatformModelName) ?? null,
     [modelOptions, selectedPlatformModelName],
@@ -681,6 +718,23 @@ export function ChatModelPicker({
     handleOpenChange(false);
   }, [handleOpenChange]);
 
+  const canToggleParallelModel = Boolean(onToggleParallelModel);
+  const toggleParallelModel = React.useCallback(
+    (platformModelName: string) => {
+      if (!onToggleParallelModel) {
+        return;
+      }
+      const accepted = onToggleParallelModel(platformModelName);
+      if (!accepted) {
+        // 达到并行上限或移除最后一个模型时提示原因。
+        toast.error(t("parallelModelLimit"), {
+          description: t("parallelModelLimitDescription", { count: MAX_PARALLEL_MODELS }),
+        });
+      }
+    },
+    [onToggleParallelModel, t],
+  );
+
   const selectDesktopGroup = React.useCallback((groupKey: string) => {
     if (groupKey === activeDesktopGroupKey) {
       return;
@@ -715,6 +769,11 @@ export function ChatModelPicker({
                   {t("selectModel")}
                 </span>
               )}
+              {parallelModelNames.length > 1 && !loading ? (
+                <span className="ml-0.5 inline-flex h-4 shrink-0 items-center rounded-full bg-accent px-1.5 text-[10px] font-semibold leading-none text-accent-foreground">
+                  {t("parallelCount", { count: parallelModelNames.length })}
+                </span>
+              ) : null}
             </InputGroupButton>
           </PopoverTrigger>
           <PopoverContent
@@ -750,8 +809,21 @@ export function ChatModelPicker({
                   ) : (
                     <span className="text-[11px] font-medium text-foreground">{t("group")}</span>
                   )}
-                  <span className="min-w-0 truncate text-right text-[10px] font-medium text-muted-foreground">
-                    {mobileGroup ? mobileGroup.label : selectedGroupLabel}
+                  <span className="flex min-w-0 items-center justify-end gap-1.5">
+                    {parallelModelNames.length > 1 && onClearParallelModels ? (
+                      <button
+                        type="button"
+                        className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label={t("clearParallelModels")}
+                        onClick={onClearParallelModels}
+                      >
+                        <X className="size-3" strokeWidth={1.8} />
+                        <span>{t("clearParallelModels")}</span>
+                      </button>
+                    ) : null}
+                    <span className="min-w-0 truncate text-right text-[10px] font-medium text-muted-foreground">
+                      {mobileGroup ? mobileGroup.label : selectedGroupLabel}
+                    </span>
                   </span>
                 </div>
                 {modelGroups.length === 0 ? (
@@ -767,6 +839,9 @@ export function ChatModelPicker({
                             key={item.platformModelName}
                             model={item}
                             selected={item.platformModelName === selectedPlatformModelName}
+                            parallelSelected={parallelModelNames.includes(item.platformModelName)}
+                            canToggleParallel={canToggleParallelModel}
+                            onToggleParallel={() => toggleParallelModel(item.platformModelName)}
                             onSelect={() => {
                               onModelChange(item.platformModelName);
                               closeMenu();
@@ -774,6 +849,8 @@ export function ChatModelPicker({
                             billingDisplay={billingDisplay}
                             pricingLabels={pricingLabels}
                             viewPricingLabel={t("viewPricing")}
+                            addParallelModelLabel={t("addParallelModel")}
+                            removeParallelModelLabel={t("removeParallelModel")}
                             pricingTooltipSide="right"
                           />
                         ))}
@@ -829,6 +906,9 @@ export function ChatModelPicker({
                             key={item.platformModelName}
                             model={item}
                             selected={item.platformModelName === selectedPlatformModelName}
+                            parallelSelected={parallelModelNames.includes(item.platformModelName)}
+                            canToggleParallel={canToggleParallelModel}
+                            onToggleParallel={() => toggleParallelModel(item.platformModelName)}
                             buttonRef={item.platformModelName === selectedPlatformModelName ? selectedModelButtonRef : undefined}
                             onSelect={() => {
                               onModelChange(item.platformModelName);
@@ -837,6 +917,8 @@ export function ChatModelPicker({
                             billingDisplay={billingDisplay}
                             pricingLabels={pricingLabels}
                             viewPricingLabel={t("viewPricing")}
+                            addParallelModelLabel={t("addParallelModel")}
+                            removeParallelModelLabel={t("removeParallelModel")}
                             pricingTooltipSide="right"
                           />
                         ))}
@@ -851,8 +933,22 @@ export function ChatModelPicker({
                 >
                   <div className="flex h-7 shrink-0 items-center justify-between gap-3 px-2">
                     <span className="text-[11px] font-medium text-foreground">{t("group")}</span>
-                    <span className="truncate text-[10px] font-medium text-muted-foreground">
-                      {selectedGroupLabel}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {parallelModelNames.length > 1 && onClearParallelModels ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          aria-label={t("clearParallelModels")}
+                          title={t("clearParallelModels")}
+                          onClick={onClearParallelModels}
+                        >
+                          <X className="size-3" strokeWidth={1.8} />
+                          <span>{t("clearParallelModels")}</span>
+                        </button>
+                      ) : null}
+                      <span className="truncate text-[10px] font-medium text-muted-foreground">
+                        {selectedGroupLabel}
+                      </span>
                     </span>
                   </div>
                   {modelGroups.length === 0 ? (

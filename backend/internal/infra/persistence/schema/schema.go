@@ -60,6 +60,7 @@ func Models() []interface{} {
 		&model.AnnouncementUserState{},
 		&model.PromptPreset{},
 		&model.Skill{},
+		&model.Note{},
 		&model.ConversationProjectMCPTool{},
 		&model.ConversationProjectSkill{},
 		&model.SystemSetting{},

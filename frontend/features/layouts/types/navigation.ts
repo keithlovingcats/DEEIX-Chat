@@ -23,7 +23,7 @@ type NavigationCommandItem = NavigationItemBase & {
 };
 
 type NavigationLinkItem = NavigationItemBase & {
-  id: "recent" | "files" | "skillsPrompt";
+  id: "recent" | "files" | "skillsPrompt" | "notes";
   kind: "link";
   href: string;
 };

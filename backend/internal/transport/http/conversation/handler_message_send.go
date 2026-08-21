@@ -92,6 +92,7 @@ func (h *Handler) parseSendMessageInput(c *gin.Context) (appconversation.SendMes
 		ContentType:             req.ContentType,
 		Content:                 req.Content,
 		PlatformModelName:       req.Model,
+		ParallelModels:          req.ParallelModels,
 		Options:                 req.Options,
 		ClientRunID:             req.ClientRunID,
 		FileIDs:                 req.FileIDs,

@@ -10,7 +10,9 @@ import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -55,6 +57,9 @@ import { parseKindsJSON } from "@/shared/model/llm-schema";
 import { platformModifierLabel, platformSendShortcut } from "@/shared/lib/platform-shortcuts";
 import type { SendShortcut } from "@/features/settings/types/settings";
 import { ChatDisplayAppearance } from "./chat-display-appearance";
+import { HIGHLIGHT_THEMES, MERMAID_THEMES } from "@/shared/components/markdown/markdown-themes";
+import { CodeThemePreview, MermaidThemePreview } from "./theme-previews";
+
 
 type ModelOption = ModelSelectOption;
 
@@ -709,6 +714,68 @@ export function SettingsChat() {
               disabled={loading}
             />
           </div>
+          <div className="pt-4">
+            <SettingsFieldRow
+              title={t("display.codeThemeTitle")}
+              description={t("display.codeThemeDescription")}
+            >
+              <Select
+                value={settings.codeHighlightTheme || "__auto__"}
+                onValueChange={(value) =>
+                  handleEnum("chat.code_highlight_theme", "codeHighlightTheme")(value === "__auto__" ? "" : value)
+                }
+                disabled={loading}
+              >
+                <SelectTrigger size="sm" className="text-left md:text-right *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-start md:*:data-[slot=select-value]:justify-end">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  <SelectItem value="__auto__">{t("display.codeThemeAuto")}</SelectItem>
+                  <SelectGroup>
+                    <SelectLabel>{t("display.codeThemeLightGroup")}</SelectLabel>
+                    {HIGHLIGHT_THEMES.filter((item) => item.type === "light").map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>{t("display.codeThemeDarkGroup")}</SelectLabel>
+                    {HIGHLIGHT_THEMES.filter((item) => item.type === "dark").map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </SettingsFieldRow>
+          </div>
+          <CodeThemePreview themeId={settings.codeHighlightTheme} />
+          <div className="pt-4">
+            <SettingsFieldRow
+              title={t("display.mermaidThemeTitle")}
+              description={t("display.mermaidThemeDescription")}
+            >
+              <Select
+                value={settings.mermaidTheme}
+                onValueChange={handleEnum("chat.mermaid_theme", "mermaidTheme")}
+                disabled={loading}
+              >
+                <SelectTrigger size="sm" className="text-left md:text-right *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-start md:*:data-[slot=select-value]:justify-end">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {MERMAID_THEMES.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.displayName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </SettingsFieldRow>
+          </div>
+          <MermaidThemePreview themeId={settings.mermaidTheme} />
         </SettingsFieldList>
       </SettingsSection>
 

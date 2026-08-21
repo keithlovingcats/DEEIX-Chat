@@ -106,9 +106,15 @@ func (r *Repo) ReserveUsageBalance(ctx context.Context, input domainbilling.Usag
 		availableNanousd := addNonNegativeInt64(availableCreditNanousd, availableBalanceNanousd)
 		requestedNanousd := input.RequestedNanousd
 		if requestedNanousd <= 0 {
-			// 默认预算按剩余槽位分配，在限制并发风险的同时保留分支并行生成能力。
+			// 默认预算按剩余槽位分配并加单槽保底：槽位上限放大后纯均分会让
+			// 单路预算过小、长输出中途失败；floor 保证首路有可用额度，
+			// 但不放大可分配总额（requested 仍受 available 约束）。
 			remainingSlots := int64(domainbilling.UsageReservationMaxActivePerUser) - activeReservationCount
-			requestedNanousd = divideBudgetAcrossSlots(availableNanousd, remainingSlots)
+			requestedNanousd = divideBudgetAcrossSlots(
+				availableNanousd,
+				remainingSlots,
+				domainbilling.UsageReservationDefaultFloorNanousd(),
+			)
 		}
 		if requestedNanousd <= 0 || requestedNanousd > availableNanousd {
 			return repository.ErrInsufficientBalance
@@ -356,14 +362,21 @@ func addNonNegativeInt64(a int64, b int64) int64 {
 	return a + b
 }
 
-// divideBudgetAcrossSlots 向上取整分配预算，确保剩余槽位获得稳定的风险额度。
-func divideBudgetAcrossSlots(availableNanousd int64, slots int64) int64 {
+// divideBudgetAcrossSlots 向上取整分配预算，并对单槽结果应用保底值；
+// 保底不放大可分配总额——超过 available 时收敛到 available 本身。
+func divideBudgetAcrossSlots(availableNanousd int64, slots int64, floorNanousd int64) int64 {
 	if availableNanousd <= 0 || slots <= 0 {
 		return 0
 	}
 	result := availableNanousd / slots
 	if availableNanousd%slots != 0 {
 		result++
+	}
+	if floorNanousd > 0 && result < floorNanousd {
+		result = floorNanousd
+	}
+	if result > availableNanousd {
+		result = availableNanousd
 	}
 	return result
 }

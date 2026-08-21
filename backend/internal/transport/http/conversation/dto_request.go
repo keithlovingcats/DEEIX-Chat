@@ -94,6 +94,7 @@ type SendMessageRequest struct {
 	ContentType             string                 `json:"contentType" binding:"required,oneof=text markdown image file mixed"`
 	Content                 string                 `json:"content" binding:"required"`
 	Model                   string                 `json:"model,omitempty" binding:"omitempty,max=128"`
+	ParallelModels          []string               `json:"parallelModels,omitempty" binding:"max=20,dive,max=128"`
 	Options                 map[string]interface{} `json:"options,omitempty"`
 	ClientRunID             string                 `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
 	FileIDs                 []string               `json:"fileIDs,omitempty" binding:"max=20"`

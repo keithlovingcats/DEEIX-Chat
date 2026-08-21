@@ -110,8 +110,19 @@ const (
 	// UsageReservationStatusReconciliation 表示上游已产生费用，但账单需要后台核对。
 	UsageReservationStatusReconciliation = "reconciliation"
 	// UsageReservationMaxActivePerUser 限制单个用户同时占用的付费调用预算数量。
-	UsageReservationMaxActivePerUser = 5
+	// 多模型并行对话按选中模型数占用预留槽位，上限需覆盖最大并行模型数。
+	UsageReservationMaxActivePerUser = 20
+	// usageReservationDefaultFloorNanousd 是动态分配预算的单槽保底值（0.1 USD）。
+	// 槽位上限放大到 20 后，纯均分会让低余额用户的单路预算过小，
+	// 长输出在预留耗尽后中途失败；保底值让首路始终有可用的风险额度，
+	// 超出可分配总额时仍按剩余可用额收敛（不放大透支风险）。
+	usageReservationDefaultFloorNanousd = 100_000_000
 )
+
+// UsageReservationDefaultFloorNanousd 返回动态分配预算的单槽保底值。
+func UsageReservationDefaultFloorNanousd() int64 {
+	return usageReservationDefaultFloorNanousd
+}
 
 // PaymentOrder 表示一次支付单。
 type PaymentOrder struct {

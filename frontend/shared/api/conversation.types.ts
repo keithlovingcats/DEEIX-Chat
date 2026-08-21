@@ -226,11 +226,39 @@ export type SendMessageResult = Omit<SendMessageResponse, "assistantMessage" | "
   metadataRefreshHint?: "pending" | "not_needed" | "skipped_no_titleable_content" | string;
 };
 
+export type StreamMessageCreatedEvent = {
+  seq?: number;
+  userMessage: Pick<MessageDTO, "publicID" | "runID" | "role" | "status"> & {
+    parentPublicID?: string | null;
+    branchReason?: string;
+  };
+  assistantMessage: Pick<MessageDTO, "publicID" | "runID" | "role" | "status"> & {
+    parentPublicID?: string | null;
+    branchReason?: string;
+  };
+};
+
 export type StreamMessageEvent =
   | {
       type: "file_proc";
       seq?: number;
       message: string;
+    }
+  | {
+      type: "message_created";
+      seq?: number;
+      userMessage: StreamMessageCreatedEvent["userMessage"];
+      assistantMessage: StreamMessageCreatedEvent["assistantMessage"];
+    }
+  | {
+      type: "parallel_models_persist_failed";
+      seq?: number;
+      parallel_models?: string[];
+    }
+  | {
+      type: "parallel_models_filtered";
+      seq?: number;
+      invalid_models?: string[];
     }
   | {
       type: "rag_search";
