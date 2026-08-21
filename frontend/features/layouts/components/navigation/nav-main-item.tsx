@@ -84,15 +84,15 @@ export function NavMainItem({
               aria-hidden
               strokeWidth={1.6}
               className={cn("size-4 text-current", isHovered && "scale-105")}
-              animate={isHovered ? "default" : false}
+              animate={isHovered ? "default" : undefined}
             />
           </span>
         ) : isCollapsed ? (
           <span className="flex size-8 items-center justify-center rounded-md transition-colors hover:bg-accent">
-            <Icon aria-hidden strokeWidth={1.6} className="size-4 text-current" animate={isHovered ? "default" : false} />
+            <Icon aria-hidden strokeWidth={1.6} className="size-4 text-current" animate={isHovered ? "default" : undefined} />
           </span>
         ) : (
-          <Icon aria-hidden strokeWidth={1.6} className="size-4 text-current" animate={isHovered ? "default" : false} />
+          <Icon aria-hidden strokeWidth={1.6} className="size-4 text-current" animate={isHovered ? "default" : undefined} />
         )}
       </span>
 
