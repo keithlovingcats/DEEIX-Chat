@@ -1,6 +1,16 @@
 {
   "title": "模型",
   "pageTitle": "模型管理",
+  "circuitBreaker": {
+    "enabledStatus": "自动熔断已开启",
+    "disabledStatus": "自动熔断已关闭",
+    "label": "自动熔断",
+    "description": "模型或上游在统计窗口内累计失败达到阈值后，系统将暂停向其路由请求，并在熔断结束后自动探测恢复。",
+    "loadFailed": "加载模型熔断设置失败",
+    "updateFailed": "更新模型熔断设置失败",
+    "enabledToast": "自动熔断已开启",
+    "disabledToast": "自动熔断已关闭"
+  },
   "platformModel": "平台模型",
   "upstreamModel": "上游模型",
   "routes": "路由",
@@ -29,7 +39,8 @@
     "audio": "语音",
     "image_gen": "图像生成",
     "image_edit": "图像编辑",
-    "video_gen": "视频生成"
+    "video_gen": "视频生成",
+    "video_extension": "视频扩展"
   },
   "table": {
     "searchPlaceholder": "搜索模型、厂商、分组或描述",
@@ -371,7 +382,7 @@
     "capabilitiesJSON": "模型能力 JSON",
     "capabilitiesDescription": "配置模型默认参数和聊天参数面板中的可视化控件。",
     "circuitBreak": "模型熔断机制",
-    "circuitBreakDescription": "配置当前主模型下属具体来源的熔断策略；每个来源按上游独立熔断，填 0 表示使用系统默认。",
+    "circuitBreakDescription": "为当前模型的各上游来源配置熔断规则。自动熔断开启后生效；各来源独立统计失败并执行熔断，参数为 0 时继承系统默认值。",
     "circuitPolicyMode": "应用方式",
     "circuitPolicyDefault": "兜底配置（来源未单独配置时生效）",
     "circuitPolicyEnforced": "全局覆盖（当前主模型下属所有来源）",
@@ -412,8 +423,6 @@
       "promptCacheImplicit": "隐式",
       "promptCacheExplicit": "显式（GPT-5.6+）",
       "promptCacheTTL": "缓存时长",
-      "promptCacheRetention": "保留策略",
-      "promptCacheRetentionDefault": "上游默认",
       "toolsIntro": "配置该模型允许使用的官方原生工具；只有管理员在这里开启的官方工具才会进入会话配置。",
       "defaultsHelp": "默认参数会写入 defaultOptions。value 按 JSON 值解析，例如 0.7、true、null、\"high\" 或对象。",
       "controlsHelp": "参数控件会写入 optionControls。path 对应真实请求参数路径，最终是否透传仍由参数过滤规则决定。",

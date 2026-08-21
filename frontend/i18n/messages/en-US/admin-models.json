@@ -1,6 +1,16 @@
 {
   "title": "Models",
   "pageTitle": "Model management",
+  "circuitBreaker": {
+    "enabledStatus": "Automatic circuit breaker enabled",
+    "disabledStatus": "Automatic circuit breaker disabled",
+    "label": "Automatic circuit breaker",
+    "description": "Routing pauses when a model or upstream reaches its failure threshold, then resumes after an automatic recovery probe.",
+    "loadFailed": "Failed to load circuit-breaker settings",
+    "updateFailed": "Failed to update circuit-breaker settings",
+    "enabledToast": "Automatic circuit breaker enabled",
+    "disabledToast": "Automatic circuit breaker disabled"
+  },
   "platformModel": "Platform model",
   "upstreamModel": "Upstream model",
   "routes": "Routes",
@@ -29,7 +39,8 @@
     "audio": "Audio",
     "image_gen": "Image generation",
     "image_edit": "Image editing",
-    "video_gen": "Video generation"
+    "video_gen": "Video generation",
+    "video_extension": "Video extension"
   },
   "table": {
     "searchPlaceholder": "Search model, vendor, group, or description",
@@ -371,7 +382,7 @@
     "capabilitiesJSON": "Model capabilities JSON",
     "capabilitiesDescription": "Configure model default parameters and visual controls in the chat parameters panel.",
     "circuitBreak": "Model circuit breaker",
-    "circuitBreakDescription": "Configure circuit policy for sources under this parent model. Each source is isolated by upstream route; use 0 to keep using the system default.",
+    "circuitBreakDescription": "Configure circuit-breaker rules for this model's upstream sources. Rules apply when automatic circuit breaking is enabled; failures and circuit state are tracked independently per source, and 0 inherits the system default.",
     "circuitPolicyMode": "Apply mode",
     "circuitPolicyDefault": "Fallback config (used when a source has no override)",
     "circuitPolicyEnforced": "Global override (all sources under this parent)",
@@ -412,8 +423,6 @@
       "promptCacheImplicit": "Implicit",
       "promptCacheExplicit": "Explicit (GPT-5.6+)",
       "promptCacheTTL": "Cache TTL",
-      "promptCacheRetention": "Retention",
-      "promptCacheRetentionDefault": "Provider default",
       "toolsIntro": "Configure official native tools allowed for this model. Only tools enabled here can enter conversation settings.",
       "defaultsHelp": "Default parameters are written to defaultOptions. value is parsed as a JSON value, for example 0.7, true, null, \"high\", or an object.",
       "controlsHelp": "Parameter controls are written to optionControls. path maps to the real request option path, and final passthrough is still controlled by the option policy.",

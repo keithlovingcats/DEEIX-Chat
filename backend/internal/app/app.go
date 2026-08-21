@@ -21,6 +21,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
 	appembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/embedding"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/extraction"
+	appknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/knowledgebase"
 	applogcleanup "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/logcleanup"
 	appmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/memory"
@@ -56,6 +57,7 @@ import (
 	channelrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/channel"
 	contentmoderationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/contentmoderation"
 	conversationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/conversation"
+	knowledgebaserepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/knowledgebase"
 	logcleanuprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/logcleanup"
 	mcprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/mcp"
 	memoryrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/memory"
@@ -75,6 +77,7 @@ import (
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
 	contentmoderationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/contentmoderation"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
+	knowledgebasehttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/knowledgebase"
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
 	promptpresethttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/promptpreset"
@@ -199,7 +202,8 @@ func NewApp() (*App, error) {
 		return nil, fmt.Errorf("apply settings: %w", err)
 	}
 
-	// 启动时确保 embedding_model_signature 已写入：首次部署或签名字段为空时自动补全。
+	// 启动时补全旧版模型签名以兼容已有向量。后续真正修改模型、
+	// 维度或服务地址时，设置处理器会切换到包含服务地址的新空间签名。
 	if startCfg := runtimeCfg.Snapshot(); startCfg.EmbeddingModelSignature == "" && startCfg.RAGModel != "" {
 		initialSig := appembedding.ComputeModelSignature(startCfg.RAGModel, startCfg.EmbeddingOutputDimensions)
 		if _, seedErr := settingsService.BatchUpdate(context.Background(), []settings.PatchItem{
@@ -367,6 +371,16 @@ func NewApp() (*App, error) {
 	noteService := appnote.NewService(noteRepo)
 	noteHandler := notehttp.NewHandler(noteService)
 	noteModule := notehttp.NewModule(noteHandler)
+	knowledgeBaseRepo := knowledgebaserepo.NewRepo(db)
+	knowledgeBaseService := appknowledgebase.NewService(knowledgeBaseRepo)
+	knowledgeBaseService.SetAuditWriter(auditService)
+	knowledgeBaseService.SetFileCleaner(conversationService)
+	knowledgeBaseService.SetFileContentOpener(conversationService)
+	knowledgeBaseService.SetFileUploader(conversationService)
+	knowledgeBaseService.SetLogger(log)
+	conversationService.SetKnowledgeBaseResolver(knowledgeBaseService)
+	knowledgeBaseHandler := knowledgebasehttp.NewHandler(knowledgeBaseService, runtimeCfg)
+	knowledgeBaseModule := knowledgebasehttp.NewModule(knowledgeBaseHandler)
 
 	hc := newHealthChecker(db, cfg.CacheDriver, redisClient)
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
@@ -384,6 +398,7 @@ func NewApp() (*App, error) {
 		PromptPreset:      promptPresetModule,
 		Skill:             skillModule,
 		Notes:             noteModule,
+		KnowledgeBase:     knowledgeBaseModule,
 		Settings:          settingsModule,
 		UserSettings:      userSettingsModule,
 		User:              userModule,
@@ -393,6 +408,10 @@ func NewApp() (*App, error) {
 	}
 
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
+	if _, reconcileErr := embeddingService.ReconcileIndex(backgroundCtx); reconcileErr != nil {
+		log.Warn("embedding index reconciliation failed", zap.Error(reconcileErr))
+	}
+	embeddingService.StartBackgroundWorkers(backgroundCtx)
 	conversationService.StartBackgroundWorkers(backgroundCtx)
 	contentModerationService.StartBackgroundWorkers(backgroundCtx)
 	channelService.StartModelIconAssetCleanup(backgroundCtx)
