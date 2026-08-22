@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
-import { ListChecks } from "lucide-react";
+import { Eye, ListChecks, PencilLine } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,11 +15,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { type NoteAutosaveStatus, useNoteAutosave } from "@/features/notes/hooks/use-note-autosave";
 import { countChecklist, suggestTitle } from "@/features/notes/lib/checklist";
-import { useNoteAutosave, type NoteAutosaveStatus } from "@/features/notes/hooks/use-note-autosave";
 import { cn } from "@/lib/utils";
-import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import type { NoteDTO } from "@/shared/api/notes.types";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 
 const TITLE_MAX = 200;
 const CONTENT_MAX = 100000;
@@ -118,7 +118,7 @@ export function NoteEditDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : handleClose())}>
       <DialogContent
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-0 overflow-hidden p-0"
+        className="flex max-h-[85vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
         onPointerDownOutside={(event) => {
           // 自动保存模式下误点遮罩不应丢内容：先落库再关。
           event.preventDefault();
@@ -171,17 +171,22 @@ export function NoteEditDialog({
               type="button"
               variant="ghost"
               size="sm"
-              className="ml-auto h-7 px-2 text-xs text-muted-foreground"
+              className="ml-auto h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
               onClick={() => setShowPreview((current) => !current)}
             >
-              {showPreview ? t("editMode") : t("previewMode")}
+              {showPreview ? (
+                <PencilLine className="size-3.5" strokeWidth={1.8} />
+              ) : (
+                <Eye className="size-3.5" strokeWidth={1.8} />
+              )}
+              <span>{showPreview ? t("editMode") : t("previewMode")}</span>
             </Button>
           </div>
 
           {showPreview ? (
             <div className="chat-font-content min-h-[220px] flex-1 overflow-y-auto rounded-lg border-[0.5px] border-border bg-muted/20 p-4 text-[15px] leading-8 text-foreground">
               {content.trim() ? (
-                <StreamdownRender content={content} />
+                <StreamdownRender content={content} externalLinkBehavior="open" breaks />
               ) : (
                 <p className="text-sm text-muted-foreground">{t("previewEmpty")}</p>
               )}

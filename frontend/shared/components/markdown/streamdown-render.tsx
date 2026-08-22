@@ -1,18 +1,19 @@
 "use client";
 
-import * as React from "react";
 import { cjk } from "@streamdown/cjk";
 import { createMathPlugin } from "@streamdown/math";
+import { useTranslations } from "next-intl";
+import * as React from "react";
+import remarkBreaks from "remark-breaks";
+import type { BundledTheme } from "streamdown";
 import {
-  defaultRehypePlugins,
   type AllowedTags,
   type Components,
+  defaultRehypePlugins,
   type PluginConfig,
   Streamdown,
   type StreamdownProps,
 } from "streamdown";
-import { useTranslations } from "next-intl";
-
 import { ChevronDown } from "@/components/animate-ui/icons/chevron-down";
 import {
   Accordion,
@@ -26,20 +27,35 @@ import {
   AdaptiveMarkdownTable,
   MarkdownTableStreamingContext,
 } from "./adaptive-markdown-table";
-import { useMarkdownCopy } from "./use-markdown-copy";
-
+import { useMarkdownTheme } from "./markdown-theme-provider";
+import type { MermaidTheme } from "./markdown-themes";
 import {
   CollapsibleCodePre,
-  MarkdownImageActionsContext,
+  type MarkdownArtifactActions,
+  MarkdownArtifactActionsContext,
+  type MarkdownExternalLinkBehavior,
+  MarkdownExternalLinkBehaviorProvider,
   MarkdownImage,
+  type MarkdownImageActions,
+  MarkdownImageActionsContext,
   MarkdownLink,
   MarkdownParagraph,
-  MarkdownArtifactActionsContext,
   MarkdownStrong,
   ThinkingHeading,
-  type MarkdownArtifactActions,
-  type MarkdownImageActions,
 } from "./streamdown-components";
+import {
+  containsMarkdownMath,
+  normalizeContent,
+  normalizeCurrencyDollars,
+  normalizeEscapedHTMLAttributeQuotes,
+  normalizeHTMLVisualBlankLines,
+  normalizeHTMLVisualMarkdownFences,
+  normalizeLatexUnicodeSymbols,
+  normalizeMathDelimiters,
+  normalizeMermaidBlocks,
+  parseStreamdownSegments,
+  type RenderSegment,
+} from "./streamdown-content";
 import {
   MarkdownHTMLArticle,
   MarkdownHTMLAside,
@@ -52,23 +68,8 @@ import {
   MarkdownHTMLSummary,
 } from "./streamdown-html";
 import { renderRawHTMLMathRehypePlugin } from "./streamdown-html-math";
-import {
-  normalizeContent,
-  normalizeCurrencyDollars,
-  normalizeEscapedHTMLAttributeQuotes,
-  normalizeHTMLVisualBlankLines,
-  normalizeHTMLVisualMarkdownFences,
-  normalizeLatexUnicodeSymbols,
-  normalizeMathDelimiters,
-  normalizeMermaidBlocks,
-  parseStreamdownSegments,
-  containsMarkdownMath,
-  type RenderSegment,
-} from "./streamdown-content";
 import { normalizeBareURLRehypePlugin } from "./streamdown-url-normalize";
-import { useMarkdownTheme } from "./markdown-theme-provider";
-import type { BundledTheme } from "streamdown";
-import type { MermaidTheme } from "./markdown-themes";
+import { useMarkdownCopy } from "./use-markdown-copy";
 
 type StreamdownRenderProps = {
   content: unknown;
@@ -78,6 +79,8 @@ type StreamdownRenderProps = {
   sourcePositions?: boolean;
   imageActions?: MarkdownImageActions;
   artifactActions?: MarkdownArtifactActions;
+  externalLinkBehavior?: MarkdownExternalLinkBehavior;
+  breaks?: boolean;
 };
 
 type StreamdownFeatureFlags = {
@@ -99,6 +102,21 @@ const STREAMDOWN_MATH_BASE_PLUGINS: PluginConfig = {
 
 const STREAMDOWN_PLUGIN_CACHE = new Map<string, PluginConfig>();
 const STREAMDOWN_PLUGIN_PROMISE_CACHE = new Map<string, Promise<PluginConfig>>();
+
+// breaks 场景：向 cjk 插件的 remarkPluginsAfter 追加 remark-breaks（remarkGfm 之后运行，
+// 保留 cjk 默认的 autolink 边界拆分等能力；soft break 转 <br>，代码块内不受影响）。
+function withRemarkBreaks(base: PluginConfig): PluginConfig {
+  if (!base.cjk) {
+    return base;
+  }
+  return {
+    ...base,
+    cjk: {
+      ...base.cjk,
+      remarkPluginsAfter: [...base.cjk.remarkPluginsAfter, remarkBreaks],
+    },
+  };
+}
 
 const STREAMDOWN_CONTROLS = {
   code: {
@@ -637,13 +655,19 @@ export const StreamdownRender = React.memo(function StreamdownRender({
   sourcePositions = false,
   imageActions,
   artifactActions,
+  externalLinkBehavior = "confirm",
+  breaks = false,
 }: StreamdownRenderProps) {
   const { shikiThemePair, mermaidTheme } = useMarkdownTheme();
   const normalizedContent = React.useMemo(
     () => normalizeStreamdownContent(content, sourcePositions),
     [content, sourcePositions],
   );
-  const plugins = useStreamdownPlugins(normalizedContent, mermaidTheme, shikiThemePair);
+  const basePlugins = useStreamdownPlugins(normalizedContent, mermaidTheme, shikiThemePair);
+  const plugins = React.useMemo(
+    () => (breaks ? withRemarkBreaks(basePlugins) : basePlugins),
+    [basePlugins, breaks],
+  );
   const segments = React.useMemo(
     () =>
       parseStreamdownSegments(normalizedContent, {
@@ -704,6 +728,7 @@ export const StreamdownRender = React.memo(function StreamdownRender({
       onKeyDownCapture={handleMarkdownCopyKeyDownCapture}
       onPointerDownCapture={handleMarkdownCopyPointerDownCapture}
     >
+      <MarkdownExternalLinkBehaviorProvider value={externalLinkBehavior}>
       <MarkdownTableStreamingContext.Provider value={streaming}>
         {mergedThinkingContent ? (
           <ThinkingSegmentBlock
@@ -744,6 +769,7 @@ export const StreamdownRender = React.memo(function StreamdownRender({
         </MarkdownArtifactActionsContext.Provider>
         ))}
       </MarkdownTableStreamingContext.Provider>
+      </MarkdownExternalLinkBehaviorProvider>
     </div>
   );
 });

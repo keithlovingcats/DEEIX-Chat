@@ -90,6 +90,11 @@ type MarkdownHeadingProps = React.HTMLAttributes<HTMLHeadingElement> & {
 
 const StreamdownLinkContext = React.createContext(false);
 const FootnoteBackrefGroupContext = React.createContext(false);
+
+// 外部链接点击行为：confirm = 弹安全确认框（默认，聊天 AI 输出防钓鱼）；open = 放行原生新标签页打开（笔记等用户自助内容）。
+export type MarkdownExternalLinkBehavior = "confirm" | "open";
+const MarkdownExternalLinkBehaviorContext = React.createContext<MarkdownExternalLinkBehavior>("confirm");
+export const MarkdownExternalLinkBehaviorProvider = MarkdownExternalLinkBehaviorContext.Provider;
 export const MarkdownImageActionsContext = React.createContext<MarkdownImageActions | null>(null);
 export const MarkdownArtifactActionsContext = React.createContext<MarkdownArtifactActions | null>(null);
 
@@ -494,6 +499,7 @@ export function MarkdownLink({ children, className, href, onClick, style, ...pro
   const [pendingURL, setPendingURL] = React.useState("");
   const incomplete = href === "streamdown:incomplete-link";
   const linkKind = React.useMemo(() => (href ? resolveLinkKind(href) : "invalid"), [href]);
+  const externalLinkBehavior = React.useContext(MarkdownExternalLinkBehaviorContext);
   const footnoteBackref = isFootnoteBackref(props);
   const footnoteReference = isFootnoteReference(props);
   const normalizedChildren = React.useMemo(
@@ -531,11 +537,15 @@ export function MarkdownLink({ children, className, href, onClick, style, ...pro
         return;
       }
 
+      if (externalLinkBehavior === "open") {
+        return;
+      }
+
       event.preventDefault();
       setPendingURL(href);
       setModalOpen(true);
     },
-    [href, incomplete, linkKind, onClick],
+    [externalLinkBehavior, href, incomplete, linkKind, onClick],
   );
 
   const handleConfirm = React.useCallback(() => {
