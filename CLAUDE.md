@@ -118,4 +118,4 @@ pnpm dev
 
 - 后端 API/DTO 改动 → 跑 `pnpm api:generate`，前端类型从 `@deeix/api-contract` re-export（`shared/api/conversation.types.ts`）
 - i18n 文案 zh-CN / en-US 两个 locale 同步加
-- 提交前 `pnpm verify`；commit message 用中文（类型: 描述）
+- 提交前 `pnpm verify`；commit message 用中文（类型: 描述），不加 `Co-Authored-By` 等尾注
