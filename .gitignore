@@ -164,6 +164,7 @@ docs/rules/*
 frontend/public/vendor/lobehub-icons/
 frontend/public/pwa/generated/
 docker-compose.local.yml
+/deploy-vps.md
 
 .DS_Store
 .idea
