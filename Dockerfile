@@ -11,6 +11,12 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 ARG NEXT_PUBLIC_API_BASE_URL=""
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 
+# npm registry：corepack 下载 pnpm 本体与 pnpm install 共用。
+# 网络受限环境构建传 --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+# （Node 原生 fetch 不读 http_proxy，corepack 无法走代理，需直连可达的 registry）
+ARG NPM_REGISTRY="https://registry.npmjs.org"
+ENV COREPACK_NPM_REGISTRY=${NPM_REGISTRY}
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY frontend/package.json ./frontend/package.json
 COPY backend/package.json ./backend/package.json
@@ -22,6 +28,7 @@ RUN corepack enable
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store \
+    && pnpm config set registry "${NPM_REGISTRY}" \
     && pnpm install --frozen-lockfile --prefer-offline --filter @deeix/web
 
 COPY VERSION /src/VERSION
