@@ -1,16 +1,16 @@
 "use client";
 
-import * as React from "react";
 import { ArrowUpToLine, Check, Copy, MessageCircle, Square } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useCopyAction } from "@/shared/components/copy-action";
 import { DiscussionPanel } from "@/features/chat/components/message/discussion-panel";
 import { AssistantMessageSkeleton } from "@/features/chat/components/message/message-bot";
 import type { ChatAreaMessage, ChatDiscussionGroup } from "@/features/chat/types/messages";
 import { cn } from "@/lib/utils";
+import { useCopyAction } from "@/shared/components/copy-action";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 
 /**
@@ -184,12 +184,14 @@ export function ChatMessageDiscussion({
       </div>
 
       {showFloatingBackToTop ? (
-        <div className="pointer-events-none absolute bottom-6 right-0 z-20" data-screenshot-exclude="true">
+        // sticky + h-0：不占布局空间；长讨论阅读中途按钮悬浮于滚动视口右下角，
+        // 滚到气泡底部时回落到气泡右下角自然位置（避免锚死在气泡底部而够不着）。
+        <div className="pointer-events-none sticky bottom-6 z-20 h-0 w-full" data-screenshot-exclude="true">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
+                className="pointer-events-auto absolute bottom-0 right-0 inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
                 aria-label={t("backToDiscussionTop")}
                 onClick={scrollToMessageTop}
               >

@@ -14,10 +14,10 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageAttachmentRow } from "@/features/chat/components/message/message-attachment";
 import { MessageKnowledgeSources } from "@/features/chat/components/message/message-knowledge-sources";
 import type { AssistantReaction } from "@/features/chat/components/message/message-meta";
@@ -519,12 +519,14 @@ export function ChatMessageBot({
       ) : null}
 
       {hasModelBranches && showFloatingBackToTop ? (
-        <div className="pointer-events-none absolute bottom-6 right-0 z-20" data-screenshot-exclude="true">
+        // sticky + h-0：不占布局空间；长回复阅读中途按钮悬浮于滚动视口右下角，
+        // 滚到回复底部时回落到消息右下角自然位置（避免锚死在消息底部而够不着）。
+        <div className="pointer-events-none sticky bottom-6 z-20 h-0 w-full" data-screenshot-exclude="true">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
+                className="pointer-events-auto absolute bottom-0 right-0 inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
                 aria-label={tMessages("backToModelTabs")}
                 onClick={scrollToMessageTop}
               >
