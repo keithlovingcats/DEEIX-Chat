@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { DEFAULT_DISCUSSION_ROUNDS } from "@/features/chat/hooks/use-chat-discussion";
 import { sanitizeConversationOptions } from "@/features/chat/model/conversation-options";
 import type {
   ChatModelOption,
@@ -431,6 +432,9 @@ export function useChatModelOptions({
   const [billingDisplayUsdToCnyRate, setBillingDisplayUsdToCnyRate] = React.useState<number | null>(null);
   const [modelOptionPolicy, setModelOptionPolicy] = React.useState<ModelOptionPolicy | null>(null);
   const [mcpMaxSelectedTools, setMCPMaxSelectedTools] = React.useState(32);
+  // 多模型讨论：会话内内存态开关（默认关闭），不随会话持久化。
+  const [discussionEnabled, setDiscussionEnabled] = React.useState(false);
+  const [discussionRounds, setDiscussionRounds] = React.useState(DEFAULT_DISCUSSION_ROUNDS);
   const activeConversationRef = React.useRef<string | null>(null);
   const userSelectedModelRef = React.useRef(false);
   // toggle 快照：与对应 state 同步，避免嵌套 setState 读取过期值。
@@ -819,5 +823,9 @@ export function useChatModelOptions({
     selectedPlatformModelNames,
     togglePlatformModelName,
     clearParallelModels,
+    discussionEnabled,
+    setDiscussionEnabled,
+    discussionRounds,
+    setDiscussionRounds,
   };
 }

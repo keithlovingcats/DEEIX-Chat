@@ -19666,6 +19666,82 @@ const docTemplate = `{
                 }
             }
         },
+        "MessageDiscussionMetaRequest": {
+            "type": "object",
+            "required": [
+                "discussionID",
+                "index",
+                "role",
+                "round"
+            ],
+            "properties": {
+                "discussionID": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "index": {
+                    "type": "integer",
+                    "maximum": 30,
+                    "minimum": 0
+                },
+                "participants": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "role": {
+                    "type": "string",
+                    "enum": [
+                        "participant",
+                        "final"
+                    ]
+                },
+                "round": {
+                    "type": "integer",
+                    "maximum": 6,
+                    "minimum": 1
+                },
+                "rounds": {
+                    "type": "integer",
+                    "maximum": 5,
+                    "minimum": 1
+                }
+            }
+        },
+        "MessageDiscussionMetaResponse": {
+            "type": "object",
+            "required": [
+                "discussionID",
+                "index",
+                "role",
+                "round"
+            ],
+            "properties": {
+                "discussionID": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "participants": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "role": {
+                    "type": "string"
+                },
+                "round": {
+                    "type": "integer"
+                },
+                "rounds": {
+                    "type": "integer"
+                }
+            }
+        },
         "MessageFeedbackResponse": {
             "type": "object",
             "required": [
@@ -19992,6 +20068,9 @@ const docTemplate = `{
                 },
                 "createdAt": {
                     "type": "string"
+                },
+                "discussionMeta": {
+                    "$ref": "#/definitions/MessageDiscussionMetaResponse"
                 },
                 "editedAt": {
                     "type": "string",
@@ -23671,6 +23750,9 @@ const docTemplate = `{
                         "file",
                         "mixed"
                     ]
+                },
+                "discussionMeta": {
+                    "$ref": "#/definitions/MessageDiscussionMetaRequest"
                 },
                 "fileIDs": {
                     "type": "array",

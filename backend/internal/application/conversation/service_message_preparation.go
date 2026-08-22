@@ -42,7 +42,11 @@ func (s *Service) prepareMessageSendBranch(ctx context.Context, input *SendMessa
 
 	reuseUserMessage := branchState.ReuseUserMessage != nil
 	if reuseUserMessage {
-		input.Content = branchState.ReuseUserMessage.Content
+		// 多模型讨论发言：content 是前端编排器拼接的讨论 prompt，需原样进入生成上下文，
+		// 不回填原用户消息文本；附件仍继承原消息（讨论发言自动带原问题上下文）。
+		if input.DiscussionMeta == nil {
+			input.Content = branchState.ReuseUserMessage.Content
+		}
 		input.FileIDs = parseAttachmentSnapshotFileIDs(branchState.ReuseUserMessage.Attachments)
 	}
 	maxFiles := s.cfg.Snapshot().MaxMessageFiles
@@ -113,6 +117,7 @@ func (s *Service) createMessagePair(
 		ErrorCode:        messageErrorCode,
 		ErrorMessage:     messageErrorMessage,
 		Attachments:      "[]",
+		DiscussionMeta:   input.DiscussionMeta,
 	}
 
 	if preparation.reuseUserMessage {

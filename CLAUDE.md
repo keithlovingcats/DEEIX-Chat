@@ -63,6 +63,7 @@ cd frontend && pnpm typecheck        # tsc --noEmit
 - **断线重连**：`GET /conversation-runs/{run_id}/stream?after=seq` 回放 + 订阅；取消仅用户显式暂停（`/cancel`），断线不取消
 - **计费预留**：每次模型调用前原子预留余额（`UsageReservationMaxActivePerUser = 20`，与前端 `MAX_CONCURRENT_RUNS`/`MAX_PARALLEL_MODELS` 对齐）
 - **多模型并行对话**：前端编排 fan-out——主请求收到 `message_created` 后，以 `branchReason=retry, parent=user, source=assistant` 并行发出其余模型请求；每模型独立 run（计费/重连/审计天然隔离）。标签页 UI 在助手气泡顶部（`ModelBranchTabs`）
+- **多模型讨论**：讨论 = 串行化的 fan-out——2-5 个模型 N 轮串行辩论（第 1 轮独立回答、后续轮互见 transcript 补纠挑战，主模型合成终稿）。编排器 `use-chat-discussion.ts` 逐 turn `await submitMessage`（每发言独立 run）；讨论发言随消息落库标记 `chat_messages.discussion_meta_json`（前端随请求透传 `discussionMeta`），刷新后凭 meta 重建聚合面板（`DiscussionPanel`，组内消息不走 `ModelBranchTabs`）。⚠️ 关键守卫：`service_message_preparation.go` 的 reuseUserMessage 分支仅当 `DiscussionMeta == nil` 才回填原 user content（讨论 prompt 需原样进生成上下文），有单测锁定；首条 turn 用原始用户输入（default 分支 content 会落库为用户消息）。开关/轮数是会话内内存态，不持久化
 
 ## 本地开发
 

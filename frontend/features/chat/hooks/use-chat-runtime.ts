@@ -119,6 +119,7 @@ export function useChatRuntime({
   onActiveGenerationRunsChange,
   resumingRunID = "",
   resumingActivityLabel = "",
+  multiModelDiscussion,
 }: {
   conversationID: string | null;
   resetToken: number;
@@ -152,6 +153,7 @@ export function useChatRuntime({
   onActiveGenerationRunsChange?: () => void;
   resumingRunID?: string;
   resumingActivityLabel?: string;
+  multiModelDiscussion?: { enabled: boolean; rounds: number };
 }) {
   const [showConversationLayout, setShowConversationLayout] = React.useState(false);
   const previousResetTokenRef = React.useRef(resetToken);
@@ -237,6 +239,7 @@ export function useChatRuntime({
     activeGenerationRunsRevision,
     onActiveGenerationRunsChange,
     resumeGenerationActive: visibleResumeGenerationActive,
+    multiModelDiscussion,
   });
 
   React.useEffect(() => {
@@ -269,6 +272,7 @@ export function useChatRuntime({
     onRetryUserMessage: submitState.onRetryUserMessage,
     onSendMessage: submitState.onSendMessage,
     onStopMessage: submitState.onStopMessage,
+    discussion: submitState.discussion,
     onDeleteQueuedMessage: submitState.onDeleteQueuedMessage,
     onEditQueuedMessage: submitState.onEditQueuedMessage,
     onGuideQueuedMessage: submitState.onGuideQueuedMessage,
@@ -276,6 +280,8 @@ export function useChatRuntime({
     sending: submitState.sending || visibleResumeGenerationActive,
     visibleMessageCount: branchState.visibleMessageCount,
     visibleMessages: branchState.visibleMessages,
+    // 多模型讨论聚合渲染需要全量消息树（含 pending 乐观消息）来构造讨论组。
+    combinedMessages: branchState.combinedMessages,
     isConversationMode: showConversationLayout || branchState.visibleMessageCount > 0,
   };
 }

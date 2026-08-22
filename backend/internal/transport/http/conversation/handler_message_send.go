@@ -103,9 +103,40 @@ func (h *Handler) parseSendMessageInput(c *gin.Context) (appconversation.SendMes
 		ParentMessagePublicID:   req.ParentMessagePublicID,
 		SourceMessagePublicID:   req.SourceMessagePublicID,
 		BranchReason:            req.BranchReason,
+		DiscussionMeta:          toMessageDiscussionMetaInput(req.DiscussionMeta),
 	}
 
 	return input, conversation, &req, nil
+}
+
+// toMessageDiscussionMetaInput 将讨论发言标记 DTO 转为应用层输入；binding 已做结构校验，此处做规范化。
+func toMessageDiscussionMetaInput(req *MessageDiscussionMetaRequest) *model.MessageDiscussionMeta {
+	if req == nil {
+		return nil
+	}
+	participants := make([]string, 0, len(req.Participants))
+	for _, item := range req.Participants {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			participants = append(participants, trimmed)
+		}
+	}
+	if len(participants) == 0 {
+		participants = nil
+	}
+	meta := &model.MessageDiscussionMeta{
+		DiscussionID: strings.TrimSpace(req.DiscussionID),
+		Round:        req.Round,
+		Role:         strings.TrimSpace(req.Role),
+		Index:        req.Index,
+		Participants: participants,
+		Rounds:       req.Rounds,
+	}
+	// binding 的 required 只拦零值，空白串 trim 后为空须在此拦截：
+	// 否则写侧持久化空 ID、读侧 parseMessageDiscussionMeta 判非法丢弃，meta 静默消失。
+	if meta.DiscussionID == "" || meta.Role == "" {
+		return nil
+	}
+	return meta
 }
 
 func sendMessageBillingInput(

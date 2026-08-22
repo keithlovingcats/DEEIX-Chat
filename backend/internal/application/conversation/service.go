@@ -174,12 +174,12 @@ type AttachmentInput struct {
 
 // SendMessageInput 定义消息发送请求。
 type SendMessageInput struct {
-	UserID                  uint
-	ConversationID          uint
-	RequestID               string
-	ContentType             string
-	Content                 string
-	PlatformModelName       string
+	UserID            uint
+	ConversationID    uint
+	RequestID         string
+	ContentType       string
+	Content           string
+	PlatformModelName string
 	// ParallelModels 多模型并行组合（首元素为主模型）；非空时随发送持久化到会话。
 	ParallelModels          []string
 	Options                 map[string]interface{}
@@ -192,7 +192,10 @@ type SendMessageInput struct {
 	ParentMessagePublicID   string
 	SourceMessagePublicID   string
 	BranchReason            string
-	Cancelable              bool
+	// DiscussionMeta 多模型讨论发言标记；非空时随 assistant 消息落库，且
+	// reuseUserMessage 分支不回填原用户消息 content（讨论 prompt 需原样进入生成上下文）。
+	DiscussionMeta *model.MessageDiscussionMeta
+	Cancelable     bool
 	// OnEvent 用于向调用方推送中间事件（如 rag_search），流式场景使用。
 	OnEvent func(eventType string, payload map[string]interface{}) error
 }

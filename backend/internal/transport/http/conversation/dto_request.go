@@ -93,20 +93,32 @@ type UpdateFileRequest struct {
 
 // SendMessageRequest 发送消息请求。
 type SendMessageRequest struct {
-	ContentType             string                 `json:"contentType" binding:"required,oneof=text markdown image file mixed"`
-	Content                 string                 `json:"content" binding:"required"`
-	Model                   string                 `json:"model,omitempty" binding:"omitempty,max=128"`
-	ParallelModels          []string               `json:"parallelModels,omitempty" binding:"max=20,dive,max=128"`
-	Options                 map[string]interface{} `json:"options,omitempty"`
-	ClientRunID             string                 `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
-	FileIDs                 []string               `json:"fileIDs,omitempty" binding:"max=20"`
-	SelectedToolIDs         []uint                 `json:"selectedToolIDs,omitempty" binding:"max=128"`
-	SkillIDs                []uint                 `json:"skillIDs,omitempty" binding:"max=128"`
-	KnowledgeBaseIDs        []string               `json:"knowledgeBaseIDs,omitempty" binding:"max=8,dive,required,max=32"`
-	HTMLVisualPromptEnabled bool                   `json:"htmlVisualPrompt,omitempty"`
-	ParentMessagePublicID   string                 `json:"parentMessagePublicID,omitempty" binding:"omitempty,max=32"`
-	SourceMessagePublicID   string                 `json:"sourceMessagePublicID,omitempty" binding:"omitempty,max=32"`
-	BranchReason            string                 `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`
+	ContentType             string                        `json:"contentType" binding:"required,oneof=text markdown image file mixed"`
+	Content                 string                        `json:"content" binding:"required"`
+	Model                   string                        `json:"model,omitempty" binding:"omitempty,max=128"`
+	ParallelModels          []string                      `json:"parallelModels,omitempty" binding:"max=20,dive,max=128"`
+	Options                 map[string]interface{}        `json:"options,omitempty"`
+	ClientRunID             string                        `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
+	FileIDs                 []string                      `json:"fileIDs,omitempty" binding:"max=20"`
+	SelectedToolIDs         []uint                        `json:"selectedToolIDs,omitempty" binding:"max=128"`
+	SkillIDs                []uint                        `json:"skillIDs,omitempty" binding:"max=128"`
+	KnowledgeBaseIDs        []string                      `json:"knowledgeBaseIDs,omitempty" binding:"max=8,dive,required,max=32"`
+	HTMLVisualPromptEnabled bool                          `json:"htmlVisualPrompt,omitempty"`
+	ParentMessagePublicID   string                        `json:"parentMessagePublicID,omitempty" binding:"omitempty,max=32"`
+	SourceMessagePublicID   string                        `json:"sourceMessagePublicID,omitempty" binding:"omitempty,max=32"`
+	BranchReason            string                        `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`
+	DiscussionMeta          *MessageDiscussionMetaRequest `json:"discussionMeta,omitempty"`
+}
+
+// MessageDiscussionMetaRequest 多模型讨论发言标记；由前端编排器随请求透传，
+// 随 assistant 消息落库，客户端据此区分讨论发言与普通分支并重建讨论面板。
+type MessageDiscussionMetaRequest struct {
+	DiscussionID string   `json:"discussionID" binding:"required,max=64"`
+	Round        int      `json:"round" binding:"min=1,max=6"`
+	Role         string   `json:"role" binding:"required,oneof=participant final"`
+	Index        int      `json:"index" binding:"min=0,max=30"`
+	Participants []string `json:"participants,omitempty" binding:"omitempty,max=5,dive,max=128"`
+	Rounds       int      `json:"rounds,omitempty" binding:"omitempty,min=1,max=5"`
 }
 
 // MediaImageRequest 图片生成/编辑请求。

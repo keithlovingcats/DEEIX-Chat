@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { useChatDiscussion } from "@/features/chat/hooks/use-chat-discussion";
+import type { DiscussionSendFn } from "@/features/chat/hooks/use-chat-discussion";
 import { useChatMessageSubmit } from "@/features/chat/hooks/use-chat-message-submit";
 import { useChatStreamBuffer } from "@/features/chat/hooks/use-chat-stream-buffer";
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
@@ -59,6 +61,7 @@ export function useChatSubmitStream({
   activeGenerationRunsRevision,
   onActiveGenerationRunsChange,
   resumeGenerationActive,
+  multiModelDiscussion,
 }: {
   conversationID: string | null;
   conversationScopeKey: string;
@@ -101,10 +104,16 @@ export function useChatSubmitStream({
   activeGenerationRunsRevision: number;
   onActiveGenerationRunsChange?: () => void;
   resumeGenerationActive?: boolean;
+  /** 多模型讨论配置；透传给消息提交层做 onSendMessage 分流。 */
+  multiModelDiscussion?: { enabled: boolean; rounds: number };
 }) {
   const streamBuffer = useChatStreamBuffer({
     setPendingExchanges,
   });
+
+  // 讨论编排器与消息提交层通过 ref 桥互连：提交层的 onSendMessage 分流需要
+  // 编排器句柄，而编排器又依赖提交层的 submitMessage —— 双方都无法先行创建。
+  const sendWithDiscussionRef = React.useRef<DiscussionSendFn | null>(null);
 
   const messageSubmit = useChatMessageSubmit({
     conversationID,
@@ -154,7 +163,18 @@ export function useChatSubmitStream({
     activeGenerationRunsRevision,
     onActiveGenerationRunsChange,
     resumeGenerationActive,
+    multiModelDiscussion,
+    sendWithDiscussionRef,
   });
 
-  return messageSubmit;
+  const discussion = useChatDiscussion({
+    submitMessage: messageSubmit.submitMessage,
+    cancelRun: messageSubmit.onCancelDiscussionRun,
+  });
+  sendWithDiscussionRef.current = discussion.sendWithDiscussion;
+
+  return {
+    ...messageSubmit,
+    discussion,
+  };
 }

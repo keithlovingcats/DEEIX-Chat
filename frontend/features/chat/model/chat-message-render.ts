@@ -185,6 +185,10 @@ export function areChatAreaMessagesRenderEqual(
     areAttachmentsEqual(previous.attachments, next.attachments) &&
     areProcessTracesEqual(previous.processTrace, next.processTrace) &&
     areInlineAlertsEqual(previous.inlineAlert, next.inlineAlert) &&
-    areCompactDoneEqual(previous.compactDone, next.compactDone)
+    areCompactDoneEqual(previous.compactDone, next.compactDone) &&
+    // 讨论组按注入层产出的引用比较：group 内消息状态变化会生成新数组。
+    previous.discussion?.group === next.discussion?.group &&
+    previous.discussion?.phase === next.discussion?.phase &&
+    previous.discussion?.finalPublicID === next.discussion?.finalPublicID
   );
 }

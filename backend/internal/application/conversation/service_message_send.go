@@ -87,6 +87,26 @@ func emitEvent(onEvent func(string, map[string]interface{}) error, eventType str
 	_ = onEvent(eventType, payload)
 }
 
+// messageDiscussionMetaPayload 将讨论发言标记转为事件负载；domain 类型不携带 JSON 契约。
+func messageDiscussionMetaPayload(item *model.MessageDiscussionMeta) map[string]interface{} {
+	if item == nil {
+		return nil
+	}
+	payload := map[string]interface{}{
+		"discussionID": item.DiscussionID,
+		"round":        item.Round,
+		"role":         item.Role,
+		"index":        item.Index,
+	}
+	if len(item.Participants) > 0 {
+		payload["participants"] = item.Participants
+	}
+	if item.Rounds > 0 {
+		payload["rounds"] = item.Rounds
+	}
+	return payload
+}
+
 func normalizeRAGFallbackReason(status apprag.RetrieveStatus, fallback string) string {
 	value := strings.TrimSpace(string(status))
 	if value == "" || value == string(apprag.RetrieveStatusHit) {
@@ -347,9 +367,13 @@ func (s *Service) sendMessageInternal(
 
 	// 多模型并行：消息对落库后立即广播 publicID，客户端可据此发起同 parent 的兄弟请求。
 	if preferStream && input.OnEvent != nil {
+		assistantPayload := map[string]interface{}{"publicID": assistantMessage.PublicID, "runID": runID, "role": "assistant", "status": assistantMessage.Status, "parentPublicID": assistantMessage.ParentPublicID, "branchReason": assistantMessage.BranchReason}
+		if assistantMessage.DiscussionMeta != nil {
+			assistantPayload["discussionMeta"] = messageDiscussionMetaPayload(assistantMessage.DiscussionMeta)
+		}
 		emitEvent(input.OnEvent, "message_created", map[string]interface{}{
 			"userMessage":      map[string]interface{}{"publicID": userMessage.PublicID, "runID": runID, "role": "user", "status": userMessage.Status, "parentPublicID": userMessage.ParentPublicID, "branchReason": userMessage.BranchReason},
-			"assistantMessage": map[string]interface{}{"publicID": assistantMessage.PublicID, "runID": runID, "role": "assistant", "status": assistantMessage.Status, "parentPublicID": assistantMessage.ParentPublicID, "branchReason": assistantMessage.BranchReason},
+			"assistantMessage": assistantPayload,
 		})
 	}
 

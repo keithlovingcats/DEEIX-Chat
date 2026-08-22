@@ -104,6 +104,7 @@ function appendPendingExchangeMessages({
       status: pendingExchange.assistantPending ? "pending" : pendingExchange.assistantStatus ?? "success",
       runID: pendingExchange.runID,
       platformModelName: pendingExchange.platformModelName,
+      discussionMeta: pendingExchange.discussionMeta,
       serverMessageID: pendingExchange.assistantServerMessageID,
       createdAt: pendingExchange.assistantCreatedAt,
       updatedAt: pendingExchange.assistantUpdatedAt,

@@ -176,6 +176,18 @@ type MessageKnowledgeSource struct {
 	Preview    string
 }
 
+// MessageDiscussionMeta 标记多模型讨论发言的元信息；由前端编排器随请求透传，
+// 随 assistant 消息落库，客户端据此区分讨论发言与普通分支并重建讨论面板。
+// JSON 契约在传输层 DTO 与持久层 record 上各自维护。
+type MessageDiscussionMeta struct {
+	DiscussionID string
+	Round        int
+	Role         string // participant | final
+	Index        int
+	Participants []string
+	Rounds       int
+}
+
 // Message 表示会话消息。
 type Message struct {
 	ID                       uint
@@ -212,6 +224,7 @@ type Message struct {
 	MyFeedback               string
 	ThumbsUpCount            int64
 	ThumbsDownCount          int64
+	DiscussionMeta           *MessageDiscussionMeta
 	ProcessTrace             *MessageProcessTrace
 	EditedAt                 *time.Time
 	CreatedAt                time.Time

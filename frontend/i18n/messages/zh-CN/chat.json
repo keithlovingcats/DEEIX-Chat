@@ -326,7 +326,9 @@
     "moderationBlocked": "内容已拦截",
     "moderationBlockedDescription": "安全检查后已撤回本轮回答。",
     "moderationEventId": "事件编号：{id}",
-    "moderationCategories": "命中分类：{categories}"
+    "moderationCategories": "命中分类：{categories}",
+    "discussionInterruptedOnReconnect": "讨论已中断，仅恢复当前发言",
+    "discussionInterruptedOnReconnectDescription": "刷新或断线后讨论编排不再继续，已完成的发言保留在讨论面板中。"
   },
   "data": {
     "signInRequired": "未登录，无法加载会话消息",
@@ -579,7 +581,10 @@
     "secondUnit": "秒",
     "clearParallelModels": "仅保留主模型",
     "parallelModelLimit": "无法调整并行模型",
-    "parallelModelLimitDescription": "最多同时选择 {count} 个模型，且至少保留一个模型"
+    "parallelModelLimitDescription": "最多同时选择 {count} 个模型，且至少保留一个模型",
+    "discussionToggle": "多模型讨论",
+    "discussionRoundsCount": "{count, plural, other {# 轮}}",
+    "discussionCallsHint": "发送后将串行发起 {count} 次模型调用"
   },
   "processTrace": {
     "fileBadges": {
@@ -972,5 +977,35 @@
     "compact": "默认宽度",
     "standard": "标准宽度",
     "wide": "全宽"
+  },
+  "discussion": {
+    "bubbleBadge": "多模型讨论",
+    "stopDiscussion": "停止讨论",
+    "copy": "复制",
+    "copied": "已复制",
+    "emptyDiscussionContent": "讨论未产生最终回答",
+    "panelTitle": "讨论过程",
+    "phaseRunning": "讨论中",
+    "phaseSummarizing": "总结中",
+    "phaseCompleted": "已完成",
+    "phaseStopped": "已停止",
+    "phaseError": "出错",
+    "phaseIncomplete": "未完成",
+    "panelParticipantCount": "{count} 个模型",
+    "panelCurrentSpeaker": "当前：{model}",
+    "panelFinalModel": "总结：{model}",
+    "panelTurnCount": "共 {count} 条发言",
+    "panelAllRounds": "全部轮次",
+    "turnRound": "第 {round} 轮",
+    "turnRunning": "思考中",
+    "turnDone": "已完成",
+    "turnFailed": "失败",
+    "turnPreparing": "正在准备观点…",
+    "turnEmpty": "本轮暂无发言",
+    "finalTurnLabel": "{model} · 终稿",
+    "finalRoundLabel": "终稿",
+    "finalTurnTitle": "终稿总结",
+    "turnStopped": "已停止",
+    "backToDiscussionTop": "回到讨论开头"
   }
 }

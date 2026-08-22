@@ -825,6 +825,7 @@ type MessageResponse struct {
 	KnowledgeSources  []MessageKnowledgeSourceResponse `json:"knowledgeSources,omitempty"`
 	ProcessTrace      *MessageProcessTraceResponse     `json:"processTrace,omitempty"`
 	Moderation        *MessageModerationResponse       `json:"moderation,omitempty"`
+	DiscussionMeta    *MessageDiscussionMetaResponse   `json:"discussionMeta,omitempty"`
 	EditedAt          *time.Time                       `json:"editedAt" extensions:"x-nullable,!x-omitempty"`
 	CreatedAt         time.Time                        `json:"createdAt"`
 	UpdatedAt         time.Time                        `json:"updatedAt"`
@@ -836,6 +837,16 @@ type MessageModerationResponse struct {
 	Direction  string   `json:"direction,omitempty"`
 	EventID    string   `json:"eventID,omitempty"`
 	Categories []string `json:"categories,omitempty"`
+}
+
+// MessageDiscussionMetaResponse 多模型讨论发言标记；客户端据此区分讨论发言并重建讨论面板。
+type MessageDiscussionMetaResponse struct {
+	DiscussionID string   `json:"discussionID"`
+	Round        int      `json:"round"`
+	Role         string   `json:"role"`
+	Index        int      `json:"index"`
+	Participants []string `json:"participants,omitempty"`
+	Rounds       int      `json:"rounds,omitempty"`
 }
 
 func toTraceBlockResponse(b *model.MessageTraceBlock) *MessageTraceBlockResponse {
@@ -1073,9 +1084,24 @@ func toMessageResponseWithRunAndFallback(m model.Message, run model.Run, fallbac
 		KnowledgeSources:  toMessageKnowledgeSourceResponses(knowledgeSources),
 		ProcessTrace:      toMessageProcessTraceResponse(processTrace),
 		Moderation:        toMessageModerationResponse(m, run),
+		DiscussionMeta:    toMessageDiscussionMetaResponse(m.DiscussionMeta),
 		EditedAt:          m.EditedAt,
 		CreatedAt:         m.CreatedAt,
 		UpdatedAt:         m.UpdatedAt,
+	}
+}
+
+func toMessageDiscussionMetaResponse(item *model.MessageDiscussionMeta) *MessageDiscussionMetaResponse {
+	if item == nil {
+		return nil
+	}
+	return &MessageDiscussionMetaResponse{
+		DiscussionID: item.DiscussionID,
+		Round:        item.Round,
+		Role:         item.Role,
+		Index:        item.Index,
+		Participants: item.Participants,
+		Rounds:       item.Rounds,
 	}
 }
 

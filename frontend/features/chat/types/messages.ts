@@ -1,4 +1,4 @@
-import type { UpstreamDebugInfo } from "@/shared/api/conversation.types";
+import type { MessageDiscussionMetaDTO, UpstreamDebugInfo } from "@/shared/api/conversation.types";
 
 export type MessageAttachment = {
   fileID: string;
@@ -136,6 +136,17 @@ export type ChatBillingCost = {
 
 export type ImageLoadingAspectRatio = "wide" | "portrait" | "square";
 
+/** 讨论聚合渲染数据：挂在组代表 assistant 消息上，气泡据此渲染终稿 + 讨论面板。 */
+export type ChatDiscussionGroup = {
+  meta: MessageDiscussionMetaDTO;
+  /** 同讨论的全部兄弟消息（含 pending 乐观消息），按发言序排列。 */
+  group: ChatAreaMessage[];
+  /** 终稿消息 publicID（终稿完成后存在）。 */
+  finalPublicID?: string;
+  /** 运行态相位；刷新恢复的历史讨论为 completed/stopped/error 之外的推断态。 */
+  phase: "running" | "summarizing" | "completed" | "stopped" | "error" | "recovered";
+};
+
 export type ChatAreaMessage = {
   key: string;
   publicID: string;
@@ -161,6 +172,10 @@ export type ChatAreaMessage = {
   thumbsUpCount?: number;
   thumbsDownCount?: number;
   branchNavigator?: ChatMessageBranchNavigator;
+  /** 多模型讨论发言标记（服务端字段）；由 mapServerMessage 透传。 */
+  discussionMeta?: MessageDiscussionMetaDTO;
+  /** 讨论聚合渲染注入：同组兄弟与运行态（仅挂在「组代表」消息上）。 */
+  discussion?: ChatDiscussionGroup;
   attachments?: MessageAttachment[];
   // Token usage for assistant messages.
   inputTokens?: number;

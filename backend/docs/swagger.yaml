@@ -3996,6 +3996,61 @@ definitions:
     - billingMode
     - pricingSnapshotJSON
     type: object
+  MessageDiscussionMetaRequest:
+    properties:
+      discussionID:
+        maxLength: 64
+        type: string
+      index:
+        maximum: 30
+        minimum: 0
+        type: integer
+      participants:
+        items:
+          type: string
+        maxItems: 5
+        type: array
+      role:
+        enum:
+        - participant
+        - final
+        type: string
+      round:
+        maximum: 6
+        minimum: 1
+        type: integer
+      rounds:
+        maximum: 5
+        minimum: 1
+        type: integer
+    required:
+    - discussionID
+    - index
+    - role
+    - round
+    type: object
+  MessageDiscussionMetaResponse:
+    properties:
+      discussionID:
+        type: string
+      index:
+        type: integer
+      participants:
+        items:
+          type: string
+        type: array
+      role:
+        type: string
+      round:
+        type: integer
+      rounds:
+        type: integer
+    required:
+    - discussionID
+    - index
+    - role
+    - round
+    type: object
   MessageFeedbackResponse:
     properties:
       messageID:
@@ -4196,6 +4251,8 @@ definitions:
         type: integer
       createdAt:
         type: string
+      discussionMeta:
+        $ref: '#/definitions/MessageDiscussionMetaResponse'
       editedAt:
         type: string
         x-nullable: true
@@ -6805,6 +6862,8 @@ definitions:
         - file
         - mixed
         type: string
+      discussionMeta:
+        $ref: '#/definitions/MessageDiscussionMetaRequest'
       fileIDs:
         items:
           type: string

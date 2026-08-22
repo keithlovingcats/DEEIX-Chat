@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	appbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
@@ -225,5 +226,160 @@ func TestCreateRejectedAssistantRetryReusesExistingUserMessage(t *testing.T) {
 	}
 	if pair.assistant.SourceMessageID == nil || *pair.assistant.SourceMessageID != sourceAssistantID {
 		t.Fatal("retry assistant does not reference the failed source assistant")
+	}
+}
+
+type discussionBranchRepositoryStub struct {
+	repository.ConversationRepository
+	messagesByPublicID map[string]*model.Message
+	branchCreateCalls  int
+	createdAssistant   *model.Message
+}
+
+func (r *discussionBranchRepositoryStub) GetMessageByPublicID(
+	_ context.Context,
+	_ uint,
+	_ uint,
+	publicID string,
+) (*model.Message, error) {
+	if item, ok := r.messagesByPublicID[publicID]; ok {
+		return item, nil
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (r *discussionBranchRepositoryStub) ListMessageAncestors(
+	context.Context,
+	uint,
+	uint,
+	int,
+) ([]model.Message, error) {
+	return []model.Message{}, nil
+}
+
+func (r *discussionBranchRepositoryStub) CreateAssistantBranchMessage(
+	_ context.Context,
+	assistantMessage *model.Message,
+) error {
+	r.branchCreateCalls++
+	assistantMessage.ID = 33
+	r.createdAssistant = assistantMessage
+	return nil
+}
+
+// 多模型讨论发言走 reuse 分支时，讨论 prompt（content）必须原样进入生成上下文，
+// 不得回填原用户消息文本；无 DiscussionMeta 的普通 retry 保持原覆盖行为。
+func TestPrepareMessageSendBranchKeepsDiscussionPromptContent(t *testing.T) {
+	existingUser := &model.Message{
+		ID:       21,
+		PublicID: "msg_disc_user",
+		Role:     "user",
+		Content:  "original user question",
+		Status:   "success",
+	}
+	sourceAssistant := &model.Message{
+		ID:              22,
+		PublicID:        "msg_disc_source",
+		Role:            "assistant",
+		Content:         "first turn answer",
+		Status:          "success",
+		ParentMessageID: &[]uint{21}[0],
+	}
+	repo := &discussionBranchRepositoryStub{
+		messagesByPublicID: map[string]*model.Message{
+			existingUser.PublicID:    existingUser,
+			sourceAssistant.PublicID: sourceAssistant,
+		},
+	}
+	service := &Service{repo: repo}
+
+	discussionMeta := &model.MessageDiscussionMeta{
+		DiscussionID: "disc_test",
+		Round:        2,
+		Role:         "participant",
+		Index:        2,
+		Participants: []string{"model-a", "model-b"},
+		Rounds:       2,
+	}
+
+	discussionInput := SendMessageInput{
+		UserID:                9,
+		ConversationID:        7,
+		Content:               "You are model-b, one participant in round 2 of a multi-model discussion.",
+		ParentMessagePublicID: existingUser.PublicID,
+		SourceMessagePublicID: sourceAssistant.PublicID,
+		BranchReason:          "retry",
+		DiscussionMeta:        discussionMeta,
+	}
+	if _, err := service.prepareMessageSendBranch(context.Background(), &discussionInput); err != nil {
+		t.Fatalf("prepareMessageSendBranch() with discussion meta error = %v", err)
+	}
+	if discussionInput.Content == existingUser.Content {
+		t.Fatal("discussion prompt content was overwritten by the reused user message")
+	}
+	if !strings.Contains(discussionInput.Content, "round 2 of a multi-model discussion") {
+		t.Fatalf("discussion prompt content = %q", discussionInput.Content)
+	}
+
+	plainInput := SendMessageInput{
+		UserID:                9,
+		ConversationID:        7,
+		Content:               "any retry content",
+		ParentMessagePublicID: existingUser.PublicID,
+		SourceMessagePublicID: sourceAssistant.PublicID,
+		BranchReason:          "retry",
+	}
+	if _, err := service.prepareMessageSendBranch(context.Background(), &plainInput); err != nil {
+		t.Fatalf("prepareMessageSendBranch() without discussion meta error = %v", err)
+	}
+	if plainInput.Content != existingUser.Content {
+		t.Fatalf("plain retry content = %q, want reused %q", plainInput.Content, existingUser.Content)
+	}
+}
+
+// 讨论发言标记随 assistant 消息透传落库（reuse 分支只建 assistant）。
+func TestCreateAssistantDiscussionTurnPersistsMeta(t *testing.T) {
+	repo := &discussionBranchRepositoryStub{
+		messagesByPublicID: map[string]*model.Message{},
+	}
+	service := &Service{repo: repo}
+	existingUser := &model.Message{ID: 21, PublicID: "msg_disc_user", Role: "user", Content: "q"}
+	sourceAssistantID := uint(22)
+	meta := &model.MessageDiscussionMeta{
+		DiscussionID: "disc_test_final",
+		Round:        3,
+		Role:         "final",
+		Index:        7,
+		Participants: []string{"model-a", "model-b"},
+		Rounds:       2,
+	}
+
+	pair, err := service.createMessagePair(
+		context.Background(),
+		SendMessageInput{UserID: 9, ConversationID: 7, Content: "final prompt", DiscussionMeta: meta},
+		"run_discussion_final",
+		&messageSendBranchPreparation{
+			branchState: &messageBranchState{
+				SourceMessageID:  &sourceAssistantID,
+				SourcePublicID:   "msg_disc_source",
+				ReuseUserMessage: existingUser,
+			},
+			normalizedBranchReason: "retry",
+			reuseUserMessage:       true,
+		},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("createMessagePair() error = %v", err)
+	}
+	if repo.branchCreateCalls != 1 {
+		t.Fatalf("branchCreateCalls = %d, want 1", repo.branchCreateCalls)
+	}
+	if pair.assistant.DiscussionMeta == nil || pair.assistant.DiscussionMeta.DiscussionID != meta.DiscussionID {
+		t.Fatalf("assistant DiscussionMeta = %+v, want %+v", pair.assistant.DiscussionMeta, meta)
+	}
+	if repo.createdAssistant.DiscussionMeta == nil || repo.createdAssistant.DiscussionMeta.Role != "final" {
+		t.Fatal("persisted assistant message is missing the discussion meta")
 	}
 }

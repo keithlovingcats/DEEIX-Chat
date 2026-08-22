@@ -326,7 +326,9 @@
     "moderationBlocked": "Content blocked",
     "moderationBlockedDescription": "This response was withdrawn after a safety check.",
     "moderationEventId": "Event ID: {id}",
-    "moderationCategories": "Categories: {categories}"
+    "moderationCategories": "Categories: {categories}",
+    "discussionInterruptedOnReconnect": "Discussion interrupted, only the current turn is resuming",
+    "discussionInterruptedOnReconnectDescription": "After a refresh or disconnect the discussion orchestration stops; completed turns remain in the discussion panel."
   },
   "data": {
     "signInRequired": "Sign in before loading conversation messages.",
@@ -579,7 +581,10 @@
     "secondUnit": "second",
     "clearParallelModels": "Keep primary only",
     "parallelModelLimit": "Cannot adjust parallel models",
-    "parallelModelLimitDescription": "Up to {count} models can be selected, and at least one model must remain"
+    "parallelModelLimitDescription": "Up to {count} models can be selected, and at least one model must remain",
+    "discussionToggle": "Multi-model discussion",
+    "discussionRoundsCount": "{count, plural, one {# round} other {# rounds}}",
+    "discussionCallsHint": "Will issue {count} sequential model calls"
   },
   "processTrace": {
     "fileBadges": {
@@ -972,5 +977,35 @@
     "compact": "Default width",
     "standard": "Standard width",
     "wide": "Full width"
+  },
+  "discussion": {
+    "bubbleBadge": "Multi-model discussion",
+    "stopDiscussion": "Stop",
+    "copy": "Copy",
+    "copied": "Copied",
+    "emptyDiscussionContent": "The discussion produced no final answer",
+    "panelTitle": "Discussion",
+    "phaseRunning": "Discussing",
+    "phaseSummarizing": "Summarizing",
+    "phaseCompleted": "Completed",
+    "phaseStopped": "Stopped",
+    "phaseError": "Error",
+    "phaseIncomplete": "Incomplete",
+    "panelParticipantCount": "{count} models",
+    "panelCurrentSpeaker": "Current: {model}",
+    "panelFinalModel": "Summary: {model}",
+    "panelTurnCount": "{count} turns",
+    "panelAllRounds": "All rounds",
+    "turnRound": "Round {round}",
+    "turnRunning": "Thinking",
+    "turnDone": "Done",
+    "turnFailed": "Failed",
+    "turnPreparing": "Preparing viewpoint…",
+    "turnEmpty": "No statement in this round",
+    "finalTurnLabel": "{model} · Final",
+    "finalRoundLabel": "Final answer",
+    "finalTurnTitle": "Final summary",
+    "turnStopped": "Stopped",
+    "backToDiscussionTop": "Back to discussion top"
   }
 }

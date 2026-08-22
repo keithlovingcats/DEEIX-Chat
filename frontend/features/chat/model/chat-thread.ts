@@ -222,6 +222,9 @@ export function mapServerMessage(
     thumbsUpCount: item.thumbsUpCount ?? 0,
     thumbsDownCount: item.thumbsDownCount ?? 0,
   };
+  if (item.discussionMeta) {
+    msg.discussionMeta = item.discussionMeta;
+  }
   const parsedAttachments = parseAttachments(item.attachments);
   if (parsedAttachments.length > 0) {
     msg.attachments = parsedAttachments;
@@ -397,6 +400,10 @@ export function buildVisibleMessages(
 
   const withBranchNavigators = visible.map((item) => {
     if (item.role !== "user" && item.role !== "assistant") {
+      return item;
+    }
+    // 多模型讨论：发言组由聚合气泡 + 讨论面板渲染，不走模型分支标签页。
+    if (item.role === "assistant" && item.discussionMeta) {
       return item;
     }
     const siblings = children.get(toBranchKey(item.parentPublicID)) ?? [];

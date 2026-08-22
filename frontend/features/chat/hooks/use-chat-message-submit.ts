@@ -5,6 +5,10 @@ import * as React from "react";
 import { toast } from "sonner";
 import { useHiddenQueuedParentRuns } from "@/features/chat/hooks/use-hidden-queued-parent-runs";
 import type { ChatSubmitBlockReason } from "@/features/chat/model/chat-task";
+import {
+  MAX_DISCUSSION_MODELS,
+  type DiscussionSendFn,
+} from "@/features/chat/hooks/use-chat-discussion";
 import { resolveChatSubmitDecision } from "@/features/chat/model/chat-task";
 import {
   buildChildrenIndex,
@@ -54,6 +58,7 @@ import type {
   MediaImageRequest,
   MediaVideoExtensionRequest,
   MediaVideoRequest,
+  MessageDiscussionMetaInput,
   MessageDTO,
   SendMessageRequest,
   SendMessageResult,
@@ -500,6 +505,8 @@ export function useChatMessageSubmit({
   activeGenerationRunsRevision,
   onActiveGenerationRunsChange,
   resumeGenerationActive = false,
+  multiModelDiscussion,
+  sendWithDiscussionRef,
 }: {
   conversationID: string | null;
   conversationScopeKey: string;
@@ -548,6 +555,10 @@ export function useChatMessageSubmit({
   activeGenerationRunsRevision: number;
   onActiveGenerationRunsChange?: () => void;
   resumeGenerationActive?: boolean;
+  /** 多模型讨论配置；启用且参与者足够时 onSendMessage 分流到讨论编排器。 */
+  multiModelDiscussion?: { enabled: boolean; rounds: number };
+  /** 讨论编排器句柄（ref 桥，由上层 useChatDiscussion 注入，避免 hook 循环依赖）。 */
+  sendWithDiscussionRef?: React.RefObject<DiscussionSendFn | null>;
 }) {
   const t = useTranslations("chat.submit");
   const activeStreamsRef = React.useRef(new Map<string, ActiveStream>());
@@ -741,6 +752,10 @@ export function useChatMessageSubmit({
       fanOutModels,
       programmaticFanOut,
       overridePlatformModelName,
+      discussionMeta,
+      onAssistantCreated,
+      onStreamSettled,
+      persistParallelModels,
     }: {
       content: string;
       currentAttachments: PendingAttachment[];
@@ -755,6 +770,14 @@ export function useChatMessageSubmit({
       programmaticFanOut?: boolean;
       /** 内部 fan-out 请求：覆盖发送使用的平台模型名。 */
       overridePlatformModelName?: string;
+      /** 多模型讨论：发言标记随请求透传并随 assistant 消息落库。 */
+      discussionMeta?: MessageDiscussionMetaInput;
+      /** 多模型讨论：收到 message_created 立即回调（含 programmaticFanOut 分支），返回真实 publicID 锚点。 */
+      onAssistantCreated?: (anchor: { userPublicID: string; assistantPublicID: string; runID: string }) => void;
+      /** 多模型讨论：流到达终态后的统一回调（成功/失败/中止）。 */
+      onStreamSettled?: (result: { ok: boolean; aborted: boolean; clientRunID: string; completed?: SendMessageResult }) => void;
+      /** 覆盖随 default 分支持久化到会话的并行组合（讨论首条传完整参与者列表）。 */
+      persistParallelModels?: string[];
     }) => {
       const payloadContent = content || t("attachmentOnlyContent");
       const requestPlatformModelName = (
@@ -894,6 +917,14 @@ export function useChatMessageSubmit({
       const createdAt = new Date().toISOString();
       let sentSuccessfully = false;
       let shouldKeepConversationLayout = false;
+      // 讨论编排：流终态结果在 finally 统一回调，覆盖成功/失败/中止三条路径。
+      // （声明须在 try 之外：catch/finally 与 try 是独立块作用域。）
+      let streamSettledResult: {
+        ok: boolean;
+        aborted: boolean;
+        clientRunID: string;
+        completed?: SendMessageResult;
+      } | null = null;
       const streamAbortController = new AbortController();
       const assistantImageAspectRatio =
         submitTask === "image_generation" || submitTask === "image_edit"
@@ -939,6 +970,7 @@ export function useChatMessageSubmit({
           sourcePublicID: resolvedSourcePublicID,
           branchReason: resolvedBranchReason,
           reuseUserMessage: assistantOnlyBranch,
+          discussionMeta,
           userContent: payloadContent,
           userAttachments: effectiveAttachments.length > 0 ? effectiveAttachments : undefined,
           userCreatedAt: createdAt,
@@ -1103,7 +1135,7 @@ export function useChatMessageSubmit({
           // 队列出队发送同样回写，保证组合与实际发送行为一致。
           parallelModels:
             !programmaticFanOut && resolvedBranchReason === "default"
-              ? [requestPlatformModelName, ...pendingFanOutModels]
+              ? persistParallelModels ?? [requestPlatformModelName, ...pendingFanOutModels]
               : undefined,
           options: Object.keys(effectiveOptions).length > 0 ? effectiveOptions : undefined,
           clientRunID: clientRunID,
@@ -1111,6 +1143,7 @@ export function useChatMessageSubmit({
           parentMessagePublicID: resolvedParentPublicID || undefined,
           sourceMessagePublicID: resolvedSourcePublicID || undefined,
           branchReason: resolvedBranchReason,
+          discussionMeta,
         };
         let terminalStreamError: Extract<StreamMessageEvent, { type: "error" }> | null = null;
         const streamOptions: ConversationStreamOptions = {
@@ -1134,6 +1167,18 @@ export function useChatMessageSubmit({
             });
           },
           onMessageCreated: (event) => {
+            // 讨论编排：无论是否 programmaticFanOut，先把真实 publicID 锚点交给编排器。
+            if (onAssistantCreated) {
+              const createdUserPublicID0 = event.userMessage.publicID?.trim() || "";
+              const createdAssistantPublicID0 = event.assistantMessage.publicID?.trim() || "";
+              if (createdUserPublicID0 && createdAssistantPublicID0) {
+                onAssistantCreated({
+                  userPublicID: createdUserPublicID0,
+                  assistantPublicID: createdAssistantPublicID0,
+                  runID: clientRunID,
+                });
+              }
+            }
             if (programmaticFanOut) {
               return;
             }
@@ -1563,7 +1608,13 @@ export function useChatMessageSubmit({
         if (conversationScopeKeyRef.current === targetConversationScopeKey) {
           reload();
         }
+        streamSettledResult = { ok: true, aborted: false, clientRunID, completed };
       } catch (error) {
+        streamSettledResult = {
+          ok: false,
+          aborted: streamAbortController.signal.aborted,
+          clientRunID,
+        };
         flushStreamTextNow(exchangeKey);
         flushUpstreamThinkNow(exchangeKey);
         resetStreamBuffer(exchangeKey);
@@ -1644,6 +1695,9 @@ export function useChatMessageSubmit({
         }
         return false;
       } finally {
+        if (streamSettledResult) {
+          onStreamSettled?.(streamSettledResult);
+        }
         const activeStream = activeStreamsRef.current.get(clientRunID);
         if (activeStream?.controller === streamAbortController) {
           clearCancelSettlementTimer(activeStream);
@@ -1814,6 +1868,52 @@ export function useChatMessageSubmit({
     uploading,
     visibleMessages,
   ]);
+
+  // 多模型讨论：按显式 runID 取消单个 run。讨论 turn 的 run 不是可见叶子
+  // （分支选择钉在首条发言上），onStopMessage 的可见性过滤会漏掉它，必须按
+  // runID 直达；取消语义与 onStopMessage 一致（settlement timer + 服务端 /cancel）。
+  const onCancelDiscussionRun = React.useCallback(
+    (runID: string) => {
+      const normalizedRunID = runID.trim();
+      if (!normalizedRunID) {
+        return;
+      }
+      const active = activeStreamsRef.current.get(normalizedRunID);
+      if (!active) {
+        // 流尚未注册（消息对未落库）或已结束：直接调服务端取消兜底。
+        void resolveAccessToken().then(async (token) => {
+          if (!token) {
+            return;
+          }
+          await cancelMessageGeneration(token, normalizedRunID).catch(() => undefined);
+        });
+        return;
+      }
+      if (active.cancelRequested) {
+        return;
+      }
+      if (!active.accessToken) {
+        active.controller.abort();
+        return;
+      }
+      active.cancelRequested = true;
+      active.cancelSettlementTimer = window.setTimeout(() => {
+        if (activeStreamsRef.current.get(active.runID) !== active) {
+          return;
+        }
+        clearCancelSettlementTimer(active);
+        active.controller.abort();
+      }, GENERATION_CANCEL_SETTLEMENT_TIMEOUT_MS);
+      void cancelMessageGeneration(active.accessToken, active.runID).catch(() => {
+        if (activeStreamsRef.current.get(active.runID) !== active) {
+          return;
+        }
+        clearCancelSettlementTimer(active);
+        active.controller.abort();
+      });
+    },
+    [],
+  );
 
   const onStopMessage = React.useCallback(() => {
     const visibleRunID = currentLeafMessage?.runID?.trim() || "";
@@ -2000,6 +2100,36 @@ export function useChatMessageSubmit({
     const fanOutModels = parallelPlatformModelNamesRef.current.filter(
       (name) => name.trim() && name.trim() !== selectedPlatformModelName.trim(),
     );
+    // 多模型讨论：启用且参与者足够时改走串行讨论编排，不再并行 fan-out。
+    if (multiModelDiscussion?.enabled) {
+      // 与并行 fan-out 同规则：图片/视频等非 chat 模型不参与讨论
+      // （辩论 prompt 对媒体任务无意义，且 media payload 不透传讨论标记）。
+      const candidates = [
+        ...new Set([selectedPlatformModelName.trim(), ...fanOutModels].filter(Boolean)),
+      ];
+      const chatParticipants = candidates.filter((name) => {
+        const candidate = modelOptions.find((item) => item.platformModelName === name);
+        const decision = resolveChatSubmitDecision(candidate ?? null, attachments, options);
+        return !decision.blockedReason && decision.task === "chat";
+      });
+      if (chatParticipants.length >= 2) {
+        const send = sendWithDiscussionRef?.current;
+        if (chatParticipants.length < candidates.length) {
+          toast(t("parallelChatOnly"), { description: t("parallelChatOnlyDescription") });
+        }
+        if (send) {
+          await send({
+            content,
+            currentAttachments: attachments,
+            parentMessagePublicID,
+            participants: chatParticipants.slice(0, MAX_DISCUSSION_MODELS),
+            rounds: multiModelDiscussion.rounds,
+          });
+          return;
+        }
+        // ref 桥未注入（理论不可达）：回退普通提交，绝不静默丢弃用户消息。
+      }
+    }
     await submitMessage({
       content,
       currentAttachments: attachments,
@@ -2013,10 +2143,15 @@ export function useChatMessageSubmit({
     currentLeafMessage?.publicID,
     draft,
     enqueueSubmission,
+    modelOptions,
+    multiModelDiscussion,
+    options,
     resumeGenerationActive,
     selectedPlatformModelName,
     sending,
+    sendWithDiscussionRef,
     submitMessage,
+    t,
     visibleMessages,
   ]);
 
@@ -2134,6 +2269,33 @@ export function useChatMessageSubmit({
         ? resolvePersistedPublicID(currentLeafMessage.publicID)
         : null) ??
       queuedSubmission.parentMessagePublicID;
+    // 多模型讨论：入队时开关开启的组合，出队后仍以讨论形式发出（快照含
+    // 入队时主模型 + 附加并行模型），避免讨论中补发的消息静默退化为并行 fan-out。
+    if (multiModelDiscussion?.enabled) {
+      const queuedParticipants = [
+        ...new Set(
+          [
+            queuedSubmission.platformModelName.trim(),
+            ...queuedSubmission.parallelPlatformModelNames,
+          ].filter(Boolean),
+        ),
+      ];
+      if (queuedParticipants.length >= 2) {
+        const send = sendWithDiscussionRef?.current;
+        if (send) {
+          void send({
+            content: queuedSubmission.content,
+            currentAttachments: queuedSubmission.attachments,
+            parentMessagePublicID,
+            participants: queuedParticipants.slice(0, MAX_DISCUSSION_MODELS),
+            rounds: multiModelDiscussion.rounds,
+          }).finally(() => {
+            dispatchingQueuedSubmissionIDsRef.current.delete(queuedSubmission.id);
+          });
+          return;
+        }
+      }
+    }
     void submitMessage({
       content: queuedSubmission.content,
       currentAttachments: queuedSubmission.attachments,
@@ -2154,9 +2316,11 @@ export function useChatMessageSubmit({
     getPendingExchanges,
     getHiddenParentRunStatus,
     hiddenParentRunStatusRevision,
+    multiModelDiscussion,
     pendingExchanges,
     queuedSubmissions,
     resumeGenerationActive,
+    sendWithDiscussionRef,
     submitMessage,
     visibleBranchScopePath,
     visibleMessages,
@@ -2345,6 +2509,9 @@ export function useChatMessageSubmit({
     onRetryUserMessage,
     onSendMessage,
     onStopMessage,
+    // 多模型讨论：编排器依赖的提交/取消原语（内部 API，仅 hook 组合层使用）。
+    submitMessage,
+    onCancelDiscussionRun,
     onDeleteQueuedMessage,
     onEditQueuedMessage,
     onGuideQueuedMessage,

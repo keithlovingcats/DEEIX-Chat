@@ -1771,6 +1771,38 @@ export interface MessageBillingCostResponse {
   pricingSnapshotJSON: string;
 }
 
+export interface MessageDiscussionMetaRequest {
+  /** @maxLength 64 */
+  discussionID: string;
+  /**
+   * @min 0
+   * @max 30
+   */
+  index: number;
+  /** @maxItems 5 */
+  participants?: string[];
+  role: "participant" | "final";
+  /**
+   * @min 1
+   * @max 6
+   */
+  round: number;
+  /**
+   * @min 1
+   * @max 5
+   */
+  rounds?: number;
+}
+
+export interface MessageDiscussionMetaResponse {
+  discussionID: string;
+  index: number;
+  participants?: string[];
+  role: string;
+  round: number;
+  rounds?: number;
+}
+
 export interface MessageFeedbackResponse {
   messageID: number;
   messagePublicID: string;
@@ -1857,6 +1889,7 @@ export interface MessageResponse {
   contentType: string;
   conversationID: number;
   createdAt: string;
+  discussionMeta?: MessageDiscussionMetaResponse;
   editedAt: string | null;
   errorCode: string;
   errorMessage: string;
@@ -3014,6 +3047,7 @@ export interface SendMessageRequest {
   clientRunID?: string;
   content: string;
   contentType: "text" | "markdown" | "image" | "file" | "mixed";
+  discussionMeta?: MessageDiscussionMetaRequest;
   /** @maxItems 20 */
   fileIDs?: string[];
   htmlVisualPrompt?: boolean;

@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Check, Plus, X } from "lucide-react";
+import { Check, MessageCircle, Plus, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { MAX_DISCUSSION_ROUNDS, MAX_DISCUSSION_MODELS } from "@/features/chat/hooks/use-chat-discussion";
 import { MAX_PARALLEL_MODELS } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { ModelIcon } from "@/shared/components/model-icon";
@@ -45,6 +47,10 @@ export function ConversationParallelModelsBar({
   disabled,
   onToggleParallelModel,
   onModelCatalogRefresh,
+  discussionEnabled,
+  onToggleDiscussion,
+  discussionRounds,
+  onChangeDiscussionRounds,
   className,
 }: {
   modelOptions: ChatModelOption[];
@@ -53,10 +59,16 @@ export function ConversationParallelModelsBar({
   disabled?: boolean;
   onToggleParallelModel?: (platformModelName: string) => boolean;
   onModelCatalogRefresh?: () => void | Promise<void>;
+  /** 多模型讨论：启用后发送改为串行辩论（≥2 个模型才可开）。 */
+  discussionEnabled?: boolean;
+  onToggleDiscussion?: (enabled: boolean) => void;
+  discussionRounds?: number;
+  onChangeDiscussionRounds?: (rounds: number) => void;
   className?: string;
 }) {
   const t = useTranslations("chat.modelPicker");
   const [open, setOpen] = React.useState(false);
+  const [roundsOpen, setRoundsOpen] = React.useState(false);
   const selectedNames = React.useMemo(
     () => Array.from(new Set(selectedPlatformModelNames.map((name) => name.trim()).filter(Boolean))),
     [selectedPlatformModelNames],
@@ -129,6 +141,63 @@ export function ConversationParallelModelsBar({
               );
             })}
       </div>
+      {selectedNames.length >= 2 && onToggleDiscussion ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span
+            className={cn(
+              "inline-flex h-6 items-center gap-1 rounded-full border-[0.5px] border-border pl-2 pr-1 text-[11px] font-medium transition-colors",
+              discussionEnabled
+                ? "bg-primary/10 text-primary"
+                : "bg-muted/40 text-muted-foreground",
+            )}
+            title={t("discussionCallsHint", {
+              count: Math.min(selectedNames.length, MAX_DISCUSSION_MODELS) * (discussionRounds ?? 2) + 1,
+            })}
+          >
+            <MessageCircle className="size-3" strokeWidth={2} />
+            <span className="truncate">{t("discussionToggle")}</span>
+            <Switch
+              size="sm"
+              checked={Boolean(discussionEnabled)}
+              disabled={disabled}
+              onCheckedChange={(checked) => onToggleDiscussion(checked)}
+              aria-label={t("discussionToggle")}
+            />
+          </span>
+          {discussionEnabled && onChangeDiscussionRounds ? (
+            <Popover open={roundsOpen} onOpenChange={setRoundsOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-6 items-center rounded-full border-[0.5px] border-border bg-muted/40 px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-40"
+                  disabled={disabled}
+                >
+                  {t("discussionRoundsCount", { count: discussionRounds ?? 2 })}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" side="bottom" sideOffset={6} className="w-40 rounded-xl border-[0.5px] border-border bg-popover p-1.5 shadow-xs">
+                {Array.from({ length: MAX_DISCUSSION_ROUNDS }, (_, index) => index + 1).map((rounds) => (
+                  <button
+                    key={rounds}
+                    type="button"
+                    className={cn(
+                      "flex h-7 w-full items-center justify-between rounded-md px-2 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground",
+                      rounds === discussionRounds ? "text-foreground" : "text-muted-foreground",
+                    )}
+                    onClick={() => {
+                      onChangeDiscussionRounds(rounds);
+                      setRoundsOpen(false);
+                    }}
+                  >
+                    <span>{t("discussionRoundsCount", { count: rounds })}</span>
+                    {rounds === discussionRounds ? <Check className="size-3 text-current" strokeWidth={1.7} /> : null}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          ) : null}
+        </div>
+      ) : null}
       <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <button

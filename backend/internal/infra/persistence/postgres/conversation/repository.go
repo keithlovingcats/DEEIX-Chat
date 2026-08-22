@@ -3930,6 +3930,7 @@ func toMessageDomain(item models.Message) domainconversation.Message {
 		MyFeedback:               item.MyFeedback,
 		ThumbsUpCount:            item.ThumbsUpCount,
 		ThumbsDownCount:          item.ThumbsDownCount,
+		DiscussionMeta:           parseMessageDiscussionMeta(item.DiscussionMetaJSON),
 		EditedAt:                 item.EditedAt,
 		CreatedAt:                item.CreatedAt,
 		UpdatedAt:                item.UpdatedAt,
@@ -3976,6 +3977,7 @@ func toMessageModel(item *domainconversation.Message) models.Message {
 		ModerationEventID:        item.ModerationEventID,
 		ModerationCategoriesJSON: item.ModerationCategoriesJSON,
 		KnowledgeSourcesJSON:     marshalMessageKnowledgeSources(item.KnowledgeSources),
+		DiscussionMetaJSON:       marshalMessageDiscussionMeta(item.DiscussionMeta),
 		EditedAt:                 item.EditedAt,
 	}
 }
@@ -4180,6 +4182,54 @@ func marshalMessageKnowledgeSources(items []domainconversation.MessageKnowledgeS
 		return "[]"
 	}
 	return string(raw)
+}
+
+type messageDiscussionMetaRecord struct {
+	DiscussionID string   `json:"discussionID"`
+	Round        int      `json:"round"`
+	Role         string   `json:"role"`
+	Index        int      `json:"index"`
+	Participants []string `json:"participants,omitempty"`
+	Rounds       int      `json:"rounds,omitempty"`
+}
+
+func marshalMessageDiscussionMeta(item *domainconversation.MessageDiscussionMeta) string {
+	if item == nil {
+		return ""
+	}
+	raw, err := json.Marshal(messageDiscussionMetaRecord{
+		DiscussionID: item.DiscussionID,
+		Round:        item.Round,
+		Role:         item.Role,
+		Index:        item.Index,
+		Participants: item.Participants,
+		Rounds:       item.Rounds,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func parseMessageDiscussionMeta(raw string) *domainconversation.MessageDiscussionMeta {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var record messageDiscussionMetaRecord
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(record.DiscussionID) == "" || record.Round <= 0 || strings.TrimSpace(record.Role) == "" {
+		return nil
+	}
+	return &domainconversation.MessageDiscussionMeta{
+		DiscussionID: record.DiscussionID,
+		Round:        record.Round,
+		Role:         record.Role,
+		Index:        record.Index,
+		Participants: record.Participants,
+		Rounds:       record.Rounds,
+	}
 }
 
 func parseMessageKnowledgeSources(raw string) []domainconversation.MessageKnowledgeSource {

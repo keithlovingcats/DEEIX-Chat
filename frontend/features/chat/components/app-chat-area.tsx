@@ -34,6 +34,7 @@ import { useChatComposerState } from "@/features/chat/hooks/use-chat-composer-st
 import { useChatData } from "@/features/chat/hooks/use-chat-data";
 import { useChatModelOptions } from "@/features/chat/hooks/use-chat-model-options";
 import { useChatRuntime } from "@/features/chat/hooks/use-chat-runtime";
+import type { DiscussionRuntime } from "@/features/chat/hooks/use-chat-discussion";
 import { useChatScreenshot } from "@/features/chat/hooks/use-chat-screenshot";
 import { useChatViewerProfile } from "@/features/chat/hooks/use-chat-viewer-profile";
 import { useChatVisualPrompt } from "@/features/chat/hooks/use-chat-visual-prompt";
@@ -44,7 +45,7 @@ import {
   sanitizeConversationOptions,
 } from "@/features/chat/model/conversation-options";
 import { toPendingAttachment } from "@/features/chat/model/message-submit";
-import type { ChatAreaMessage, MessageAttachment } from "@/features/chat/types/messages";
+import type { ChatAreaMessage, ChatDiscussionGroup, MessageAttachment } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings/hooks/use-settings-chat-preferences";
 import { cn } from "@/lib/utils";
 import { getConversation } from "@/shared/api/conversation";
@@ -362,6 +363,10 @@ export function AppChatArea() {
     selectedPlatformModelNames,
     togglePlatformModelName,
     clearParallelModels,
+    discussionEnabled,
+    setDiscussionEnabled,
+    discussionRounds,
+    setDiscussionRounds,
   } = useChatModelOptions({
     conversationPublicID: conversationID,
     conversationModel: currentConversation?.model ?? null,
@@ -369,6 +374,15 @@ export function AppChatArea() {
     locallyCreatedConversationID,
     resetToken: newConversationRevision,
   });
+  // 多模型讨论配置：useMemo 稳定身份，避免 onSendMessage 等下游回调每渲染重建。
+  const multiModelDiscussion = React.useMemo(
+    () => ({
+      enabled: discussionEnabled && selectedPlatformModelNames.length >= 2,
+      rounds: discussionRounds,
+    }),
+    [discussionEnabled, discussionRounds, selectedPlatformModelNames.length],
+  );
+
   const {
     conversationKey,
     draft,
@@ -661,7 +675,9 @@ export function AppChatArea() {
     sending,
     visibleMessageCount,
     visibleMessages,
+    combinedMessages,
     isConversationMode,
+    discussion: chatDiscussion,
   } = useChatRuntime({
     conversationID,
     resetToken: newConversationRevision,
@@ -695,6 +711,7 @@ export function AppChatArea() {
     onActiveGenerationRunsChange,
     resumingActivityLabel,
     resumingRunID,
+    multiModelDiscussion,
   });
   const generating = sending;
   const uploadDropDisabled = loading || uploading;
@@ -1045,6 +1062,102 @@ export function AppChatArea() {
     await exportActiveConversation(actionConversationID);
   }, [actionConversationID, canOperateConversation, exportActiveConversation]);
 
+  // 多模型讨论聚合注入：按 discussionID 从全量消息树构造讨论组。
+  // 相位优先取编排器 runtime.phase（进行中权威，含 stopped/轮次间隙），
+  // 无 runtime（刷新恢复的历史讨论）才从消息状态推导。
+  // 组数组按内容签名缓存，未变化的组复用旧引用以保住消息行的 memo。
+  const stopDiscussion = chatDiscussion?.stopDiscussion;
+  // 稳定函数引用（useCallback([])）：memo 闭包经它读 runtimesRef 新鲜数据。
+  const getDiscussionRuntimes = chatDiscussion?.getDiscussionRuntimes;
+  // 组引用缓存（ref，幂等写入）：跨 memo 计算复用未变化组的 group 数组与聚合对象。
+  const discussionGroupCacheRef = React.useRef(
+    new Map<string, { group: ChatAreaMessage[]; discussion: ChatDiscussionGroup }>(),
+  );
+  const visibleMessagesWithDiscussion = React.useMemo(() => {
+    const groupsByDiscussion = new Map<string, ChatAreaMessage[]>();
+    for (const message of combinedMessages) {
+      const discussionID = message.discussionMeta?.discussionID?.trim();
+      if (message.role !== "assistant" || !discussionID) {
+        continue;
+      }
+      const siblings = groupsByDiscussion.get(discussionID) ?? [];
+      siblings.push(message);
+      groupsByDiscussion.set(discussionID, siblings);
+    }
+    if (groupsByDiscussion.size === 0) {
+      return visibleMessages;
+    }
+    const runtimesByDiscussion = new Map<string, DiscussionRuntime>();
+    for (const runtime of getDiscussionRuntimes?.().values() ?? []) {
+      runtimesByDiscussion.set(runtime.discussionID, runtime);
+    }
+    const cache = discussionGroupCacheRef.current;
+    const discussionGroups = new Map<string, ChatDiscussionGroup>();
+    for (const [discussionID, siblings] of groupsByDiscussion) {
+      const sorted = siblings
+        .slice()
+        .sort((a, b) => (a.discussionMeta?.index ?? 0) - (b.discussionMeta?.index ?? 0));
+      const finalMessage = sorted.find((item) => item.discussionMeta?.role === "final");
+      const runtime = runtimesByDiscussion.get(discussionID);
+      let phase: ChatDiscussionGroup["phase"];
+      if (runtime) {
+        phase = runtime.phase;
+      } else {
+        const hasActive = sorted.some(
+          (item) => item.isPending || item.isStreaming || (item.status ?? "").trim().toLowerCase() === "pending",
+        );
+        const finalFailed = (finalMessage?.status ?? "").trim().toLowerCase() === "error";
+        const finalDone =
+          finalMessage &&
+          (finalMessage.status ?? "success").trim().toLowerCase() !== "error" &&
+          !finalMessage.isPending &&
+          !finalMessage.isStreaming;
+        phase = hasActive
+          ? finalMessage && (finalMessage.isPending || finalMessage.isStreaming)
+            ? "summarizing"
+            : "running"
+          : finalDone
+            ? "completed"
+            : finalFailed
+              ? "error"
+              : "recovered";
+      }
+      // 引用逐一相等才复用缓存（流式 delta 会生成新消息对象，必须穿透缓存）；
+      // group 与 ChatDiscussionGroup 整体复用，保住下游消息行的 memo。
+      const cached = cache.get(discussionID);
+      const groupUnchanged =
+        cached !== undefined &&
+        cached.group.length === sorted.length &&
+        cached.group.every((item, index) => item === sorted[index]);
+      if (groupUnchanged && cached.discussion && cached.discussion.phase === phase && cached.discussion.finalPublicID === (finalMessage?.publicID ?? undefined)) {
+        discussionGroups.set(discussionID, cached.discussion);
+        continue;
+      }
+      const discussion: ChatDiscussionGroup = {
+        meta: sorted[0].discussionMeta!,
+        group: groupUnchanged && cached ? cached.group : sorted,
+        finalPublicID: finalMessage?.publicID,
+        phase,
+      };
+      cache.set(discussionID, { group: discussion.group, discussion });
+      discussionGroups.set(discussionID, discussion);
+    }
+    return visibleMessages.map((message) => {
+      const meta = message.discussionMeta;
+      if (message.role !== "assistant" || !meta?.discussionID) {
+        return message;
+      }
+      const discussion = discussionGroups.get(meta.discussionID);
+      if (!discussion) {
+        return message;
+      }
+      return { ...message, discussion };
+    });
+    // deps 用 discussionRevision（数字，编排器每次状态变化 bump）：getDiscussionRuntimes
+    // 是稳定 useCallback 且读 ref 新鲜数据，闭包旧引用不影响正确性；若 deps 用
+    // chatDiscussion 对象本身（每渲染新字面量），memo 会退化为每渲染全量重算。
+  }, [visibleMessages, combinedMessages, chatDiscussion?.discussionRevision, getDiscussionRuntimes]);
+
   const messagesWithInlineError = React.useMemo<ChatAreaMessage[]>(() => {
     const errors = [
       modelsErrorMsg.trim()
@@ -1056,15 +1169,15 @@ export function AppChatArea() {
     ].filter((item): item is NonNullable<typeof item> => item !== null);
 
     if (errors.length === 0) {
-      return visibleMessages;
+      return visibleMessagesWithDiscussion;
     }
 
     return [
-      ...visibleMessages,
+      ...visibleMessagesWithDiscussion,
       {
         key: `chat-inline-error-${conversationID ?? "current"}`,
         publicID: `chat-inline-error-${conversationID ?? "current"}`,
-        parentPublicID: visibleMessages.at(-1)?.publicID ?? null,
+        parentPublicID: visibleMessagesWithDiscussion.at(-1)?.publicID ?? null,
         sourcePublicID: null,
         role: "system",
         content: "",
@@ -1077,7 +1190,7 @@ export function AppChatArea() {
         },
       },
     ];
-  }, [conversationID, modelsErrorMsg, t, visibleMessages]);
+  }, [conversationID, modelsErrorMsg, t, visibleMessagesWithDiscussion]);
 
   const artifactWorkspace = useChatArtifacts({
     conversationID,
@@ -1301,6 +1414,10 @@ export function AppChatArea() {
                 loading={modelsLoading}
                 onToggleParallelModel={togglePlatformModelName}
                 onModelCatalogRefresh={refreshModelCatalogForComposer}
+                discussionEnabled={discussionEnabled}
+                onToggleDiscussion={setDiscussionEnabled}
+                discussionRounds={discussionRounds}
+                onChangeDiscussionRounds={setDiscussionRounds}
               />
             </div>
           </div>
@@ -1355,6 +1472,7 @@ export function AppChatArea() {
                   onOpenCodeArtifact={artifactWorkspace.openArtifact}
                   onCycleMessageBranch={onCycleMessageBranch}
                   onSelectMessageBranch={onSelectMessageBranch}
+                  onStopDiscussion={stopDiscussion}
                   parallelModelsBar={{
                     modelOptions,
                     selectedPlatformModelNames,
@@ -1362,6 +1480,10 @@ export function AppChatArea() {
                     disabled: false,
                     onToggle: togglePlatformModelName,
                     onCatalogRefresh: refreshModelCatalogForComposer,
+                    discussionEnabled,
+                    onToggleDiscussion: setDiscussionEnabled,
+                    discussionRounds,
+                    onChangeDiscussionRounds: setDiscussionRounds,
                   }}
                   onToggleStar={onToggleActiveConversationStar}
                   onRename={onRenameActiveConversation}

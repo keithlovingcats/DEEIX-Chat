@@ -334,8 +334,15 @@ export function useChatData(
           afterSeq,
           // 重连回放出 message_created：说明发送瞬间断流、并行 fan-out 未启动。
           // 消息树已落库，此时补发会产生重复兄弟，改为提示用户手动重试其余模型。
-          onMessageCreated: () => {
+          onMessageCreated: (event) => {
             if (isResumeInactive()) {
+              return;
+            }
+            // 多模型讨论：resume 只恢复当前发言流，后续轮次不再自动编排。
+            if (event.assistantMessage.discussionMeta) {
+              toast.warning(tSubmit("discussionInterruptedOnReconnect"), {
+                description: tSubmit("discussionInterruptedOnReconnectDescription"),
+              });
               return;
             }
             toast.warning(tSubmit("parallelFanOutMissedOnReconnect"), {

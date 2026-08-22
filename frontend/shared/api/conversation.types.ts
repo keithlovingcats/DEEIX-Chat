@@ -6,6 +6,8 @@ import type {
   CreateConversationRequest as ContractCreateConversationRequest,
   CreateConversationShareRequest as ContractCreateConversationShareRequest,
   MediaVideoExtensionRequest as ContractMediaVideoExtensionRequest,
+  MessageDiscussionMetaRequest as ContractMessageDiscussionMetaRequest,
+  MessageDiscussionMetaResponse,
   RenameConversationRequest as ContractRenameConversationRequest,
   ReorderConversationProjectsRequest as ContractReorderConversationProjectsRequest,
   RevokeConversationSharesRequest as ContractRevokeConversationSharesRequest,
@@ -67,6 +69,18 @@ export type ConversationProjectDTO = Omit<ConversationProjectResponse, "mcpDefau
   mcpDefaultMode: ConversationProjectMCPDefaultMode;
 };
 
+export type DiscussionRole = "participant" | "final";
+
+// 多模型讨论发言标记：前端编排器随请求透传、随 assistant 消息落库，
+// 客户端据此区分讨论发言与普通分支并重建讨论面板。
+export type MessageDiscussionMetaDTO = Omit<MessageDiscussionMetaResponse, "role"> & {
+  role: DiscussionRole;
+};
+
+export type MessageDiscussionMetaInput = Omit<ContractMessageDiscussionMetaRequest, "role"> & {
+  role: DiscussionRole;
+};
+
 export type MessageDTO = Omit<
   MessageResponse,
   | "billingCost"
@@ -84,6 +98,7 @@ export type MessageDTO = Omit<
   processTrace?: MessageProcessTraceDTO;
   myFeedback: "up" | "down" | "";
   billingCost?: MessageBillingCostDTO;
+  discussionMeta?: MessageDiscussionMetaDTO;
 };
 
 export type ConversationRunDTO = Omit<RunResponse, "taskType">;
@@ -194,8 +209,9 @@ export type MessageFeedbackResult = Omit<MessageFeedbackResponse, "myFeedback"> 
   myFeedback: "up" | "down" | "";
 };
 
-export type SendMessageRequest = Omit<ContractSendMessageRequest, "options"> & {
+export type SendMessageRequest = Omit<ContractSendMessageRequest, "options" | "discussionMeta"> & {
   options?: ConversationOptions;
+  discussionMeta?: MessageDiscussionMetaInput;
 };
 
 export type MediaImageRequest = {
@@ -240,6 +256,7 @@ export type StreamMessageCreatedEvent = {
   assistantMessage: Pick<MessageDTO, "publicID" | "runID" | "role" | "status"> & {
     parentPublicID?: string | null;
     branchReason?: string;
+    discussionMeta?: MessageDiscussionMetaDTO;
   };
 };
 

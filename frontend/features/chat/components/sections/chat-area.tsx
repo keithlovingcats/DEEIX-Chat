@@ -20,6 +20,7 @@ import {
   ChatInlineAlertCard,
   ChatMessageBot,
 } from "@/features/chat/components/message/message-bot";
+import { ChatMessageDiscussion } from "@/features/chat/components/message/discussion-message";
 import { type AssistantReaction } from "@/features/chat/components/message/message-meta";
 import { ChatMessageUser } from "@/features/chat/components/message/message-user";
 import { ChatLabel } from "@/features/chat/components/sections/chat-label";
@@ -130,6 +131,8 @@ type ChatAreaProps = {
   onExtendVideoAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
+  /** 多模型讨论：停止当前进行中的讨论。 */
+  onStopDiscussion?: () => void;
   onSelectMessageBranch?: (parentPublicID: string | null, childPublicID: string) => void;
   /** 顶部当前并行模型条；组件按选中列表自判显示（空态隐藏）。 */
   parallelModelsBar?: {
@@ -139,6 +142,11 @@ type ChatAreaProps = {
     disabled?: boolean;
     onToggle: (platformModelName: string) => boolean;
     onCatalogRefresh?: () => void | Promise<void>;
+    /** 多模型讨论：开关与轮数（≥2 模型时 bar 内渲染讨论开关）。 */
+    discussionEnabled?: boolean;
+    onToggleDiscussion?: (enabled: boolean) => void;
+    discussionRounds?: number;
+    onChangeDiscussionRounds?: (rounds: number) => void;
   };
   onToggleStar?: () => void | Promise<void>;
   onRename?: (title: string) => void | Promise<void>;
@@ -307,6 +315,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onExtendVideoAttachment,
   onCycleMessageBranch,
   onSelectMessageBranch,
+  onStopDiscussion,
   onReactAssistantMessage,
   onOpenCodeArtifact,
   markdownRender,
@@ -339,6 +348,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onExtendVideoAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onSelectMessageBranch?: (parentPublicID: string | null, childPublicID: string) => void;
+  onStopDiscussion?: () => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   markdownRender: boolean;
@@ -418,6 +428,20 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
     );
   }
 
+  if (isAssistant && item.discussion) {
+    return (
+      <ChatMessageDiscussion
+        item={item}
+        discussion={item.discussion}
+        busy={busy}
+        markdownRender={markdownRender}
+        onStopDiscussion={onStopDiscussion}
+        contentWidthClassName={contentWidthClassName}
+        screenshotMeta={screenshotMeta}
+      />
+    );
+  }
+
   if (isAssistant) {
     return (
       <ChatMessageBot
@@ -485,6 +509,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   previous.onModelCatalogRefresh === next.onModelCatalogRefresh &&
   previous.onCycleMessageBranch === next.onCycleMessageBranch &&
   previous.onSelectMessageBranch === next.onSelectMessageBranch &&
+  previous.onStopDiscussion === next.onStopDiscussion &&
   previous.attachmentContentLoader === next.attachmentContentLoader &&
   previous.onEditImageAttachment === next.onEditImageAttachment &&
   previous.onExtendVideoAttachment === next.onExtendVideoAttachment &&
@@ -516,6 +541,7 @@ export function ChatArea({
   onOpenCodeArtifact,
   onCycleMessageBranch,
   onSelectMessageBranch,
+  onStopDiscussion,
   parallelModelsBar,
   onToggleStar,
   onRename,
@@ -615,6 +641,10 @@ export function ChatArea({
               disabled={parallelModelsBar?.disabled}
               onToggleParallelModel={parallelModelsBar?.onToggle}
               onModelCatalogRefresh={parallelModelsBar?.onCatalogRefresh}
+              discussionEnabled={parallelModelsBar?.discussionEnabled}
+              onToggleDiscussion={parallelModelsBar?.onToggleDiscussion}
+              discussionRounds={parallelModelsBar?.discussionRounds}
+              onChangeDiscussionRounds={parallelModelsBar?.onChangeDiscussionRounds}
             />
           </div>
           {title ? <span className="sr-only">{title}</span> : null}
@@ -745,6 +775,7 @@ export function ChatArea({
                       onExtendVideoAttachment={extendVideoAttachmentHandler}
                       onCycleMessageBranch={stableOnCycleMessageBranch}
                       onSelectMessageBranch={stableOnSelectMessageBranch}
+                      onStopDiscussion={onStopDiscussion}
                       onReactAssistantMessage={stableOnReactAssistantMessage}
                       onOpenCodeArtifact={onOpenCodeArtifact}
                       markdownRender={markdownRender}
