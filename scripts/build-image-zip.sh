@@ -15,6 +15,8 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 # npm 镜像（corepack 下载 pnpm 与 pnpm install 用；Node 原生 fetch 不读
 # http_proxy，corepack 无法走代理，必须直连可达的 registry）
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+# Go module 镜像
+GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${1:-${SCRIPT_DIR}/DEEIX-Chat}"
 
@@ -57,6 +59,7 @@ docker build \
   --build-arg GIT_COMMIT="${GIT_COMMIT}" \
   --build-arg BUILD_TIME="${BUILD_TIME}" \
   --build-arg NPM_REGISTRY="${NPM_REGISTRY}" \
+  --build-arg GOPROXY="${GOPROXY}" \
   --build-arg http_proxy="http://${PROXY_ADDR}" \
   --build-arg https_proxy="http://${PROXY_ADDR}" \
   -t "${IMAGE_REF}" \

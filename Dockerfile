@@ -49,6 +49,10 @@ WORKDIR /src/backend
 
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=""
+
+# Go module proxy：网络受限环境构建传 --build-arg GOPROXY=https://goproxy.cn,direct
+ARG GOPROXY="https://proxy.golang.org,direct"
+ENV GOPROXY=${GOPROXY}
 COPY VERSION /src/VERSION
 COPY backend/go.mod backend/go.sum ./
 
