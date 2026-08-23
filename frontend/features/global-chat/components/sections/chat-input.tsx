@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmojiPicker } from "@/features/global-chat/components/sections/emoji-picker";
+import { useImeCompositionGuard } from "@/shared/hooks/use-ime-composition-guard";
 
 const MAX_TEXT_LENGTH = 2000;
 
@@ -25,6 +26,8 @@ export function ChatInput({
   const t = useTranslations("globalChat");
   const [value, setValue] = React.useState("");
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  // IME 组合态守卫：中文输入法按 Enter 确认候选词时不应发送。
+  const { compositionProps, isComposing } = useImeCompositionGuard();
 
   const submit = React.useCallback(async () => {
     const trimmed = value.trim();
@@ -41,12 +44,15 @@ export function ChatInput({
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (isComposing(event)) {
+        return;
+      }
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         void submit();
       }
     },
-    [submit],
+    [isComposing, submit],
   );
 
   const handleImageChange = React.useCallback(
@@ -88,6 +94,7 @@ export function ChatInput({
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
+            {...compositionProps}
             placeholder={t("inputPlaceholder")}
             rows={1}
             className="max-h-40 min-h-9 resize-none"

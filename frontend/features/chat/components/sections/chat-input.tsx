@@ -72,6 +72,7 @@ import type { MCPToolDTO } from "@/shared/api/mcp.types";
 import type { SkillSummaryDTO } from "@/shared/api/skills.types";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { useImeCompositionGuard } from "@/shared/hooks/use-ime-composition-guard";
 import type { BillingDisplayCurrency } from "@/shared/lib/billing-display";
 import { formatBytes, resolveFileExtension, resolveFileIcon } from "@/shared/lib/file-display";
 import { resolveFileProcessingBadge } from "@/shared/lib/file-processing";
@@ -340,7 +341,8 @@ function ChatInputComponent({
   const inputGroupMeasureRef = React.useRef<HTMLDivElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const markdownPreviewRef = React.useRef<HTMLDivElement | null>(null);
-  const composingRef = React.useRef(false);
+  // IME 组合态守卫：输入法按 Enter 确认候选词时不应触发发送。
+  const { compositionProps, isComposing } = useImeCompositionGuard();
   const [inputGroupHeight, setInputGroupHeight] = React.useState<number | null>(null);
   const hasDraftText = draft.trim().length > 0;
   const hasSubmitContent = hasDraftText || attachments.length > 0;
@@ -886,14 +888,10 @@ function ChatInputComponent({
                 void onUploadFiles(files);
               }
             }}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
+            onCompositionStart={compositionProps.onCompositionStart}
+            onCompositionEnd={compositionProps.onCompositionEnd}
             onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing || composingRef.current || event.key === "Process" || event.keyCode === 229) {
+              if (isComposing(event)) {
                 return;
               }
               const shouldSend = isSendShortcutEvent(sendShortcut, event);
