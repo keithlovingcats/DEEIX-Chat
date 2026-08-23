@@ -52,8 +52,9 @@ export function useGlobalChatStream(options: {
         await openGlobalChatStream(accessToken, getLastConfirmedIdRef.current(), {
           signal: controller.signal,
           onEvent: (event) => {
-            // 任何事件（含心跳）都证明连接健康，重置退避计数。
+            // 任何事件（含心跳）都证明连接健康，重置退避计数并恢复正常状态。
             retryRef.current = 0;
+            setConnectionState("open");
             onEventRef.current(event);
           },
         });

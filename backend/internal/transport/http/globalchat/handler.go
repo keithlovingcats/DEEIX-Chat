@@ -153,7 +153,16 @@ func (h *Handler) Stream(c *gin.Context) {
 	// 回放断线窗口（先订阅后回放，保证不丢不重；重复由前端按 id 去重）。
 	if afterID > 0 {
 		replay, hasMore, err := h.service.ListAfterID(c.Request.Context(), uint(afterID))
-		if err == nil {
+		if err != nil {
+			// 回放失败意味着客户端数据不完整，下发 resync 让前端整体重拉，
+			// 而非静默吞错等下一轮重连。
+			if !writeEvent(map[string]interface{}{
+				"type": appglobalchat.EventResync,
+				"data": map[string]interface{}{"reason": "replay_failed"},
+			}) {
+				return
+			}
+		} else {
 			for _, item := range replay {
 				if !writeEvent(streamMessagePayload(item)) {
 					return
