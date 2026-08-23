@@ -22,7 +22,11 @@ const (
 	maxTextContentLength = 2000
 	// MaxReplayLimit 是断线回放的最大条数；达到上限时客户端应整体重拉。
 	MaxReplayLimit = 200
-	defaultListLimit = 50
+	// MaxDeletionReplayLimit 是断线窗口删除事件补发的最大条数；达到上限时
+	// 逐条下发代价过高（极端离线窗口可能数万条），客户端应整体重拉。
+	MaxDeletionReplayLimit = 500
+	// DefaultListLimit 是消息列表默认分页大小。
+	DefaultListLimit = 50
 )
 
 // UserReader 提供发送者信息快照所需的用户读取能力。
@@ -53,17 +57,36 @@ func (s *Service) Hub() *Hub {
 	return s.hub
 }
 
-// ListRecent 查询最新消息（升序）。
-func (s *Service) ListRecent(ctx context.Context, limit int) ([]domainglobalchat.Message, error) {
-	return s.repo.ListRecentMessages(ctx, normalizeListLimit(limit))
+// ListRecent 查询最新消息（升序）。返回值 hasMore 表示存在更早的历史可翻：
+// 按 effective+1 预取一条判定后裁剪，避免「剩余恰好一整页」时误报 hasMore。
+func (s *Service) ListRecent(ctx context.Context, limit int) ([]domainglobalchat.Message, bool, error) {
+	effective := normalizeListLimit(limit)
+	items, err := s.repo.ListRecentMessages(ctx, effective+1)
+	if err != nil {
+		return nil, false, err
+	}
+	return trimWithMore(items, effective)
 }
 
-// ListBeforeID 游标分页查询更早消息（升序）。
-func (s *Service) ListBeforeID(ctx context.Context, beforeID uint, limit int) ([]domainglobalchat.Message, error) {
+// ListBeforeID 游标分页查询更早消息（升序）。hasMore 语义同 ListRecent。
+func (s *Service) ListBeforeID(ctx context.Context, beforeID uint, limit int) ([]domainglobalchat.Message, bool, error) {
 	if beforeID == 0 {
-		return nil, repository.ErrInvalidInput
+		return nil, false, repository.ErrInvalidInput
 	}
-	return s.repo.ListMessagesBeforeID(ctx, beforeID, normalizeListLimit(limit))
+	effective := normalizeListLimit(limit)
+	items, err := s.repo.ListMessagesBeforeID(ctx, beforeID, effective+1)
+	if err != nil {
+		return nil, false, err
+	}
+	return trimWithMore(items, effective)
+}
+
+// trimWithMore 将 look-ahead 预取的结果裁剪回页大小并计算 hasMore。
+func trimWithMore(items []domainglobalchat.Message, effective int) ([]domainglobalchat.Message, bool, error) {
+	if len(items) > effective {
+		return items[:effective], true, nil
+	}
+	return items, false, nil
 }
 
 // ListAfterID 查询指定 ID 之后的消息（断线回放，升序）。
@@ -77,6 +100,20 @@ func (s *Service) ListAfterID(ctx context.Context, afterID uint) ([]domainglobal
 		return nil, false, err
 	}
 	return items, len(items) >= MaxReplayLimit, nil
+}
+
+// ListDeletionsSince 查询断线窗口内被删除的消息 ID（重连补发删除事件用）。
+// 返回值 hasMore 表示窗口内删除数量达到补发上限，客户端应整体重拉；
+// ErrNotFound 表示锚点消息不存在，同样整体重拉。
+func (s *Service) ListDeletionsSince(ctx context.Context, afterID uint) ([]uint, bool, error) {
+	if afterID == 0 {
+		return nil, false, repository.ErrInvalidInput
+	}
+	ids, err := s.repo.ListDeletedIDsSince(ctx, afterID, MaxDeletionReplayLimit)
+	if err != nil {
+		return nil, false, err
+	}
+	return ids, len(ids) >= MaxDeletionReplayLimit, nil
 }
 
 // SendText 发送文本消息（含 Emoji），原样存储，由前端纯文本渲染。
@@ -267,7 +304,7 @@ func userSnapshotFromDomain(user domainuser.User) userSnapshot {
 
 func normalizeListLimit(limit int) int {
 	if limit <= 0 {
-		return defaultListLimit
+		return DefaultListLimit
 	}
 	if limit > MaxReplayLimit {
 		return MaxReplayLimit

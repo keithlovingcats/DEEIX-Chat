@@ -11887,7 +11887,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "NDJSON 长连接，实时推送新消息、删除事件、在线人数与心跳；带 after_id 时先回放断线期间的消息（回放超限会下发 resync 事件）",
+                "description": "NDJSON 长连接，实时推送新消息、删除事件、在线人数与心跳；带 after_id 时先回放断线期间的消息并补发窗口内的删除事件（回放或删除补发超限、回放失败会下发 resync 事件）",
                 "produces": [
                     "application/x-ndjson"
                 ],

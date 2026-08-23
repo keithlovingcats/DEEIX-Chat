@@ -200,6 +200,92 @@ func TestListAfterIDReportsReplayOverflow(t *testing.T) {
 	}
 }
 
+func TestListRecentAndBeforeIDLookaheadHasMore(t *testing.T) {
+	repo := &fakeRepo{}
+	service, _ := newTestService(repo)
+	makeMessages := func(n int, startID uint) []domainglobalchat.Message {
+		items := make([]domainglobalchat.Message, 0, n)
+		for i := 0; i < n; i++ {
+			items = append(items, domainglobalchat.Message{ID: startID + uint(i)})
+		}
+		return items
+	}
+
+	// 预取一条超出页大小：裁剪回 50 条并上报 hasMore（整页边界不再误报）。
+	repo.recentMessages = makeMessages(DefaultListLimit+1, 1)
+	items, hasMore, err := service.ListRecent(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListRecent() error = %v", err)
+	}
+	if len(items) != DefaultListLimit || !hasMore {
+		t.Fatalf("ListRecent() = %d items, hasMore=%v, want %d items, hasMore=true", len(items), hasMore, DefaultListLimit)
+	}
+	if repo.lastRecentLimit != DefaultListLimit+1 {
+		t.Fatalf("repository received limit %d, want %d (look-ahead)", repo.lastRecentLimit, DefaultListLimit+1)
+	}
+
+	// 不足一页：原样返回且 hasMore=false。
+	repo.recentMessages = makeMessages(30, 1)
+	items, hasMore, err = service.ListRecent(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListRecent() partial error = %v", err)
+	}
+	if len(items) != 30 || hasMore {
+		t.Fatalf("ListRecent() partial = %d items, hasMore=%v, want 30, false", len(items), hasMore)
+	}
+
+	if _, _, err := service.ListBeforeID(context.Background(), 0, 0); !errors.Is(err, repository.ErrInvalidInput) {
+		t.Fatalf("ListBeforeID() zero cursor error = %v, want ErrInvalidInput", err)
+	}
+
+	// limit 超上限：service 归一化封顶 200，预取 201 条仍可精确判定。
+	repo.beforeMessages = makeMessages(MaxReplayLimit+1, 1)
+	items, hasMore, err = service.ListBeforeID(context.Background(), 10, 999)
+	if err != nil {
+		t.Fatalf("ListBeforeID() error = %v", err)
+	}
+	if len(items) != MaxReplayLimit || !hasMore {
+		t.Fatalf("ListBeforeID() = %d items, hasMore=%v, want %d, true", len(items), hasMore, MaxReplayLimit)
+	}
+	if repo.lastBeforeLimit != MaxReplayLimit+1 {
+		t.Fatalf("repository received limit %d, want %d", repo.lastBeforeLimit, MaxReplayLimit+1)
+	}
+}
+
+func TestListDeletionsSinceValidation(t *testing.T) {
+	repo := &fakeRepo{}
+	service, _ := newTestService(repo)
+
+	if _, _, err := service.ListDeletionsSince(context.Background(), 0); !errors.Is(err, repository.ErrInvalidInput) {
+		t.Fatalf("ListDeletionsSince() zero cursor error = %v, want ErrInvalidInput", err)
+	}
+
+	repo.deletedSince = []uint{3, 5}
+	ids, hasMore, err := service.ListDeletionsSince(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListDeletionsSince() error = %v", err)
+	}
+	if len(ids) != 2 || ids[0] != 3 || ids[1] != 5 {
+		t.Fatalf("ListDeletionsSince() = %v, want [3 5]", ids)
+	}
+	if hasMore {
+		t.Fatal("ListDeletionsSince() hasMore = true, want false below limit")
+	}
+	if repo.lastSinceLimit != MaxDeletionReplayLimit {
+		t.Fatalf("repository received limit %d, want %d", repo.lastSinceLimit, MaxDeletionReplayLimit)
+	}
+
+	// 达到补发上限时上报 hasMore，由 handler 改为下发 resync 整体重拉。
+	repo.deletedSince = make([]uint, MaxDeletionReplayLimit)
+	_, hasMore, err = service.ListDeletionsSince(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListDeletionsSince() overflow error = %v", err)
+	}
+	if !hasMore {
+		t.Fatal("ListDeletionsSince() hasMore = false, want true at limit")
+	}
+}
+
 func TestOpenImageContentWithoutProvider(t *testing.T) {
 	service, _ := newTestService(&fakeRepo{})
 	if _, err := service.OpenImageContent(context.Background(), "f1"); !errors.Is(err, ErrImageFileNotFound) {
@@ -208,20 +294,29 @@ func TestOpenImageContentWithoutProvider(t *testing.T) {
 }
 
 type fakeRepo struct {
-	imageFile     *domainglobalchat.ImageFile
-	imageErr      error
-	deleteErr     error
-	batchDeleted  int
-	lastBatchIDs  []uint
-	afterMessages []domainglobalchat.Message
+	imageFile       *domainglobalchat.ImageFile
+	imageErr        error
+	deleteErr       error
+	batchDeleted    int
+	lastBatchIDs    []uint
+	afterMessages   []domainglobalchat.Message
+	recentMessages  []domainglobalchat.Message
+	beforeMessages  []domainglobalchat.Message
+	lastRecentLimit int
+	lastBeforeLimit int
+	deletedSince    []uint
+	lastSinceLimit  int
+	deletedSinceErr error
 }
 
-func (r *fakeRepo) ListRecentMessages(context.Context, int) ([]domainglobalchat.Message, error) {
-	return []domainglobalchat.Message{}, nil
+func (r *fakeRepo) ListRecentMessages(_ context.Context, limit int) ([]domainglobalchat.Message, error) {
+	r.lastRecentLimit = limit
+	return r.recentMessages, nil
 }
 
-func (r *fakeRepo) ListMessagesBeforeID(context.Context, uint, int) ([]domainglobalchat.Message, error) {
-	return []domainglobalchat.Message{}, nil
+func (r *fakeRepo) ListMessagesBeforeID(_ context.Context, _ uint, limit int) ([]domainglobalchat.Message, error) {
+	r.lastBeforeLimit = limit
+	return r.beforeMessages, nil
 }
 
 func (r *fakeRepo) ListMessagesAfterID(_ context.Context, afterID uint, limit int) ([]domainglobalchat.Message, error) {
@@ -235,6 +330,14 @@ func (r *fakeRepo) CreateMessage(_ context.Context, item *domainglobalchat.Messa
 
 func (r *fakeRepo) DeleteMessage(context.Context, uint) error {
 	return r.deleteErr
+}
+
+func (r *fakeRepo) ListDeletedIDsSince(_ context.Context, _ uint, limit int) ([]uint, error) {
+	r.lastSinceLimit = limit
+	if r.deletedSinceErr != nil {
+		return nil, r.deletedSinceErr
+	}
+	return r.deletedSince, nil
 }
 
 func (r *fakeRepo) DeleteMessages(_ context.Context, ids []uint) (int, error) {

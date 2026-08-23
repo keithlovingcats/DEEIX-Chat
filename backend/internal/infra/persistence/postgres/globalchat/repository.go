@@ -75,6 +75,34 @@ func (r *Repo) ListMessagesAfterID(ctx context.Context, afterID uint, limit int)
 	return results, nil
 }
 
+// ListDeletedIDsSince 查询断线窗口内被软删除的消息 ID（升序）。
+// 窗口起点取 afterID 消息的创建时间（Unscoped，锚点自身可能已被删除）；
+// 限定 id <= afterID 保证只返回客户端曾确认收到过的消息——多发的删除
+// 事件对前端是 no-op，按超集下发是安全的。limit 封顶条数，超限由上层
+// 改为下发 resync 整体重拉。
+func (r *Repo) ListDeletedIDsSince(ctx context.Context, afterID uint, limit int) ([]uint, error) {
+	if afterID == 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	var anchor model.GlobalChatMessage
+	if err := r.db.WithContext(ctx).Unscoped().
+		Select("created_at").
+		Where("id = ?", afterID).
+		First(&anchor).Error; err != nil {
+		return nil, translateError(err)
+	}
+	ids := make([]uint, 0)
+	if err := r.db.WithContext(ctx).Unscoped().
+		Model(&model.GlobalChatMessage{}).
+		Where("deleted_at IS NOT NULL AND deleted_at > ? AND id <= ?", anchor.CreatedAt, afterID).
+		Order("id ASC").
+		Limit(limit).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return ids, nil
+}
+
 // CreateMessage 创建消息。
 func (r *Repo) CreateMessage(ctx context.Context, item *domainglobalchat.Message) (*domainglobalchat.Message, error) {
 	if item == nil {
@@ -194,12 +222,11 @@ func toDomain(item model.GlobalChatMessage) domainglobalchat.Message {
 	}
 }
 
+// normalizeLimit 只兜底非法值；业务上限由 application 层归一化，
+// 预取余量（effective+1）需原样透传，不能在此封顶。
 func normalizeLimit(limit int) int {
 	if limit <= 0 {
 		return 50
-	}
-	if limit > 200 {
-		return 200
 	}
 	return limit
 }

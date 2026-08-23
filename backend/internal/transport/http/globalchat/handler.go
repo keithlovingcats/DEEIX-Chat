@@ -51,8 +51,9 @@ func (h *Handler) ListMessages(c *gin.Context) {
 		}
 	}
 	var (
-		items []domainglobalchat.Message
-		err   error
+		items   []domainglobalchat.Message
+		hasMore bool
+		err     error
 	)
 	if raw := strings.TrimSpace(c.Query("before_id")); raw != "" {
 		beforeID, parseErr := strconv.ParseUint(raw, 10, strconv.IntSize)
@@ -60,21 +61,17 @@ func (h *Handler) ListMessages(c *gin.Context) {
 			response.Error(c, http.StatusBadRequest, "invalid before_id")
 			return
 		}
-		items, err = h.service.ListBeforeID(c.Request.Context(), uint(beforeID), limit)
+		items, hasMore, err = h.service.ListBeforeID(c.Request.Context(), uint(beforeID), limit)
 	} else {
-		items, err = h.service.ListRecent(c.Request.Context(), limit)
+		items, hasMore, err = h.service.ListRecent(c.Request.Context(), limit)
 	}
 	if err != nil {
 		writeError(c, err)
 		return
 	}
-	pageSize := 50
-	if limit > 0 {
-		pageSize = limit
-	}
 	response.Success(c, GlobalChatMessageListData{
 		Messages: toMessageResponses(items),
-		HasMore:  len(items) >= pageSize,
+		HasMore:  hasMore,
 	})
 }
 
@@ -115,7 +112,7 @@ func (h *Handler) SendMessage(c *gin.Context) {
 
 // Stream godoc
 // @Summary 订阅全服聊天实时流
-// @Description NDJSON 长连接，实时推送新消息、删除事件、在线人数与心跳；带 after_id 时先回放断线期间的消息（回放超限会下发 resync 事件）
+// @Description NDJSON 长连接，实时推送新消息、删除事件、在线人数与心跳；带 after_id 时先回放断线期间的消息并补发窗口内的删除事件（回放或删除补发超限、回放失败会下发 resync 事件）
 // @Tags global-chat
 // @Produce application/x-ndjson
 // @Security BearerAuth
@@ -150,30 +147,59 @@ func (h *Handler) Stream(c *gin.Context) {
 		return true
 	}
 
+	// 下发 resync：客户端数据不完整时整体重拉的信号（返回 false 表示连接已断）。
+	writeResync := func(reason string) bool {
+		return writeEvent(map[string]interface{}{
+			"type": appglobalchat.EventResync,
+			"data": map[string]interface{}{"reason": reason},
+		})
+	}
+
 	// 回放断线窗口（先订阅后回放，保证不丢不重；重复由前端按 id 去重）。
+	// 任一 resync 分支即终止回放阶段：后续事件只会随整体重拉作废，不再下发。
 	if afterID > 0 {
 		replay, hasMore, err := h.service.ListAfterID(c.Request.Context(), uint(afterID))
-		if err != nil {
+		switch {
+		case err != nil:
 			// 回放失败意味着客户端数据不完整，下发 resync 让前端整体重拉，
 			// 而非静默吞错等下一轮重连。
-			if !writeEvent(map[string]interface{}{
-				"type": appglobalchat.EventResync,
-				"data": map[string]interface{}{"reason": "replay_failed"},
-			}) {
+			if !writeResync("replay_failed") {
 				return
 			}
-		} else {
+		case hasMore:
+			// 回放超限同样整体重拉：注定作废的回放消息与删除补发无需先发。
+			if !writeResync("replay_limit") {
+				return
+			}
+		default:
 			for _, item := range replay {
 				if !writeEvent(streamMessagePayload(item)) {
 					return
 				}
 			}
-			if hasMore {
-				if !writeEvent(map[string]interface{}{
-					"type": appglobalchat.EventResync,
-					"data": map[string]interface{}{"reason": "replay_limit"},
-				}) {
+			// 补发断线窗口内的删除事件：断线期间管理员删除的消息若不补发，
+			// 重连的客户端会一直显示已删消息（软删除消息不会出现在回放结果里）。
+			deletedIDs, delHasMore, delErr := h.service.ListDeletionsSince(c.Request.Context(), uint(afterID))
+			switch {
+			case delErr != nil:
+				// 删除补发失败（含锚点消息不存在）：同样整体重拉，reason 与
+				// 回放失败区分开便于排查。
+				if !writeResync("deletion_replay_failed") {
 					return
+				}
+			case delHasMore:
+				// 窗口内删除数量达到补发上限：逐条下发代价过高，整体重拉。
+				if !writeResync("deletion_replay_limit") {
+					return
+				}
+			default:
+				for _, id := range deletedIDs {
+					if !writeEvent(map[string]interface{}{
+						"type": appglobalchat.EventMessageDeleted,
+						"data": map[string]interface{}{"id": id},
+					}) {
+						return
+					}
 				}
 			}
 		}

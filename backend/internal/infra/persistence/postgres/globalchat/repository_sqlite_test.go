@@ -2,7 +2,9 @@ package globalchat
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
@@ -52,6 +54,78 @@ func TestImageFileQueriesEnforcePurposeAndOwnership(t *testing.T) {
 	}
 	if _, err := repo.GetSharedImageFile(ctx, "conv-image"); err != repository.ErrNotFound {
 		t.Fatalf("GetSharedImageFile() wrong purpose error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestListDeletedIDsSinceReturnsWindowDeletions(t *testing.T) {
+	db := openGlobalChatSQLiteTestDB(t)
+	repo := NewRepo(db)
+	ctx := context.Background()
+
+	seed := func(content string) uint {
+		item := model.GlobalChatMessage{
+			PublicID: content, UserID: 1, Username: "alice", MessageType: "text", Content: content,
+		}
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatalf("seed message %s: %v", content, err)
+		}
+		return item.ID
+	}
+	idA := seed("A")
+	idB := seed("B")
+	idC := seed("C")
+	seed("D")
+
+	// 软删除 A 与 B；锚点为 C（after_id = idC），D 从未被客户端确认（id > 锚点）。
+	for _, id := range []uint{idA, idB} {
+		if err := repo.DeleteMessage(ctx, id); err != nil {
+			t.Fatalf("DeleteMessage(%d): %v", id, err)
+		}
+	}
+
+	// B 的删除时间改到锚点 C 创建时间之前：属于客户端在线期间的删除，
+	// 无需补发，应被窗口条件排除。
+	past := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := db.Unscoped().Model(&model.GlobalChatMessage{}).
+		Where("id = ?", idB).
+		Update("deleted_at", past).Error; err != nil {
+		t.Fatalf("backdate deleted_at: %v", err)
+	}
+
+	ids, err := repo.ListDeletedIDsSince(ctx, idC, 100)
+	if err != nil {
+		t.Fatalf("ListDeletedIDsSince() error = %v", err)
+	}
+	// 只补发 A（id <= 锚点且删除晚于锚点创建）；B 在窗口外，D 未被确认过。
+	if len(ids) != 1 || ids[0] != idA {
+		t.Fatalf("ListDeletedIDsSince() = %v, want only [%d]", ids, idA)
+	}
+
+	// 锚点消息自身被删除（Unscoped 查询仍可定位）不阻断补发。
+	if err := repo.DeleteMessage(ctx, idC); err != nil {
+		t.Fatalf("DeleteMessage(anchor): %v", err)
+	}
+	ids, err = repo.ListDeletedIDsSince(ctx, idC, 100)
+	if err != nil {
+		t.Fatalf("ListDeletedIDsSince() after anchor deleted error = %v", err)
+	}
+	// A 与锚点 C 自身都应补发。
+	if len(ids) != 2 || ids[0] != idA || ids[1] != idC {
+		t.Fatalf("ListDeletedIDsSince() = %v, want [%d %d]", ids, idA, idC)
+	}
+
+	// limit 封顶返回条数（升序取最小 id）：上层达到上限时改下发 resync。
+	capped, err := repo.ListDeletedIDsSince(ctx, idC, 1)
+	if err != nil {
+		t.Fatalf("ListDeletedIDsSince() capped error = %v", err)
+	}
+	if len(capped) != 1 || capped[0] != idA {
+		t.Fatalf("ListDeletedIDsSince() capped = %v, want only [%d]", capped, idA)
+	}
+
+	// 锚点不存在 → ErrNotFound（上层下发 resync）。
+	if _, err := repo.ListDeletedIDsSince(ctx, 9999, 100); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("ListDeletedIDsSince() missing anchor error = %v, want ErrNotFound", err)
 	}
 }
 
