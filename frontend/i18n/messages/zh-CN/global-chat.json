@@ -15,6 +15,13 @@
   "sendImage": "发送图片",
   "imageInvalid": "图片需为 JPEG / PNG / GIF / WebP 格式，且不超过 5MB",
   "emojiPicker": "Emoji 表情",
+  "manage": "管理",
+  "selectedCount": "已选 {count} 条",
+  "deleteSelected": "删除所选",
+  "cancelSelection": "取消",
+  "deleteConfirmTitle": "确认删除消息",
+  "deleteConfirmDescription": "将删除 {count} 条消息，此操作不可撤销。",
+  "deleteFailed": "删除失败，请重试",
   "emojiCategories": {
     "smileys": "表情",
     "gestures": "手势",

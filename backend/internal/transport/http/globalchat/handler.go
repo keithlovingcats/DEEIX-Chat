@@ -85,13 +85,13 @@ func (h *Handler) ListMessages(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param body body SendMessageRequest true "消息内容"
+// @Param body body GlobalChatSendMessageRequest true "消息内容"
 // @Success 200 {object} GlobalChatMessageResponseDoc
 // @Failure 400 {object} ErrorDoc
 // @Failure 500 {object} ErrorDoc
 // @Router /global-chat/messages [post]
 func (h *Handler) SendMessage(c *gin.Context) {
-	var req SendMessageRequest
+	var req GlobalChatSendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.InvalidRequestBody(c, err)
 		return
@@ -268,6 +268,32 @@ func (h *Handler) DeleteMessage(c *gin.Context) {
 		return
 	}
 	response.Success(c, GlobalChatMessageDeleteDataResponse{Deleted: true})
+}
+
+// BatchDeleteMessages godoc
+// @Summary 管理员批量删除全服聊天消息
+// @Description 软删除最多 100 条消息并向在线客户端逐条广播删除事件
+// @Tags admin-global-chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body BatchDeleteGlobalChatMessagesRequest true "消息 ID 列表"
+// @Success 200 {object} GlobalChatMessagesBatchDeleteResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /admin/global-chat/messages/batch-delete [post]
+func (h *Handler) BatchDeleteMessages(c *gin.Context) {
+	var req BatchDeleteGlobalChatMessagesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	deleted, err := h.service.DeleteMessages(c.Request.Context(), req.IDs)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	response.Success(c, GlobalChatMessagesBatchDeleteDataResponse{Deleted: deleted})
 }
 
 func streamMessagePayload(item domainglobalchat.Message) map[string]interface{} {

@@ -1892,6 +1892,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/global-chat/messages/batch-delete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "软删除最多 100 条消息并向在线客户端逐条广播删除事件",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-global-chat"
+                ],
+                "summary": "管理员批量删除全服聊天消息",
+                "parameters": [
+                    {
+                        "description": "消息 ID 列表",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/BatchDeleteGlobalChatMessagesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalChatMessagesBatchDeleteResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/global-chat/messages/{id}": {
             "delete": {
                 "security": [
@@ -10581,7 +10632,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/ConversationSendMessageRequest"
+                            "$ref": "#/definitions/SendMessageRequest"
                         }
                     }
                 ],
@@ -10700,7 +10751,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/ConversationSendMessageRequest"
+                            "$ref": "#/definitions/SendMessageRequest"
                         }
                     }
                 ],
@@ -11769,7 +11820,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/GlobalchatSendMessageRequest"
+                            "$ref": "#/definitions/GlobalChatSendMessageRequest"
                         }
                     }
                 ],
@@ -15286,6 +15337,22 @@ const docTemplate = `{
                 }
             }
         },
+        "BatchDeleteGlobalChatMessagesRequest": {
+            "type": "object",
+            "required": [
+                "ids"
+            ],
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "BatchDeleteRedemptionCodeDataResponse": {
             "type": "object",
             "required": [
@@ -17724,98 +17791,6 @@ const docTemplate = `{
                 }
             }
         },
-        "ConversationSendMessageRequest": {
-            "type": "object",
-            "required": [
-                "content",
-                "contentType",
-                "knowledgeBaseIDs"
-            ],
-            "properties": {
-                "branchReason": {
-                    "type": "string",
-                    "enum": [
-                        "default",
-                        "retry",
-                        "edit"
-                    ]
-                },
-                "clientRunID": {
-                    "type": "string",
-                    "maxLength": 64
-                },
-                "content": {
-                    "type": "string"
-                },
-                "contentType": {
-                    "type": "string",
-                    "enum": [
-                        "text",
-                        "markdown",
-                        "image",
-                        "file",
-                        "mixed"
-                    ]
-                },
-                "discussionMeta": {
-                    "$ref": "#/definitions/MessageDiscussionMetaRequest"
-                },
-                "fileIDs": {
-                    "type": "array",
-                    "maxItems": 20,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "htmlVisualPrompt": {
-                    "type": "boolean"
-                },
-                "knowledgeBaseIDs": {
-                    "type": "array",
-                    "maxItems": 8,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "model": {
-                    "type": "string",
-                    "maxLength": 128
-                },
-                "options": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "parallelModels": {
-                    "type": "array",
-                    "maxItems": 20,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "parentMessagePublicID": {
-                    "type": "string",
-                    "maxLength": 32
-                },
-                "selectedToolIDs": {
-                    "type": "array",
-                    "maxItems": 128,
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "skillIDs": {
-                    "type": "array",
-                    "maxItems": 128,
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "sourceMessagePublicID": {
-                    "type": "string",
-                    "maxLength": 32
-                }
-            }
-        },
         "ConversationShareResponse": {
             "type": "object",
             "required": [
@@ -19077,6 +19052,32 @@ const docTemplate = `{
                 }
             }
         },
+        "GlobalChatMessagesBatchDeleteDataResponse": {
+            "type": "object",
+            "required": [
+                "deleted"
+            ],
+            "properties": {
+                "deleted": {
+                    "type": "integer"
+                }
+            }
+        },
+        "GlobalChatMessagesBatchDeleteResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/GlobalChatMessagesBatchDeleteDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
         "GlobalChatOnlineCountDataResponse": {
             "type": "object",
             "required": [
@@ -19103,6 +19104,29 @@ const docTemplate = `{
                 }
             }
         },
+        "GlobalChatSendMessageRequest": {
+            "type": "object",
+            "required": [
+                "messageType"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "maxLength": 2000
+                },
+                "fileId": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "messageType": {
+                    "type": "string",
+                    "enum": [
+                        "text",
+                        "image"
+                    ]
+                }
+            }
+        },
         "GlobalchatErrorDoc": {
             "type": "object",
             "required": [
@@ -19123,29 +19147,6 @@ const docTemplate = `{
                 "requestId": {
                     "type": "string",
                     "example": ""
-                }
-            }
-        },
-        "GlobalchatSendMessageRequest": {
-            "type": "object",
-            "required": [
-                "messageType"
-            ],
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "maxLength": 2000
-                },
-                "fileId": {
-                    "type": "string",
-                    "maxLength": 64
-                },
-                "messageType": {
-                    "type": "string",
-                    "enum": [
-                        "text",
-                        "image"
-                    ]
                 }
             }
         },
@@ -24288,6 +24289,98 @@ const docTemplate = `{
                         "two_factor",
                         "email"
                     ]
+                }
+            }
+        },
+        "SendMessageRequest": {
+            "type": "object",
+            "required": [
+                "content",
+                "contentType",
+                "knowledgeBaseIDs"
+            ],
+            "properties": {
+                "branchReason": {
+                    "type": "string",
+                    "enum": [
+                        "default",
+                        "retry",
+                        "edit"
+                    ]
+                },
+                "clientRunID": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "content": {
+                    "type": "string"
+                },
+                "contentType": {
+                    "type": "string",
+                    "enum": [
+                        "text",
+                        "markdown",
+                        "image",
+                        "file",
+                        "mixed"
+                    ]
+                },
+                "discussionMeta": {
+                    "$ref": "#/definitions/MessageDiscussionMetaRequest"
+                },
+                "fileIDs": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "htmlVisualPrompt": {
+                    "type": "boolean"
+                },
+                "knowledgeBaseIDs": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "model": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "options": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "parallelModels": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "parentMessagePublicID": {
+                    "type": "string",
+                    "maxLength": 32
+                },
+                "selectedToolIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "skillIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "sourceMessagePublicID": {
+                    "type": "string",
+                    "maxLength": 32
                 }
             }
         },

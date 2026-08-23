@@ -1,6 +1,6 @@
 "use client";
 
-import { ImageOff, LoaderCircle } from "lucide-react";
+import { Check, ImageOff, LoaderCircle } from "lucide-react";
 import * as React from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -13,16 +13,23 @@ import type { GlobalChatMessage } from "@/features/global-chat/types/global-chat
 import { cn } from "@/lib/utils";
 
 // 单条消息气泡：头像 + 名称 + 时间 + 内容（文本原样渲染，图片走共享内容端点）。
+// 管理员选择模式下整行可点击切换选中。
 export function MessageItem({
   message,
   currentUserId,
   accessToken,
   onPreviewImage,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
 }: {
   message: GlobalChatMessage;
   currentUserId: number | null;
   accessToken: string;
   onPreviewImage: (src: string) => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
 }) {
   const isOwn = currentUserId != null && message.userId === currentUserId;
   const pending = message.status === "pending";
@@ -52,13 +59,46 @@ export function MessageItem({
     };
   }, [accessToken, message.imageFileId, message.messageType, imageSrc, imageFailed]);
 
+  const toggleSelect = () => {
+    if (selectionMode && onToggleSelect) {
+      onToggleSelect(message.id);
+    }
+  };
+
   return (
     <div
       className={cn(
-        "flex w-full gap-2.5 py-1",
+        "flex w-full gap-2.5 rounded-lg py-1 transition-colors",
         isOwn ? "flex-row-reverse" : "flex-row",
+        selectionMode && "cursor-pointer px-1",
+        selectionMode && selected && "bg-primary/10",
       )}
+      onClick={selectionMode ? toggleSelect : undefined}
+      role={selectionMode ? "checkbox" : undefined}
+      aria-checked={selectionMode ? selected : undefined}
+      tabIndex={selectionMode ? 0 : undefined}
+      onKeyDown={
+        selectionMode
+          ? (event) => {
+              if (event.key === " " || event.key === "Enter") {
+                event.preventDefault();
+                toggleSelect();
+              }
+            }
+          : undefined
+      }
     >
+      {selectionMode ? (
+        <span
+          className={cn(
+            "mt-1 flex size-5 shrink-0 items-center justify-center self-start rounded-full border",
+            selected ? "bg-primary border-primary text-primary-foreground" : "border-input",
+          )}
+          aria-hidden
+        >
+          {selected ? <Check className="size-3.5" /> : null}
+        </span>
+      ) : null}
       <Avatar className="size-8 shrink-0">
         {message.avatarUrl.startsWith("http") ? (
           <AvatarImage src={message.avatarUrl} alt={message.username} />
@@ -91,7 +131,11 @@ export function MessageItem({
               <button
                 type="button"
                 className="block max-h-64 max-w-full overflow-hidden rounded-lg"
-                onClick={() => {
+                onClick={(event) => {
+                  if (selectionMode) {
+                    return;
+                  }
+                  event.stopPropagation();
                   onPreviewImage(imageSrc);
                 }}
               >

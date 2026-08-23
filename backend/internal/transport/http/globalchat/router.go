@@ -14,4 +14,5 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 // RegisterAdminRoutes 注册全服聊天管理路由。
 func (m *Module) RegisterAdminRoutes(adminGroup *gin.RouterGroup) {
 	adminGroup.DELETE("/global-chat/messages/:id", m.Handler.DeleteMessage)
+	adminGroup.POST("/global-chat/messages/batch-delete", m.Handler.BatchDeleteMessages)
 }

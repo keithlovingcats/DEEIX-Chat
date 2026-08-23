@@ -29,8 +29,8 @@ type GlobalChatMessageResponse struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
-// SendMessageRequest 发送消息请求。文本消息携带 content，图片消息携带 fileId。
-type SendMessageRequest struct {
+// GlobalChatSendMessageRequest 发送消息请求。文本消息携带 content，图片消息携带 fileId。
+type GlobalChatSendMessageRequest struct {
 	MessageType string `json:"messageType" binding:"required,oneof=text image"`
 	Content     string `json:"content,omitempty" binding:"omitempty,max=2000"`
 	FileID      string `json:"fileId,omitempty" binding:"omitempty,max=64"`
@@ -79,6 +79,22 @@ type GlobalChatMessageDeleteDataResponse struct {
 type GlobalChatMessageDeleteResponseDoc struct {
 	ErrorMsg string                             `json:"errorMsg"`
 	Data     GlobalChatMessageDeleteDataResponse `json:"data"`
+}
+
+// BatchDeleteGlobalChatMessagesRequest 批量删除消息请求。
+type BatchDeleteGlobalChatMessagesRequest struct {
+	IDs []uint `json:"ids" binding:"required,min=1,max=100,dive,gt=0"`
+}
+
+// GlobalChatMessagesBatchDeleteDataResponse 批量删除消息响应。
+type GlobalChatMessagesBatchDeleteDataResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+// GlobalChatMessagesBatchDeleteResponseDoc 批量删除消息响应文档。
+type GlobalChatMessagesBatchDeleteResponseDoc struct {
+	ErrorMsg string                                  `json:"errorMsg"`
+	Data     GlobalChatMessagesBatchDeleteDataResponse `json:"data"`
 }
 
 func toMessageResponse(item domainglobalchat.Message) GlobalChatMessageResponse {

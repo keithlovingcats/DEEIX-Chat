@@ -15,6 +15,13 @@
   "sendImage": "Send image",
   "imageInvalid": "Images must be JPEG / PNG / GIF / WebP and no larger than 5MB",
   "emojiPicker": "Emoji",
+  "manage": "Manage",
+  "selectedCount": "{count} selected",
+  "deleteSelected": "Delete selected",
+  "cancelSelection": "Cancel",
+  "deleteConfirmTitle": "Delete messages",
+  "deleteConfirmDescription": "{count} messages will be deleted. This cannot be undone.",
+  "deleteFailed": "Failed to delete. Please try again.",
   "emojiCategories": {
     "smileys": "Smileys",
     "gestures": "Gestures",

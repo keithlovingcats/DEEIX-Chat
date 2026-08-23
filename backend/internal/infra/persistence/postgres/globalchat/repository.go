@@ -112,6 +112,18 @@ func (r *Repo) DeleteMessage(ctx context.Context, id uint) error {
 	return nil
 }
 
+// DeleteMessages 批量软删除消息，返回实际删除条数（不存在的 ID 忽略）。
+func (r *Repo) DeleteMessages(ctx context.Context, ids []uint) (int, error) {
+	if len(ids) == 0 {
+		return 0, repository.ErrInvalidInput
+	}
+	result := r.db.WithContext(ctx).Delete(&model.GlobalChatMessage{}, ids)
+	if result.Error != nil {
+		return 0, translateError(result.Error)
+	}
+	return int(result.RowsAffected), nil
+}
+
 // GetOwnedImageFile 校验图片文件归属当前用户且用途为全服聊天。
 func (r *Repo) GetOwnedImageFile(ctx context.Context, userID uint, fileID string) (*domainglobalchat.ImageFile, error) {
 	normalized := strings.TrimSpace(fileID)

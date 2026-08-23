@@ -740,6 +740,17 @@ definitions:
     - username
     - usernameChangedAt
     type: object
+  BatchDeleteGlobalChatMessagesRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        maxItems: 100
+        minItems: 1
+        type: array
+    required:
+    - ids
+    type: object
   BatchDeleteRedemptionCodeDataResponse:
     properties:
       failedCount:
@@ -2443,73 +2454,6 @@ definitions:
     - title
     - updatedAt
     type: object
-  ConversationSendMessageRequest:
-    properties:
-      branchReason:
-        enum:
-        - default
-        - retry
-        - edit
-        type: string
-      clientRunID:
-        maxLength: 64
-        type: string
-      content:
-        type: string
-      contentType:
-        enum:
-        - text
-        - markdown
-        - image
-        - file
-        - mixed
-        type: string
-      discussionMeta:
-        $ref: '#/definitions/MessageDiscussionMetaRequest'
-      fileIDs:
-        items:
-          type: string
-        maxItems: 20
-        type: array
-      htmlVisualPrompt:
-        type: boolean
-      knowledgeBaseIDs:
-        items:
-          type: string
-        maxItems: 8
-        type: array
-      model:
-        maxLength: 128
-        type: string
-      options:
-        additionalProperties: true
-        type: object
-      parallelModels:
-        items:
-          type: string
-        maxItems: 20
-        type: array
-      parentMessagePublicID:
-        maxLength: 32
-        type: string
-      selectedToolIDs:
-        items:
-          type: integer
-        maxItems: 128
-        type: array
-      skillIDs:
-        items:
-          type: integer
-        maxItems: 128
-        type: array
-      sourceMessagePublicID:
-        maxLength: 32
-        type: string
-    required:
-    - content
-    - contentType
-    - knowledgeBaseIDs
-    type: object
   ConversationShareResponse:
     properties:
       createdAt:
@@ -3399,6 +3343,23 @@ definitions:
     - data
     - errorMsg
     type: object
+  GlobalChatMessagesBatchDeleteDataResponse:
+    properties:
+      deleted:
+        type: integer
+    required:
+    - deleted
+    type: object
+  GlobalChatMessagesBatchDeleteResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/GlobalChatMessagesBatchDeleteDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   GlobalChatOnlineCountDataResponse:
     properties:
       count:
@@ -3416,6 +3377,22 @@ definitions:
     - data
     - errorMsg
     type: object
+  GlobalChatSendMessageRequest:
+    properties:
+      content:
+        maxLength: 2000
+        type: string
+      fileId:
+        maxLength: 64
+        type: string
+      messageType:
+        enum:
+        - text
+        - image
+        type: string
+    required:
+    - messageType
+    type: object
   GlobalchatErrorDoc:
     properties:
       data: {}
@@ -3432,22 +3409,6 @@ definitions:
     required:
     - data
     - errorMsg
-    type: object
-  GlobalchatSendMessageRequest:
-    properties:
-      content:
-        maxLength: 2000
-        type: string
-      fileId:
-        maxLength: 64
-        type: string
-      messageType:
-        enum:
-        - text
-        - image
-        type: string
-    required:
-    - messageType
     type: object
   GroupModelsResponse:
     properties:
@@ -7047,6 +7008,73 @@ definitions:
         - two_factor
         - email
         type: string
+    type: object
+  SendMessageRequest:
+    properties:
+      branchReason:
+        enum:
+        - default
+        - retry
+        - edit
+        type: string
+      clientRunID:
+        maxLength: 64
+        type: string
+      content:
+        type: string
+      contentType:
+        enum:
+        - text
+        - markdown
+        - image
+        - file
+        - mixed
+        type: string
+      discussionMeta:
+        $ref: '#/definitions/MessageDiscussionMetaRequest'
+      fileIDs:
+        items:
+          type: string
+        maxItems: 20
+        type: array
+      htmlVisualPrompt:
+        type: boolean
+      knowledgeBaseIDs:
+        items:
+          type: string
+        maxItems: 8
+        type: array
+      model:
+        maxLength: 128
+        type: string
+      options:
+        additionalProperties: true
+        type: object
+      parallelModels:
+        items:
+          type: string
+        maxItems: 20
+        type: array
+      parentMessagePublicID:
+        maxLength: 32
+        type: string
+      selectedToolIDs:
+        items:
+          type: integer
+        maxItems: 128
+        type: array
+      skillIDs:
+        items:
+          type: integer
+        maxItems: 128
+        type: array
+      sourceMessagePublicID:
+        maxLength: 32
+        type: string
+    required:
+    - content
+    - contentType
+    - knowledgeBaseIDs
     type: object
   SendMessageResponse:
     properties:
@@ -10776,6 +10804,38 @@ paths:
       security:
       - BearerAuth: []
       summary: 管理员删除全服聊天消息
+      tags:
+      - admin-global-chat
+  /admin/global-chat/messages/batch-delete:
+    post:
+      consumes:
+      - application/json
+      description: 软删除最多 100 条消息并向在线客户端逐条广播删除事件
+      parameters:
+      - description: 消息 ID 列表
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/BatchDeleteGlobalChatMessagesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/GlobalChatMessagesBatchDeleteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员批量删除全服聊天消息
       tags:
       - admin-global-chat
   /admin/knowledge-bases:
@@ -16104,7 +16164,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/ConversationSendMessageRequest'
+          $ref: '#/definitions/SendMessageRequest'
       produces:
       - application/json
       responses:
@@ -16224,7 +16284,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/ConversationSendMessageRequest'
+          $ref: '#/definitions/SendMessageRequest'
       produces:
       - application/x-ndjson
       responses:
@@ -17013,7 +17073,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/GlobalchatSendMessageRequest'
+          $ref: '#/definitions/GlobalChatSendMessageRequest'
       produces:
       - application/json
       responses:

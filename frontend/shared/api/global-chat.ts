@@ -1,7 +1,7 @@
 import type {
   GlobalChatMessageListData,
   GlobalChatMessageResponse,
-  GlobalchatSendMessageRequest,
+  GlobalChatSendMessageRequest,
 } from "@deeix/api-contract";
 
 import { authedFetch, authedRequest } from "@/shared/api/authed-client";
@@ -46,7 +46,7 @@ export async function listGlobalChatMessages(
 
 export async function sendGlobalChatMessage(
   accessToken: string,
-  request: GlobalchatSendMessageRequest,
+  request: GlobalChatSendMessageRequest,
 ): Promise<GlobalChatMessageResponse> {
   const result = await authedRequest<{ message: GlobalChatMessageResponse }>(
     "/api/v1/global-chat/messages",
@@ -56,18 +56,22 @@ export async function sendGlobalChatMessage(
   return result.message;
 }
 
-export async function fetchGlobalChatOnlineCount(accessToken: string): Promise<number> {
-  const result = await authedRequest<{ count: number }>(
-    "/api/v1/global-chat/online-count",
-    { method: "GET", accessToken },
-    true,
-  );
-  return result.count;
-}
-
 export async function uploadGlobalChatImage(accessToken: string, file: File): Promise<string> {
   const result = await uploadFile(accessToken, file, { purpose: "global-chat" });
   return result.file.fileID;
+}
+
+// 批量删除消息（管理员），返回实际删除条数。
+export async function batchDeleteGlobalChatMessages(
+  accessToken: string,
+  ids: number[],
+): Promise<number> {
+  const result = await authedRequest<{ deleted: number }>(
+    "/api/v1/admin/global-chat/messages/batch-delete",
+    { method: "POST", accessToken, body: { ids } },
+    true,
+  );
+  return result.deleted;
 }
 
 export async function fetchGlobalChatImageContent(

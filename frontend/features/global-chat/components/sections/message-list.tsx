@@ -24,6 +24,9 @@ export function MessageList({
   onLoadMore,
   onScrollToBottom,
   onPreviewImage,
+  selectionMode = false,
+  selectedIds,
+  onToggleSelect,
 }: {
   messages: GlobalChatMessage[];
   hasMore: boolean;
@@ -37,6 +40,9 @@ export function MessageList({
   onLoadMore: () => void;
   onScrollToBottom: () => void;
   onPreviewImage: (src: string) => void;
+  selectionMode?: boolean;
+  selectedIds: ReadonlySet<number>;
+  onToggleSelect: (id: number) => void;
 }) {
   const t = useTranslations("globalChat");
   const locale = useLocale();
@@ -86,6 +92,9 @@ export function MessageList({
                   currentUserId={currentUserId}
                   accessToken={accessToken}
                   onPreviewImage={onPreviewImage}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(message.id)}
+                  onToggleSelect={onToggleSelect}
                 />
               ))}
             </div>

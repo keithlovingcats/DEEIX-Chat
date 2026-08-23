@@ -290,6 +290,14 @@ export interface AuthUserResponse {
   usernameChangedAt: string | null;
 }
 
+export interface BatchDeleteGlobalChatMessagesRequest {
+  /**
+   * @maxItems 100
+   * @minItems 1
+   */
+  ids: number[];
+}
+
 export interface BatchDeleteRedemptionCodeDataResponse {
   failedCount: number;
   notFoundCount: number;
@@ -990,33 +998,6 @@ export interface ConversationSearchResultResponse {
   updatedAt: string;
 }
 
-export interface ConversationSendMessageRequest {
-  branchReason?: "default" | "retry" | "edit";
-  /** @maxLength 64 */
-  clientRunID?: string;
-  content: string;
-  contentType: "text" | "markdown" | "image" | "file" | "mixed";
-  discussionMeta?: MessageDiscussionMetaRequest;
-  /** @maxItems 20 */
-  fileIDs?: string[];
-  htmlVisualPrompt?: boolean;
-  /** @maxItems 8 */
-  knowledgeBaseIDs: string[];
-  /** @maxLength 128 */
-  model?: string;
-  options?: Record<string, any>;
-  /** @maxItems 20 */
-  parallelModels?: string[];
-  /** @maxLength 32 */
-  parentMessagePublicID?: string;
-  /** @maxItems 128 */
-  selectedToolIDs?: number[];
-  /** @maxItems 128 */
-  skillIDs?: number[];
-  /** @maxLength 32 */
-  sourceMessagePublicID?: string;
-}
-
 export interface ConversationShareResponse {
   createdAt: string;
   lastAccessedAt: string | null;
@@ -1496,6 +1477,15 @@ export interface GlobalChatMessageResponseDoc {
   errorMsg: string;
 }
 
+export interface GlobalChatMessagesBatchDeleteDataResponse {
+  deleted: number;
+}
+
+export interface GlobalChatMessagesBatchDeleteResponseDoc {
+  data: GlobalChatMessagesBatchDeleteDataResponse;
+  errorMsg: string;
+}
+
 export interface GlobalChatOnlineCountDataResponse {
   count: number;
 }
@@ -1503,6 +1493,14 @@ export interface GlobalChatOnlineCountDataResponse {
 export interface GlobalChatOnlineCountResponseDoc {
   data: GlobalChatOnlineCountDataResponse;
   errorMsg: string;
+}
+
+export interface GlobalChatSendMessageRequest {
+  /** @maxLength 2000 */
+  content?: string;
+  /** @maxLength 64 */
+  fileId?: string;
+  messageType: "text" | "image";
 }
 
 export interface GlobalchatErrorDoc {
@@ -1514,14 +1512,6 @@ export interface GlobalchatErrorDoc {
   errorMsg: string;
   /** @example "" */
   requestId?: string;
-}
-
-export interface GlobalchatSendMessageRequest {
-  /** @maxLength 2000 */
-  content?: string;
-  /** @maxLength 64 */
-  fileId?: string;
-  messageType: "text" | "image";
 }
 
 export interface GroupModelsResponse {
@@ -3135,6 +3125,33 @@ export interface RunResponse {
 
 export interface SecurityVerificationStartRequest {
   verificationMethod?: "none" | "two_factor" | "email";
+}
+
+export interface SendMessageRequest {
+  branchReason?: "default" | "retry" | "edit";
+  /** @maxLength 64 */
+  clientRunID?: string;
+  content: string;
+  contentType: "text" | "markdown" | "image" | "file" | "mixed";
+  discussionMeta?: MessageDiscussionMetaRequest;
+  /** @maxItems 20 */
+  fileIDs?: string[];
+  htmlVisualPrompt?: boolean;
+  /** @maxItems 8 */
+  knowledgeBaseIDs: string[];
+  /** @maxLength 128 */
+  model?: string;
+  options?: Record<string, any>;
+  /** @maxItems 20 */
+  parallelModels?: string[];
+  /** @maxLength 32 */
+  parentMessagePublicID?: string;
+  /** @maxItems 128 */
+  selectedToolIDs?: number[];
+  /** @maxItems 128 */
+  skillIDs?: number[];
+  /** @maxLength 32 */
+  sourceMessagePublicID?: string;
 }
 
 export interface SendMessageResponse {
@@ -4995,6 +5012,22 @@ export namespace Admin {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = string;
+  }
+
+  /**
+   * @description 软删除最多 100 条消息并向在线客户端逐条广播删除事件
+   * @tags admin-global-chat
+   * @name GlobalChatMessagesBatchDeleteCreate
+   * @summary 管理员批量删除全服聊天消息
+   * @request POST:/admin/global-chat/messages/batch-delete
+   * @secure
+   */
+  export namespace GlobalChatMessagesBatchDeleteCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = BatchDeleteGlobalChatMessagesRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = GlobalChatMessagesBatchDeleteResponseDoc;
   }
 
   /**
@@ -8253,7 +8286,7 @@ export namespace Conversations {
       id: string;
     };
     export type RequestQuery = {};
-    export type RequestBody = ConversationSendMessageRequest;
+    export type RequestBody = SendMessageRequest;
     export type RequestHeaders = {};
     export type ResponseBody = SendMessageResponseDoc;
   }
@@ -8291,7 +8324,7 @@ export namespace Conversations {
       id: string;
     };
     export type RequestQuery = {};
-    export type RequestBody = ConversationSendMessageRequest;
+    export type RequestBody = SendMessageRequest;
     export type RequestHeaders = {};
     export type ResponseBody = string;
   }
@@ -8656,7 +8689,7 @@ export namespace GlobalChat {
   export namespace MessagesCreate {
     export type RequestParams = {};
     export type RequestQuery = {};
-    export type RequestBody = GlobalchatSendMessageRequest;
+    export type RequestBody = GlobalChatSendMessageRequest;
     export type RequestHeaders = {};
     export type ResponseBody = GlobalChatMessageResponseDoc;
   }

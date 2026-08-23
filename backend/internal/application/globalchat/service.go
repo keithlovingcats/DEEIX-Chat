@@ -126,6 +126,48 @@ func (s *Service) DeleteMessage(ctx context.Context, id uint) error {
 	return nil
 }
 
+// maxBatchDeleteLimit 是单次批量删除的消息数上限。
+const maxBatchDeleteLimit = 100
+
+// DeleteMessages 管理员批量软删除消息并逐条广播删除事件，返回实际删除条数。
+// 广播按请求 ID 超集下发：不存在的 ID 对前端是 no-op，保证真实删除的全覆盖。
+func (s *Service) DeleteMessages(ctx context.Context, ids []uint) (int, error) {
+	normalized := normalizeBatchIDs(ids)
+	if len(normalized) == 0 {
+		return 0, repository.ErrInvalidInput
+	}
+	deleted, err := s.repo.DeleteMessages(ctx, normalized)
+	if err != nil {
+		return 0, err
+	}
+	for _, id := range normalized {
+		s.hub.Broadcast(HubEvent{
+			Type: EventMessageDeleted,
+			Data: map[string]interface{}{"id": id},
+		})
+	}
+	return deleted, nil
+}
+
+func normalizeBatchIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	results := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		results = append(results, id)
+		if len(results) >= maxBatchDeleteLimit {
+			break
+		}
+	}
+	return results
+}
+
 // OpenImageContent 读取全服聊天共享图片内容（所有登录用户可读，不校验归属）。
 func (s *Service) OpenImageContent(ctx context.Context, fileID string) (*appupload.FileContentResult, error) {
 	if s.storeProvider == nil {

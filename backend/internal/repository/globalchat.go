@@ -13,6 +13,7 @@ type GlobalChatRepository interface {
 	ListMessagesAfterID(ctx context.Context, afterID uint, limit int) ([]domainglobalchat.Message, error)
 	CreateMessage(ctx context.Context, item *domainglobalchat.Message) (*domainglobalchat.Message, error)
 	DeleteMessage(ctx context.Context, id uint) error
+	DeleteMessages(ctx context.Context, ids []uint) (int, error)
 	GetOwnedImageFile(ctx context.Context, userID uint, fileID string) (*domainglobalchat.ImageFile, error)
 	GetSharedImageFile(ctx context.Context, fileID string) (*domainglobalchat.ImageFile, error)
 }

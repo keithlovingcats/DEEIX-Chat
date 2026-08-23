@@ -115,6 +115,64 @@ func TestDeleteMessageBroadcastsAndMapsNotFound(t *testing.T) {
 	}
 }
 
+func TestDeleteMessagesDeduplicatesAndBroadcastsAll(t *testing.T) {
+	repo := &fakeRepo{}
+	service, hub := newTestService(repo)
+	events, _, cancel := hub.Subscribe(42)
+	defer cancel()
+
+	// 空/全零 ID 拒绝。
+	if _, err := service.DeleteMessages(context.Background(), nil); !errors.Is(err, repository.ErrInvalidInput) {
+		t.Fatalf("DeleteMessages() empty ids error = %v, want ErrInvalidInput", err)
+	}
+	if _, err := service.DeleteMessages(context.Background(), []uint{0, 0}); !errors.Is(err, repository.ErrInvalidInput) {
+		t.Fatalf("DeleteMessages() zero ids error = %v, want ErrInvalidInput", err)
+	}
+
+	deleted, err := service.DeleteMessages(context.Background(), []uint{5, 5, 7, 0, 9})
+	if err != nil {
+		t.Fatalf("DeleteMessages() error = %v", err)
+	}
+	if deleted != 3 {
+		t.Fatalf("DeleteMessages() deleted = %d, want 3 (fake repo deletes all)", deleted)
+	}
+	// 去重后 3 个 ID 全部广播（超集），不依赖 DB 命中数。
+	broadcast := 0
+	for {
+		select {
+		case event := <-events:
+			if event.Type == EventMessageDeleted {
+				broadcast++
+			}
+		default:
+			if broadcast != 3 {
+				t.Fatalf("broadcast deleted events = %d, want 3 (deduplicated superset)", broadcast)
+			}
+			return
+		}
+	}
+}
+
+func TestDeleteMessagesCapsBatchSize(t *testing.T) {
+	repo := &fakeRepo{batchDeleted: 100}
+	service, _ := newTestService(repo)
+
+	ids := make([]uint, maxBatchDeleteLimit+10)
+	for i := range ids {
+		ids[i] = uint(i + 1)
+	}
+	deleted, err := service.DeleteMessages(context.Background(), ids)
+	if err != nil {
+		t.Fatalf("DeleteMessages() error = %v", err)
+	}
+	if deleted != 100 {
+		t.Fatalf("DeleteMessages() deleted = %d, want 100 (capped)", deleted)
+	}
+	if len(repo.lastBatchIDs) != maxBatchDeleteLimit {
+		t.Fatalf("repository received %d ids, want %d", len(repo.lastBatchIDs), maxBatchDeleteLimit)
+	}
+}
+
 func TestListAfterIDReportsReplayOverflow(t *testing.T) {
 	repo := &fakeRepo{}
 	service, _ := newTestService(repo)
@@ -150,9 +208,11 @@ func TestOpenImageContentWithoutProvider(t *testing.T) {
 }
 
 type fakeRepo struct {
-	imageFile    *domainglobalchat.ImageFile
-	imageErr     error
-	deleteErr    error
+	imageFile     *domainglobalchat.ImageFile
+	imageErr      error
+	deleteErr     error
+	batchDeleted  int
+	lastBatchIDs  []uint
 	afterMessages []domainglobalchat.Message
 }
 
@@ -175,6 +235,14 @@ func (r *fakeRepo) CreateMessage(_ context.Context, item *domainglobalchat.Messa
 
 func (r *fakeRepo) DeleteMessage(context.Context, uint) error {
 	return r.deleteErr
+}
+
+func (r *fakeRepo) DeleteMessages(_ context.Context, ids []uint) (int, error) {
+	r.lastBatchIDs = ids
+	if r.batchDeleted > 0 {
+		return r.batchDeleted, nil
+	}
+	return len(ids), nil
 }
 
 func (r *fakeRepo) GetOwnedImageFile(context.Context, uint, string) (*domainglobalchat.ImageFile, error) {
