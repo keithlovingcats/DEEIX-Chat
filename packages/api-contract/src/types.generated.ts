@@ -990,6 +990,33 @@ export interface ConversationSearchResultResponse {
   updatedAt: string;
 }
 
+export interface ConversationSendMessageRequest {
+  branchReason?: "default" | "retry" | "edit";
+  /** @maxLength 64 */
+  clientRunID?: string;
+  content: string;
+  contentType: "text" | "markdown" | "image" | "file" | "mixed";
+  discussionMeta?: MessageDiscussionMetaRequest;
+  /** @maxItems 20 */
+  fileIDs?: string[];
+  htmlVisualPrompt?: boolean;
+  /** @maxItems 8 */
+  knowledgeBaseIDs: string[];
+  /** @maxLength 128 */
+  model?: string;
+  options?: Record<string, any>;
+  /** @maxItems 20 */
+  parallelModels?: string[];
+  /** @maxLength 32 */
+  parentMessagePublicID?: string;
+  /** @maxItems 128 */
+  selectedToolIDs?: number[];
+  /** @maxItems 128 */
+  skillIDs?: number[];
+  /** @maxLength 32 */
+  sourceMessagePublicID?: string;
+}
+
 export interface ConversationShareResponse {
   createdAt: string;
   lastAccessedAt: string | null;
@@ -1426,6 +1453,75 @@ export interface FileUploadResponse {
   file: FileObjectResponse;
   quota: StorageQuotaResponse;
   reused: boolean;
+}
+
+export interface GlobalChatMessageDataResponse {
+  message: GlobalChatMessageResponse;
+}
+
+export interface GlobalChatMessageDeleteDataResponse {
+  deleted: boolean;
+}
+
+export interface GlobalChatMessageDeleteResponseDoc {
+  data: GlobalChatMessageDeleteDataResponse;
+  errorMsg: string;
+}
+
+export interface GlobalChatMessageListData {
+  hasMore: boolean;
+  messages: GlobalChatMessageResponse[];
+}
+
+export interface GlobalChatMessageListResponseDoc {
+  data: GlobalChatMessageListData;
+  errorMsg: string;
+}
+
+export interface GlobalChatMessageResponse {
+  avatarUrl: string;
+  content: string;
+  createdAt: string;
+  displayName: string;
+  id: number;
+  imageFileId: string;
+  messageType: string;
+  publicId: string;
+  userId: number;
+  username: string;
+}
+
+export interface GlobalChatMessageResponseDoc {
+  data: GlobalChatMessageDataResponse;
+  errorMsg: string;
+}
+
+export interface GlobalChatOnlineCountDataResponse {
+  count: number;
+}
+
+export interface GlobalChatOnlineCountResponseDoc {
+  data: GlobalChatOnlineCountDataResponse;
+  errorMsg: string;
+}
+
+export interface GlobalchatErrorDoc {
+  data: any;
+  details?: any;
+  /** @example "invalid_request" */
+  errorCode?: string;
+  /** @example "invalid request" */
+  errorMsg: string;
+  /** @example "" */
+  requestId?: string;
+}
+
+export interface GlobalchatSendMessageRequest {
+  /** @maxLength 2000 */
+  content?: string;
+  /** @maxLength 64 */
+  fileId?: string;
+  messageType: "text" | "image";
 }
 
 export interface GroupModelsResponse {
@@ -3039,33 +3135,6 @@ export interface RunResponse {
 
 export interface SecurityVerificationStartRequest {
   verificationMethod?: "none" | "two_factor" | "email";
-}
-
-export interface SendMessageRequest {
-  branchReason?: "default" | "retry" | "edit";
-  /** @maxLength 64 */
-  clientRunID?: string;
-  content: string;
-  contentType: "text" | "markdown" | "image" | "file" | "mixed";
-  discussionMeta?: MessageDiscussionMetaRequest;
-  /** @maxItems 20 */
-  fileIDs?: string[];
-  htmlVisualPrompt?: boolean;
-  /** @maxItems 8 */
-  knowledgeBaseIDs: string[];
-  /** @maxLength 128 */
-  model?: string;
-  options?: Record<string, any>;
-  /** @maxItems 20 */
-  parallelModels?: string[];
-  /** @maxLength 32 */
-  parentMessagePublicID?: string;
-  /** @maxItems 128 */
-  selectedToolIDs?: number[];
-  /** @maxItems 128 */
-  skillIDs?: number[];
-  /** @maxLength 32 */
-  sourceMessagePublicID?: string;
 }
 
 export interface SendMessageResponse {
@@ -4926,6 +4995,25 @@ export namespace Admin {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = string;
+  }
+
+  /**
+   * @description 软删除指定消息并向在线客户端广播删除事件
+   * @tags admin-global-chat
+   * @name GlobalChatMessagesDelete
+   * @summary 管理员删除全服聊天消息
+   * @request DELETE:/admin/global-chat/messages/{id}
+   * @secure
+   */
+  export namespace GlobalChatMessagesDelete {
+    export type RequestParams = {
+      /** 消息自增 ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = GlobalChatMessageDeleteResponseDoc;
   }
 
   /**
@@ -8165,7 +8253,7 @@ export namespace Conversations {
       id: string;
     };
     export type RequestQuery = {};
-    export type RequestBody = SendMessageRequest;
+    export type RequestBody = ConversationSendMessageRequest;
     export type RequestHeaders = {};
     export type ResponseBody = SendMessageResponseDoc;
   }
@@ -8203,7 +8291,7 @@ export namespace Conversations {
       id: string;
     };
     export type RequestQuery = {};
-    export type RequestBody = SendMessageRequest;
+    export type RequestBody = ConversationSendMessageRequest;
     export type RequestHeaders = {};
     export type ResponseBody = string;
   }
@@ -8513,6 +8601,99 @@ export namespace Files {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = Blob;
+  }
+}
+
+export namespace GlobalChat {
+  /**
+   * @description 读取全服聊天共享图片内容；purpose 为 global-chat 的文件对所有登录用户可见
+   * @tags global-chat
+   * @name FilesContentList
+   * @summary 获取全服聊天图片
+   * @request GET:/global-chat/files/{file_id}/content
+   * @secure
+   */
+  export namespace FilesContentList {
+    export type RequestParams = {
+      /** 文件 ID */
+      fileId: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Blob;
+  }
+
+  /**
+   * @description 分页获取全服聊天历史消息；不带 before_id 时返回最新一页，带 before_id 时向上加载更早消息
+   * @tags global-chat
+   * @name MessagesList
+   * @summary 获取全服聊天消息
+   * @request GET:/global-chat/messages
+   * @secure
+   */
+  export namespace MessagesList {
+    export type RequestParams = {};
+    export type RequestQuery = {
+      /** 游标：当前最早消息的自增 ID */
+      before_id?: number;
+      /** 每页数量（默认 50，最大 200） */
+      limit?: number;
+    };
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = GlobalChatMessageListResponseDoc;
+  }
+
+  /**
+   * @description 发送文本（含 Emoji）或图片消息；图片通过 fileId 引用当前用户以 global-chat 用途上传的文件
+   * @tags global-chat
+   * @name MessagesCreate
+   * @summary 发送全服聊天消息
+   * @request POST:/global-chat/messages
+   * @secure
+   */
+  export namespace MessagesCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = GlobalchatSendMessageRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = GlobalChatMessageResponseDoc;
+  }
+
+  /**
+   * @description 返回当前进程内的去重在线用户数
+   * @tags global-chat
+   * @name OnlineCountList
+   * @summary 获取全服聊天在线人数
+   * @request GET:/global-chat/online-count
+   * @secure
+   */
+  export namespace OnlineCountList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = GlobalChatOnlineCountResponseDoc;
+  }
+
+  /**
+   * @description NDJSON 长连接，实时推送新消息、删除事件、在线人数与心跳；带 after_id 时先回放断线期间的消息（回放超限会下发 resync 事件）
+   * @tags global-chat
+   * @name StreamList
+   * @summary 订阅全服聊天实时流
+   * @request GET:/global-chat/stream
+   * @secure
+   */
+  export namespace StreamList {
+    export type RequestParams = {};
+    export type RequestQuery = {
+      /** 已接收的最后消息自增 ID（断线重连补全） */
+      after_id?: number;
+    };
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = string;
   }
 }
 

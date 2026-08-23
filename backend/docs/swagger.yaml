@@ -2443,6 +2443,73 @@ definitions:
     - title
     - updatedAt
     type: object
+  ConversationSendMessageRequest:
+    properties:
+      branchReason:
+        enum:
+        - default
+        - retry
+        - edit
+        type: string
+      clientRunID:
+        maxLength: 64
+        type: string
+      content:
+        type: string
+      contentType:
+        enum:
+        - text
+        - markdown
+        - image
+        - file
+        - mixed
+        type: string
+      discussionMeta:
+        $ref: '#/definitions/MessageDiscussionMetaRequest'
+      fileIDs:
+        items:
+          type: string
+        maxItems: 20
+        type: array
+      htmlVisualPrompt:
+        type: boolean
+      knowledgeBaseIDs:
+        items:
+          type: string
+        maxItems: 8
+        type: array
+      model:
+        maxLength: 128
+        type: string
+      options:
+        additionalProperties: true
+        type: object
+      parallelModels:
+        items:
+          type: string
+        maxItems: 20
+        type: array
+      parentMessagePublicID:
+        maxLength: 32
+        type: string
+      selectedToolIDs:
+        items:
+          type: integer
+        maxItems: 128
+        type: array
+      skillIDs:
+        items:
+          type: integer
+        maxItems: 128
+        type: array
+      sourceMessagePublicID:
+        maxLength: 32
+        type: string
+    required:
+    - content
+    - contentType
+    - knowledgeBaseIDs
+    type: object
   ConversationShareResponse:
     properties:
       createdAt:
@@ -3241,6 +3308,146 @@ definitions:
     - file
     - quota
     - reused
+    type: object
+  GlobalChatMessageDataResponse:
+    properties:
+      message:
+        $ref: '#/definitions/GlobalChatMessageResponse'
+    required:
+    - message
+    type: object
+  GlobalChatMessageDeleteDataResponse:
+    properties:
+      deleted:
+        type: boolean
+    required:
+    - deleted
+    type: object
+  GlobalChatMessageDeleteResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/GlobalChatMessageDeleteDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  GlobalChatMessageListData:
+    properties:
+      hasMore:
+        type: boolean
+      messages:
+        items:
+          $ref: '#/definitions/GlobalChatMessageResponse'
+        type: array
+    required:
+    - hasMore
+    - messages
+    type: object
+  GlobalChatMessageListResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/GlobalChatMessageListData'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  GlobalChatMessageResponse:
+    properties:
+      avatarUrl:
+        type: string
+      content:
+        type: string
+      createdAt:
+        type: string
+      displayName:
+        type: string
+      id:
+        type: integer
+      imageFileId:
+        type: string
+      messageType:
+        type: string
+      publicId:
+        type: string
+      userId:
+        type: integer
+      username:
+        type: string
+    required:
+    - avatarUrl
+    - content
+    - createdAt
+    - displayName
+    - id
+    - imageFileId
+    - messageType
+    - publicId
+    - userId
+    - username
+    type: object
+  GlobalChatMessageResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/GlobalChatMessageDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  GlobalChatOnlineCountDataResponse:
+    properties:
+      count:
+        type: integer
+    required:
+    - count
+    type: object
+  GlobalChatOnlineCountResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/GlobalChatOnlineCountDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  GlobalchatErrorDoc:
+    properties:
+      data: {}
+      details: {}
+      errorCode:
+        example: invalid_request
+        type: string
+      errorMsg:
+        example: invalid request
+        type: string
+      requestId:
+        example: ""
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  GlobalchatSendMessageRequest:
+    properties:
+      content:
+        maxLength: 2000
+        type: string
+      fileId:
+        maxLength: 64
+        type: string
+      messageType:
+        enum:
+        - text
+        - image
+        type: string
+    required:
+    - messageType
     type: object
   GroupModelsResponse:
     properties:
@@ -6840,73 +7047,6 @@ definitions:
         - two_factor
         - email
         type: string
-    type: object
-  SendMessageRequest:
-    properties:
-      branchReason:
-        enum:
-        - default
-        - retry
-        - edit
-        type: string
-      clientRunID:
-        maxLength: 64
-        type: string
-      content:
-        type: string
-      contentType:
-        enum:
-        - text
-        - markdown
-        - image
-        - file
-        - mixed
-        type: string
-      discussionMeta:
-        $ref: '#/definitions/MessageDiscussionMetaRequest'
-      fileIDs:
-        items:
-          type: string
-        maxItems: 20
-        type: array
-      htmlVisualPrompt:
-        type: boolean
-      knowledgeBaseIDs:
-        items:
-          type: string
-        maxItems: 8
-        type: array
-      model:
-        maxLength: 128
-        type: string
-      options:
-        additionalProperties: true
-        type: object
-      parallelModels:
-        items:
-          type: string
-        maxItems: 20
-        type: array
-      parentMessagePublicID:
-        maxLength: 32
-        type: string
-      selectedToolIDs:
-        items:
-          type: integer
-        maxItems: 128
-        type: array
-      skillIDs:
-        items:
-          type: integer
-        maxItems: 128
-        type: array
-      sourceMessagePublicID:
-        maxLength: 32
-        type: string
-    required:
-    - content
-    - contentType
-    - knowledgeBaseIDs
     type: object
   SendMessageResponse:
     properties:
@@ -10603,6 +10743,41 @@ paths:
       summary: 管理员导出全量对话数据
       tags:
       - admin
+  /admin/global-chat/messages/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 软删除指定消息并向在线客户端广播删除事件
+      parameters:
+      - description: 消息自增 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/GlobalChatMessageDeleteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员删除全服聊天消息
+      tags:
+      - admin-global-chat
   /admin/knowledge-bases:
     get:
       parameters:
@@ -15929,7 +16104,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/SendMessageRequest'
+          $ref: '#/definitions/ConversationSendMessageRequest'
       produces:
       - application/json
       responses:
@@ -16049,7 +16224,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/SendMessageRequest'
+          $ref: '#/definitions/ConversationSendMessageRequest'
       produces:
       - application/x-ndjson
       responses:
@@ -16765,6 +16940,146 @@ paths:
       summary: 获取文件内容
       tags:
       - chat
+  /global-chat/files/{file_id}/content:
+    get:
+      description: 读取全服聊天共享图片内容；purpose 为 global-chat 的文件对所有登录用户可见
+      parameters:
+      - description: 文件 ID
+        in: path
+        name: file_id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: 图片内容
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 获取全服聊天图片
+      tags:
+      - global-chat
+  /global-chat/messages:
+    get:
+      consumes:
+      - application/json
+      description: 分页获取全服聊天历史消息；不带 before_id 时返回最新一页，带 before_id 时向上加载更早消息
+      parameters:
+      - description: 游标：当前最早消息的自增 ID
+        in: query
+        name: before_id
+        type: integer
+      - description: 每页数量（默认 50，最大 200）
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/GlobalChatMessageListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 获取全服聊天消息
+      tags:
+      - global-chat
+    post:
+      consumes:
+      - application/json
+      description: 发送文本（含 Emoji）或图片消息；图片通过 fileId 引用当前用户以 global-chat 用途上传的文件
+      parameters:
+      - description: 消息内容
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/GlobalchatSendMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/GlobalChatMessageResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 发送全服聊天消息
+      tags:
+      - global-chat
+  /global-chat/online-count:
+    get:
+      consumes:
+      - application/json
+      description: 返回当前进程内的去重在线用户数
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/GlobalChatOnlineCountResponseDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 获取全服聊天在线人数
+      tags:
+      - global-chat
+  /global-chat/stream:
+    get:
+      description: NDJSON 长连接，实时推送新消息、删除事件、在线人数与心跳；带 after_id 时先回放断线期间的消息（回放超限会下发
+        resync 事件）
+      parameters:
+      - description: 已接收的最后消息自增 ID（断线重连补全）
+        in: query
+        name: after_id
+        type: integer
+      produces:
+      - application/x-ndjson
+      responses:
+        "200":
+          description: NDJSON stream
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/GlobalchatErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 订阅全服聊天实时流
+      tags:
+      - global-chat
   /knowledge-bases:
     get:
       parameters:

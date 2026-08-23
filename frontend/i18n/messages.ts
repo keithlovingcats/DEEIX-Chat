@@ -19,6 +19,7 @@ import enCommon from "@/i18n/messages/en-US/common.json";
 import enConversation from "@/i18n/messages/en-US/conversation.json";
 import enErrors from "@/i18n/messages/en-US/errors.json";
 import enFiles from "@/i18n/messages/en-US/files.json";
+import enGlobalChat from "@/i18n/messages/en-US/global-chat.json";
 import enGuide from "@/i18n/messages/en-US/guide.json";
 import enKnowledgeBases from "@/i18n/messages/en-US/knowledge-bases.json";
 import enLogin from "@/i18n/messages/en-US/login.json";
@@ -42,6 +43,7 @@ const ENGLISH_MESSAGES = {
   recent: enRecent,
   share: enShare,
   files: enFiles,
+  globalChat: enGlobalChat,
   knowledgeBases: enKnowledgeBases,
   settings: enSettings,
   adminAnnouncements: enAdminAnnouncements,
@@ -127,6 +129,7 @@ export async function loadLocaleMessages(locale: AppLocale): Promise<AppMessages
     recent,
     share,
     files,
+    globalChat,
     knowledgeBases,
     settings,
     adminAnnouncements,
@@ -156,6 +159,7 @@ export async function loadLocaleMessages(locale: AppLocale): Promise<AppMessages
     import("@/i18n/messages/zh-CN/recent.json"),
     import("@/i18n/messages/zh-CN/share.json"),
     import("@/i18n/messages/zh-CN/files.json"),
+    import("@/i18n/messages/zh-CN/global-chat.json"),
     import("@/i18n/messages/zh-CN/knowledge-bases.json"),
     import("@/i18n/messages/zh-CN/settings.json"),
     import("@/i18n/messages/zh-CN/admin-announcements.json"),
@@ -187,6 +191,7 @@ export async function loadLocaleMessages(locale: AppLocale): Promise<AppMessages
     recent: recent.default,
     share: share.default,
     files: files.default,
+    globalChat: globalChat.default,
     knowledgeBases: knowledgeBases.default,
     settings: settings.default,
     adminAnnouncements: adminAnnouncements.default,

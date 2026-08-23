@@ -1885,6 +1885,61 @@
                 }
             }
         },
+        "/admin/global-chat/messages/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "软删除指定消息并向在线客户端广播删除事件",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-global-chat"
+                ],
+                "summary": "管理员删除全服聊天消息",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "消息自增 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalChatMessageDeleteResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/knowledge-bases": {
             "get": {
                 "security": [
@@ -10519,7 +10574,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/SendMessageRequest"
+                            "$ref": "#/definitions/ConversationSendMessageRequest"
                         }
                     }
                 ],
@@ -10638,7 +10693,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/SendMessageRequest"
+                            "$ref": "#/definitions/ConversationSendMessageRequest"
                         }
                     }
                 ],
@@ -11579,6 +11634,228 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/global-chat/files/{file_id}/content": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "读取全服聊天共享图片内容；purpose 为 global-chat 的文件对所有登录用户可见",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "global-chat"
+                ],
+                "summary": "获取全服聊天图片",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "文件 ID",
+                        "name": "file_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "图片内容",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/global-chat/messages": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "分页获取全服聊天历史消息；不带 before_id 时返回最新一页，带 before_id 时向上加载更早消息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "global-chat"
+                ],
+                "summary": "获取全服聊天消息",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "游标：当前最早消息的自增 ID",
+                        "name": "before_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量（默认 50，最大 200）",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalChatMessageListResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "发送文本（含 Emoji）或图片消息；图片通过 fileId 引用当前用户以 global-chat 用途上传的文件",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "global-chat"
+                ],
+                "summary": "发送全服聊天消息",
+                "parameters": [
+                    {
+                        "description": "消息内容",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatSendMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalChatMessageResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/global-chat/online-count": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "返回当前进程内的去重在线用户数",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "global-chat"
+                ],
+                "summary": "获取全服聊天在线人数",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalChatOnlineCountResponseDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/global-chat/stream": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "NDJSON 长连接，实时推送新消息、删除事件、在线人数与心跳；带 after_id 时先回放断线期间的消息（回放超限会下发 resync 事件）",
+                "produces": [
+                    "application/x-ndjson"
+                ],
+                "tags": [
+                    "global-chat"
+                ],
+                "summary": "订阅全服聊天实时流",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "已接收的最后消息自增 ID（断线重连补全）",
+                        "name": "after_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "NDJSON stream",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/GlobalchatErrorDoc"
                         }
                     }
                 }
@@ -17440,6 +17717,98 @@
                 }
             }
         },
+        "ConversationSendMessageRequest": {
+            "type": "object",
+            "required": [
+                "content",
+                "contentType",
+                "knowledgeBaseIDs"
+            ],
+            "properties": {
+                "branchReason": {
+                    "type": "string",
+                    "enum": [
+                        "default",
+                        "retry",
+                        "edit"
+                    ]
+                },
+                "clientRunID": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "content": {
+                    "type": "string"
+                },
+                "contentType": {
+                    "type": "string",
+                    "enum": [
+                        "text",
+                        "markdown",
+                        "image",
+                        "file",
+                        "mixed"
+                    ]
+                },
+                "discussionMeta": {
+                    "$ref": "#/definitions/MessageDiscussionMetaRequest"
+                },
+                "fileIDs": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "htmlVisualPrompt": {
+                    "type": "boolean"
+                },
+                "knowledgeBaseIDs": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "model": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "options": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "parallelModels": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "parentMessagePublicID": {
+                    "type": "string",
+                    "maxLength": 32
+                },
+                "selectedToolIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "skillIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "sourceMessagePublicID": {
+                    "type": "string",
+                    "maxLength": 32
+                }
+            }
+        },
         "ConversationShareResponse": {
             "type": "object",
             "required": [
@@ -18566,6 +18935,210 @@
                 },
                 "reused": {
                     "type": "boolean"
+                }
+            }
+        },
+        "GlobalChatMessageDataResponse": {
+            "type": "object",
+            "required": [
+                "message"
+            ],
+            "properties": {
+                "message": {
+                    "$ref": "#/definitions/GlobalChatMessageResponse"
+                }
+            }
+        },
+        "GlobalChatMessageDeleteDataResponse": {
+            "type": "object",
+            "required": [
+                "deleted"
+            ],
+            "properties": {
+                "deleted": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "GlobalChatMessageDeleteResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/GlobalChatMessageDeleteDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "GlobalChatMessageListData": {
+            "type": "object",
+            "required": [
+                "hasMore",
+                "messages"
+            ],
+            "properties": {
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/GlobalChatMessageResponse"
+                    }
+                }
+            }
+        },
+        "GlobalChatMessageListResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/GlobalChatMessageListData"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "GlobalChatMessageResponse": {
+            "type": "object",
+            "required": [
+                "avatarUrl",
+                "content",
+                "createdAt",
+                "displayName",
+                "id",
+                "imageFileId",
+                "messageType",
+                "publicId",
+                "userId",
+                "username"
+            ],
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "imageFileId": {
+                    "type": "string"
+                },
+                "messageType": {
+                    "type": "string"
+                },
+                "publicId": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "GlobalChatMessageResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/GlobalChatMessageDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "GlobalChatOnlineCountDataResponse": {
+            "type": "object",
+            "required": [
+                "count"
+            ],
+            "properties": {
+                "count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "GlobalChatOnlineCountResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/GlobalChatOnlineCountDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "GlobalchatErrorDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {},
+                "details": {},
+                "errorCode": {
+                    "type": "string",
+                    "example": "invalid_request"
+                },
+                "errorMsg": {
+                    "type": "string",
+                    "example": "invalid request"
+                },
+                "requestId": {
+                    "type": "string",
+                    "example": ""
+                }
+            }
+        },
+        "GlobalchatSendMessageRequest": {
+            "type": "object",
+            "required": [
+                "messageType"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "maxLength": 2000
+                },
+                "fileId": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "messageType": {
+                    "type": "string",
+                    "enum": [
+                        "text",
+                        "image"
+                    ]
                 }
             }
         },
@@ -23708,98 +24281,6 @@
                         "two_factor",
                         "email"
                     ]
-                }
-            }
-        },
-        "SendMessageRequest": {
-            "type": "object",
-            "required": [
-                "content",
-                "contentType",
-                "knowledgeBaseIDs"
-            ],
-            "properties": {
-                "branchReason": {
-                    "type": "string",
-                    "enum": [
-                        "default",
-                        "retry",
-                        "edit"
-                    ]
-                },
-                "clientRunID": {
-                    "type": "string",
-                    "maxLength": 64
-                },
-                "content": {
-                    "type": "string"
-                },
-                "contentType": {
-                    "type": "string",
-                    "enum": [
-                        "text",
-                        "markdown",
-                        "image",
-                        "file",
-                        "mixed"
-                    ]
-                },
-                "discussionMeta": {
-                    "$ref": "#/definitions/MessageDiscussionMetaRequest"
-                },
-                "fileIDs": {
-                    "type": "array",
-                    "maxItems": 20,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "htmlVisualPrompt": {
-                    "type": "boolean"
-                },
-                "knowledgeBaseIDs": {
-                    "type": "array",
-                    "maxItems": 8,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "model": {
-                    "type": "string",
-                    "maxLength": 128
-                },
-                "options": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "parallelModels": {
-                    "type": "array",
-                    "maxItems": 20,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "parentMessagePublicID": {
-                    "type": "string",
-                    "maxLength": 32
-                },
-                "selectedToolIDs": {
-                    "type": "array",
-                    "maxItems": 128,
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "skillIDs": {
-                    "type": "array",
-                    "maxItems": 128,
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "sourceMessagePublicID": {
-                    "type": "string",
-                    "maxLength": 32
                 }
             }
         },

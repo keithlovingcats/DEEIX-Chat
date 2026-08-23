@@ -1,0 +1,25 @@
+{
+  "title": "全服聊天室",
+  "onlineTitle": "当前在线人数",
+  "onlineCount": "{count} 人在线",
+  "reconnecting": "连接已断开，重连中…",
+  "loadEarlier": "加载更早消息",
+  "loading": "加载中…",
+  "emptyRoom": "还没有消息，来说第一句吧",
+  "newMessages": "{count} 条新消息",
+  "inputPlaceholder": "说点什么…",
+  "inputHint": "Enter 发送，Shift + Enter 换行",
+  "lengthLimit": "{current}/{max} 字符",
+  "send": "发送",
+  "sendFailed": "发送失败，请稍后重试",
+  "sendImage": "发送图片",
+  "imageInvalid": "图片需为 JPEG / PNG / GIF / WebP 格式，且不超过 5MB",
+  "emojiPicker": "Emoji 表情",
+  "emojiCategories": {
+    "smileys": "表情",
+    "gestures": "手势",
+    "celebration": "庆祝",
+    "objects": "符号",
+    "nature": "自然"
+  }
+}

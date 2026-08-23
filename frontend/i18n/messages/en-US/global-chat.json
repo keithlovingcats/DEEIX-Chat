@@ -1,0 +1,25 @@
+{
+  "title": "Global Chat",
+  "onlineTitle": "Users currently online",
+  "onlineCount": "{count} online",
+  "reconnecting": "Disconnected, reconnecting…",
+  "loadEarlier": "Load earlier messages",
+  "loading": "Loading…",
+  "emptyRoom": "No messages yet. Say hi!",
+  "newMessages": "{count} new messages",
+  "inputPlaceholder": "Say something…",
+  "inputHint": "Enter to send, Shift + Enter for a new line",
+  "lengthLimit": "{current}/{max} characters",
+  "send": "Send",
+  "sendFailed": "Failed to send. Please try again later.",
+  "sendImage": "Send image",
+  "imageInvalid": "Images must be JPEG / PNG / GIF / WebP and no larger than 5MB",
+  "emojiPicker": "Emoji",
+  "emojiCategories": {
+    "smileys": "Smileys",
+    "gestures": "Gestures",
+    "celebration": "Celebration",
+    "objects": "Symbols",
+    "nature": "Nature"
+  }
+}

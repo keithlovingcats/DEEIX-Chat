@@ -49,6 +49,7 @@
     "knowledgeBases": "Knowledge bases",
     "skillsPrompt": "Skills & Prompts",
     "notes": "Notes",
+    "globalChat": "Global Chat",
     "searchTitle": "Search",
     "searchDescription": "Search conversation titles, labels, projects, and message content",
     "searchPlaceholder": "Search conversations or message content",
