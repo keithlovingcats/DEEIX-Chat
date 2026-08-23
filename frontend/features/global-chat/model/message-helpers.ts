@@ -20,22 +20,42 @@ export function mergeMessages(
       byId.set(item.id, byId.get(item.id) ?? item);
     }
   }
-  return [...byId.values()].sort((a, b) => a.id - b.id);
+  return [...byId.values()].sort(compareMessages);
 }
 
-// 移除与服务端确认消息重复的 pending 条目（按内容指纹匹配同作者的乐观消息）。
+// 排序：confirmed 按自增 id 升序；pending（负数虚拟 id）排在所有 confirmed
+// 之后——否则负数 id 会让乐观消息闪现在列表最顶端。两条 pending 之间按虚拟
+// id 降序（id 递减分配，降序即发送顺序）。
+function compareMessages(a: GlobalChatMessage, b: GlobalChatMessage): number {
+  const aPending = a.status === "pending";
+  const bPending = b.status === "pending";
+  if (aPending !== bPending) {
+    return aPending ? 1 : -1;
+  }
+  if (aPending) {
+    return b.id - a.id;
+  }
+  return a.id - b.id;
+}
+
+// 移除与服务端确认消息对应的一条 pending（单次消除：连发相同内容或多设备
+// 并发时只消最早一条，其余 pending 等各自的确认到达）。图片 pending 未携带
+// fileId，按作者 + 类型匹配；文本按内容指纹。
 export function dropMatchingPending(
   messages: GlobalChatMessage[],
   confirmed: GlobalChatMessage,
 ): GlobalChatMessage[] {
-  return messages.filter(
+  const index = messages.findIndex(
     (item) =>
-      !(item.status === "pending" &&
-        item.userId === confirmed.userId &&
-        item.messageType === confirmed.messageType &&
-        item.content === confirmed.content &&
-        item.imageFileId === confirmed.imageFileId),
+      item.status === "pending" &&
+      item.userId === confirmed.userId &&
+      item.messageType === confirmed.messageType &&
+      (item.messageType === "image" || item.content === confirmed.content),
   );
+  if (index < 0) {
+    return messages;
+  }
+  return messages.filter((_, position) => position !== index);
 }
 
 export type GlobalChatMessageGroup = {

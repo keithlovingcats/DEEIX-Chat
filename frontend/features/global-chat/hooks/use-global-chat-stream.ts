@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GlobalChatConnectionState } from "@/features/global-chat/types/global-chat.types";
 import { type GlobalChatStreamEvent, openGlobalChatStream } from "@/shared/api/global-chat";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
@@ -81,9 +81,5 @@ export function useGlobalChatStream(options: {
     };
   }, [enabled]);
 
-  const reconnectNow = useCallback(() => {
-    retryRef.current = 0;
-  }, []);
-
-  return { connectionState, reconnectNow };
+  return { connectionState };
 }

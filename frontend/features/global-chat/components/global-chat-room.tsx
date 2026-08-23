@@ -75,10 +75,12 @@ export function GlobalChatRoom() {
 
   const { sending, sendText, sendImage } = useGlobalChatSend({ sender, pendingController });
 
-  const { containerRef, unreadCount, scrollToBottom, handleScroll } = useGlobalChatScroll({
+  const { containerRef, unreadCount, scrollToBottom, handleScroll, requestLoadMore } = useGlobalChatScroll({
     messageCount: messages.length,
-    onLoadMore: () => void loadMore(),
+    // 直接透传 loadMore：滚动层用其返回的新增条数核销历史份额。
+    onLoadMore: loadMore,
     hasMore,
+    loadingMore,
   });
 
   // 首次渲染后吸底。
@@ -173,7 +175,7 @@ export function GlobalChatRoom() {
         containerRef={containerRef}
         unreadCount={unreadCount}
         onScroll={handleScroll}
-        onLoadMore={() => void loadMore()}
+        onLoadMore={requestLoadMore}
         onScrollToBottom={() => scrollToBottom(true)}
         onPreviewImage={setPreviewSrc}
         selectionMode={selectionMode}
