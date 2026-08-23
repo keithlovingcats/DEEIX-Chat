@@ -38,6 +38,22 @@ export async function loadGlobalChatImage(accessToken: string, fileID: string): 
   }
 }
 
+// 驱逐并释放缓存条目：objectURL 内容无法被 <img> 解码时调用，
+// 让后续重拉走网络而非命中同一损坏 URL（否则会无限重渲染）。
+// 调用前提是该 URL 已确认损坏，revoke 不会影响正常的在途引用。
+export function evictImageCache(fileID: string) {
+  releaseEntry(fileID);
+}
+
+// 删除条目并释放 objectURL（损坏驱逐与 LRU 淘汰共用）。
+function releaseEntry(fileID: string) {
+  const url = cache.get(fileID);
+  if (url != null) {
+    cache.delete(fileID);
+    URL.revokeObjectURL(url);
+  }
+}
+
 // Map 迭代顺序即插入顺序：删除再写入实现 LRU touch。
 function touch(fileID: string) {
   const value = cache.get(fileID);
@@ -54,8 +70,6 @@ function evictIfNeeded() {
     if (oldest.done) {
       return;
     }
-    const [key, url] = [oldest.value, cache.get(oldest.value)!];
-    cache.delete(key);
-    URL.revokeObjectURL(url);
+    releaseEntry(oldest.value);
   }
 }

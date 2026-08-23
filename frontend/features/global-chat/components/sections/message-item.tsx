@@ -7,6 +7,7 @@ import * as React from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MessageTime } from "@/features/global-chat/components/shared/message-time";
 import {
+  evictImageCache,
   getCachedImageObjectURL,
   loadGlobalChatImage,
 } from "@/features/global-chat/model/image-cache";
@@ -46,7 +47,12 @@ export function MessageItem({
   const [imageSrc, setImageSrc] = React.useState<string | null>(() =>
     message.messageType === "image" ? getCachedImageObjectURL(message.imageFileId) : null,
   );
-  const [imageFailed, setImageFailed] = React.useState(false);
+  // 图片加载失败计数：0 正常；1 解码失败已重试一次（驱逐缓存重拉，防止命中
+  // 同一损坏 objectURL 造成 onError → 重挂载 → onError 死循环）；>=2 终态。
+  // onLoad 归零——反复被 LRU 淘汰重拉不会误伤进终态，只有连续失败（中间无
+  // 成功加载）才累进到上限；网络拉取失败直接置终态。
+  const [imageRetryCount, setImageRetryCount] = React.useState(0);
+  const imageFailed = imageRetryCount >= 2;
 
   React.useEffect(() => {
     if (message.messageType !== "image" || imageSrc || imageFailed) {
@@ -61,7 +67,7 @@ export function MessageItem({
       })
       .catch(() => {
         if (!cancelled) {
-          setImageFailed(true);
+          setImageRetryCount(2);
         }
       });
     return () => {
@@ -160,6 +166,17 @@ export function MessageItem({
                   alt=""
                   className="max-h-64 w-auto max-w-full object-cover"
                   draggable={false}
+                  onLoad={() => setImageRetryCount(0)}
+                  onError={() => {
+                    // objectURL 失效（LRU 淘汰 revoke）或内容无法解码：
+                    // 驱逐缓存条目后清空触发重新拉取；重试一次仍失败则进
+                    // 终态（imageFailed），不驱逐会命中同一损坏 URL 无限循环。
+                    evictImageCache(message.imageFileId);
+                    setImageRetryCount((count) => (count < 1 ? count + 1 : 2));
+                    if (imageRetryCount < 1) {
+                      setImageSrc(null);
+                    }
+                  }}
                 />
               </button>
             ) : imageFailed ? (
