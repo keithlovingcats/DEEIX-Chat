@@ -21,6 +21,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
 	appembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/embedding"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/extraction"
+	appglobalchat "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/globalchat"
 	appknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/knowledgebase"
 	applogcleanup "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/logcleanup"
 	appmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/mcp"
@@ -57,6 +58,7 @@ import (
 	channelrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/channel"
 	contentmoderationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/contentmoderation"
 	conversationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/conversation"
+	globalchatrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/globalchat"
 	knowledgebaserepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/knowledgebase"
 	logcleanuprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/logcleanup"
 	mcprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/mcp"
@@ -77,6 +79,7 @@ import (
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
 	contentmoderationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/contentmoderation"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
+	globalchathttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/globalchat"
 	knowledgebasehttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/knowledgebase"
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
@@ -356,6 +359,11 @@ func NewApp() (*App, error) {
 	announcementService := announcement.NewService(announcementRepo)
 	announcementHandler := announcementhttp.NewHandler(announcementService)
 	announcementModule := announcementhttp.NewModule(announcementHandler)
+	globalChatRepo := globalchatrepo.NewRepo(db)
+	globalChatHub := appglobalchat.NewHub(log)
+	globalChatService := appglobalchat.NewService(globalChatRepo, globalChatHub, userRepo, objectStoreProvider)
+	globalChatHandler := globalchathttp.NewHandler(globalChatService)
+	globalChatModule := globalchathttp.NewModule(globalChatHandler)
 	promptPresetRepo := promptpresetrepo.NewRepo(db)
 	promptPresetService := apppromptpreset.NewService(promptPresetRepo)
 	promptPresetService.SetAuditWriter(auditService)
@@ -402,6 +410,7 @@ func NewApp() (*App, error) {
 		Settings:          settingsModule,
 		UserSettings:      userSettingsModule,
 		User:              userModule,
+		GlobalChat:        globalChatModule,
 	}, hc, rateLimiter)
 	if err != nil {
 		return nil, err
