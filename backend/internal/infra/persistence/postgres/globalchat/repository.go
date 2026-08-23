@@ -120,7 +120,7 @@ func (r *Repo) GetOwnedImageFile(ctx context.Context, userID uint, fileID string
 	}
 	var record model.FileObject
 	if err := r.db.WithContext(ctx).
-		Where("file_id = ? AND user_id = ? AND status = ?", normalized, userID, "active").
+		Where("file_id = ? AND user_id = ? AND purpose = ? AND status = ?", normalized, userID, globalChatPurpose, "active").
 		First(&record).Error; err != nil {
 		return nil, translateError(err)
 	}

@@ -285,8 +285,6 @@ func writeError(c *gin.Context, err error) {
 		response.Error(c, http.StatusBadRequest, "invalid image file")
 	case errors.Is(err, appglobalchat.ErrMessageNotFound), errors.Is(err, appglobalchat.ErrImageFileNotFound):
 		response.Error(c, http.StatusNotFound, "not found")
-	case errors.Is(err, appglobalchat.ErrConnectionLimitReached):
-		response.Error(c, http.StatusServiceUnavailable, "connection limit reached")
 	default:
 		response.Error(c, http.StatusInternalServerError, "global chat operation failed")
 	}

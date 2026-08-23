@@ -11,6 +11,4 @@ var (
 	ErrImageFileInvalid = errors.New("invalid image file")
 	// ErrImageFileNotFound 表示图片文件不存在。
 	ErrImageFileNotFound = errors.New("image file not found")
-	// ErrConnectionLimitReached 表示超过最大连接数上限。
-	ErrConnectionLimitReached = errors.New("connection limit reached")
 )
