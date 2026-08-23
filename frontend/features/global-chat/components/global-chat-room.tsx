@@ -26,15 +26,21 @@ import { MessageList } from "@/features/global-chat/components/sections/message-
 import { OnlineIndicator } from "@/features/global-chat/components/sections/online-indicator";
 import { batchDeleteGlobalChatMessages } from "@/shared/api/global-chat";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
+import { readDeviceId } from "@/shared/auth/device-id";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { readSessionSnapshot } from "@/shared/auth/session";
 
 // 全服聊天室主容器：组装流订阅、消息状态、滚动行为、输入与管理员批量删除。
 export function GlobalChatRoom() {
   const t = useTranslations("globalChat");
   const { user, accessToken } = useAuthSession();
   const [previewSrc, setPreviewSrc] = React.useState<string | null>(null);
-  const currentSessionId = React.useMemo(() => readSessionSnapshot().sessionID, []);
+  // 设备指纹用于左右分边（设备级「自己」判定）。effect 中读取以避免静态导出
+  // SSR/hydration mismatch：首帧为空串时消息列表回退按 userId 渲染，一帧后修正。
+  const [currentDeviceId, setCurrentDeviceId] = React.useState("");
+
+  React.useEffect(() => {
+    setCurrentDeviceId(readDeviceId());
+  }, []);
   const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
   const [selectionMode, setSelectionMode] = React.useState(false);
@@ -181,7 +187,7 @@ export function GlobalChatRoom() {
         selectionMode={selectionMode}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelect}
-        currentSessionId={currentSessionId}
+        currentDeviceId={currentDeviceId}
       />
 
       {!selectionMode ? (

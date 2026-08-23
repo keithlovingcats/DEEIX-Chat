@@ -6,6 +6,7 @@ import * as React from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MessageTime } from "@/features/global-chat/components/shared/message-time";
+import { getAvatarFallbackClassName } from "@/features/global-chat/model/avatar-color";
 import {
   evictImageCache,
   getCachedImageObjectURL,
@@ -24,7 +25,7 @@ export function MessageItem({
   selectionMode = false,
   selected = false,
   onToggleSelect,
-  currentSessionId = "",
+  currentDeviceId = "",
 }: {
   message: GlobalChatMessage;
   currentUserId: number | null;
@@ -33,17 +34,23 @@ export function MessageItem({
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
-  currentSessionId?: string;
+  currentDeviceId?: string;
 }) {
   const t = useTranslations("globalChat");
-  const isOwn = currentUserId != null && message.userId === currentUserId;
+  // 「自己」按设备指纹判定（跨登录会话稳定）；历史消息（deviceId 空）或指纹
+  // 不可用时回退按账户判定。同账号其他设备因此归入左侧（他人视角）。
+  const hasDeviceId = Boolean(message.deviceId) && Boolean(currentDeviceId);
+  const isOwn = hasDeviceId
+    ? message.deviceId === currentDeviceId
+    : currentUserId != null && message.userId === currentUserId;
   const pending = message.status === "pending";
-  // 同账号其他会话/设备发送的消息：仅自己可见的轻量标记，不对外展示。
-  const fromOtherSession =
-    isOwn &&
-    Boolean(message.sessionId) &&
-    Boolean(currentSessionId) &&
-    message.sessionId !== currentSessionId;
+  // 同账号其他设备发送的消息：仅自己可见的轻量标记，不对外展示。
+  // 历史/降级消息（deviceId 空）不标。
+  const fromOtherDevice =
+    !isOwn &&
+    currentUserId != null &&
+    message.userId === currentUserId &&
+    hasDeviceId;
   const [imageSrc, setImageSrc] = React.useState<string | null>(() =>
     message.messageType === "image" ? getCachedImageObjectURL(message.imageFileId) : null,
   );
@@ -119,7 +126,7 @@ export function MessageItem({
         {message.avatarUrl.startsWith("http") ? (
           <AvatarImage src={message.avatarUrl} alt={message.username} />
         ) : null}
-        <AvatarFallback className="text-xs uppercase">
+        <AvatarFallback className={cn("text-xs uppercase", getAvatarFallbackClassName(message.userId, isOwn))}>
           {(message.displayName || message.username).slice(0, 2)}
         </AvatarFallback>
       </Avatar>
@@ -133,7 +140,7 @@ export function MessageItem({
           <span className="text-foreground truncate font-medium">
             {message.displayName || message.username}
           </span>
-          {fromOtherSession ? (
+          {fromOtherDevice ? (
             <span className="text-muted-foreground inline-flex items-center gap-0.5 rounded-full bg-muted/70 px-1.5 py-0.5 text-[10px]">
               <Smartphone className="size-2.5" aria-hidden />
               {t("otherDevice")}

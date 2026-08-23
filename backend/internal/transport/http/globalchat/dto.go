@@ -27,7 +27,10 @@ type GlobalChatMessageResponse struct {
 	Content     string    `json:"content"`
 	ImageFileID string    `json:"imageFileId"`
 	SessionID   string    `json:"sessionId"`
-	CreatedAt   time.Time `json:"createdAt"`
+	// DeviceID 是发送消息的设备指纹（客户端 localStorage 持久 UUID），
+	// 用于同账号多设备场景下的自我区分展示。
+	DeviceID  string    `json:"deviceId,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // GlobalChatSendMessageRequest 发送消息请求。文本消息携带 content，图片消息携带 fileId。
@@ -36,6 +39,7 @@ type GlobalChatSendMessageRequest struct {
 	Content     string `json:"content,omitempty" binding:"omitempty,max=2000"`
 	FileID      string `json:"fileId,omitempty" binding:"omitempty,max=64"`
 	SessionID   string `json:"sessionId,omitempty" binding:"omitempty,max=128"`
+	DeviceID    string `json:"deviceId,omitempty" binding:"omitempty,max=128"`
 }
 
 // GlobalChatMessageListData 消息列表响应数据。
@@ -111,6 +115,7 @@ func toMessageResponse(item domainglobalchat.Message) GlobalChatMessageResponse 
 		Content:     item.Content,
 		ImageFileID: item.ImageFileID,
 		SessionID:   item.SessionID,
+		DeviceID:    item.DeviceID,
 		CreatedAt:   item.CreatedAt,
 	}
 }

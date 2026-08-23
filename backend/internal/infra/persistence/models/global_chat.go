@@ -12,6 +12,7 @@ type GlobalChatMessage struct {
 	Content     string `gorm:"type:text;not null;comment:文本内容（含Emoji，原样存储）"`
 	ImageFileID string `gorm:"size:64;not null;default:'';index:idx_global_chat_messages_image_file_id;comment:图片消息引用的文件ID"`
 	SessionID   string `gorm:"size:128;not null;default:'';comment:发送时登录会话ID（同账号多设备区分）"`
+	DeviceID    string `gorm:"size:128;not null;default:'';comment:发送消息的设备指纹ID（跨登录会话稳定的浏览器设备标识）"`
 }
 
 // TableName 指定表名。

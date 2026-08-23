@@ -118,17 +118,18 @@ func (s *Service) ListDeletionsSince(ctx context.Context, afterID uint) ([]uint,
 
 // SendText 发送文本消息（含 Emoji），原样存储，由前端纯文本渲染。
 // sessionID 是客户端上报的登录会话标识，仅用于同账号多设备的自我区分展示。
-func (s *Service) SendText(ctx context.Context, userID uint, sessionID string, content string) (*domainglobalchat.Message, error) {
+// deviceID 是客户端上报的设备指纹（跨登录会话稳定），语义同上；两者都不参与鉴权。
+func (s *Service) SendText(ctx context.Context, userID uint, sessionID string, deviceID string, content string) (*domainglobalchat.Message, error) {
 	trimmed := strings.TrimSpace(content)
 	if userID == 0 || trimmed == "" || len([]rune(trimmed)) > maxTextContentLength {
 		return nil, ErrInvalidMessage
 	}
-	return s.createMessage(ctx, userID, strings.TrimSpace(sessionID), domainglobalchat.MessageTypeText, trimmed, "")
+	return s.createMessage(ctx, userID, strings.TrimSpace(sessionID), strings.TrimSpace(deviceID), domainglobalchat.MessageTypeText, trimmed, "")
 }
 
 // SendImage 发送图片消息，fileID 必须是当前用户以 global-chat 用途上传的图片文件。
 // 图片内容安全依赖上传链路的 MIME 探测与大小限制（upload service）。
-func (s *Service) SendImage(ctx context.Context, userID uint, sessionID string, fileID string) (*domainglobalchat.Message, error) {
+func (s *Service) SendImage(ctx context.Context, userID uint, sessionID string, deviceID string, fileID string) (*domainglobalchat.Message, error) {
 	normalized := strings.TrimSpace(fileID)
 	if userID == 0 || normalized == "" {
 		return nil, ErrInvalidMessage
@@ -143,7 +144,7 @@ func (s *Service) SendImage(ctx context.Context, userID uint, sessionID string, 
 	if !strings.HasPrefix(strings.ToLower(file.MimeType), "image/") {
 		return nil, ErrImageFileInvalid
 	}
-	return s.createMessage(ctx, userID, strings.TrimSpace(sessionID), domainglobalchat.MessageTypeImage, "", file.FileID)
+	return s.createMessage(ctx, userID, strings.TrimSpace(sessionID), strings.TrimSpace(deviceID), domainglobalchat.MessageTypeImage, "", file.FileID)
 }
 
 // DeleteMessage 管理员软删除消息并广播删除事件。
@@ -247,7 +248,7 @@ func (s *Service) OpenImageContent(ctx context.Context, fileID string) (*appuplo
 	}, nil
 }
 
-func (s *Service) createMessage(ctx context.Context, userID uint, sessionID string, messageType string, content string, imageFileID string) (*domainglobalchat.Message, error) {
+func (s *Service) createMessage(ctx context.Context, userID uint, sessionID string, deviceID string, messageType string, content string, imageFileID string) (*domainglobalchat.Message, error) {
 	snapshot, err := s.loadUserSnapshot(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -262,6 +263,7 @@ func (s *Service) createMessage(ctx context.Context, userID uint, sessionID stri
 		Content:     content,
 		ImageFileID: imageFileID,
 		SessionID:   sessionID,
+		DeviceID:    deviceID,
 	})
 	if err != nil {
 		return nil, err

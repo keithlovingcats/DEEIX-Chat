@@ -99,9 +99,9 @@ func (h *Handler) SendMessage(c *gin.Context) {
 		err  error
 	)
 	if req.MessageType == domainglobalchat.MessageTypeImage {
-		item, err = h.service.SendImage(c.Request.Context(), userID, req.SessionID, req.FileID)
+		item, err = h.service.SendImage(c.Request.Context(), userID, req.SessionID, req.DeviceID, req.FileID)
 	} else {
-		item, err = h.service.SendText(c.Request.Context(), userID, req.SessionID, req.Content)
+		item, err = h.service.SendText(c.Request.Context(), userID, req.SessionID, req.DeviceID, req.Content)
 	}
 	if err != nil {
 		writeError(c, err)

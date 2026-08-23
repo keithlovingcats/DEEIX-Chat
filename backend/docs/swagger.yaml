@@ -3307,6 +3307,11 @@ definitions:
         type: string
       createdAt:
         type: string
+      deviceId:
+        description: |-
+          DeviceID 是发送消息的设备指纹（客户端 localStorage 持久 UUID），
+          用于同账号多设备场景下的自我区分展示。
+        type: string
       displayName:
         type: string
       id:
@@ -3384,6 +3389,9 @@ definitions:
     properties:
       content:
         maxLength: 2000
+        type: string
+      deviceId:
+        maxLength: 128
         type: string
       fileId:
         maxLength: 64

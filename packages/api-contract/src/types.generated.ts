@@ -1463,6 +1463,11 @@ export interface GlobalChatMessageResponse {
   avatarUrl: string;
   content: string;
   createdAt: string;
+  /**
+   * DeviceID 是发送消息的设备指纹（客户端 localStorage 持久 UUID），
+   * 用于同账号多设备场景下的自我区分展示。
+   */
+  deviceId?: string;
   displayName: string;
   id: number;
   imageFileId: string;
@@ -1499,6 +1504,8 @@ export interface GlobalChatOnlineCountResponseDoc {
 export interface GlobalChatSendMessageRequest {
   /** @maxLength 2000 */
   content?: string;
+  /** @maxLength 128 */
+  deviceId?: string;
   /** @maxLength 64 */
   fileId?: string;
   messageType: "text" | "image";

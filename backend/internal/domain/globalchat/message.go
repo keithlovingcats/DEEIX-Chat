@@ -21,7 +21,10 @@ type Message struct {
 	Content     string
 	ImageFileID string
 	SessionID   string
-	CreatedAt   time.Time
+	// DeviceID 是客户端上报的设备指纹（localStorage 持久 UUID，跨登录会话稳定），
+	// 用于同账号多设备的自我区分展示；为空表示历史消息或旧客户端。
+	DeviceID  string
+	CreatedAt time.Time
 	UpdatedAt   time.Time
 }
 

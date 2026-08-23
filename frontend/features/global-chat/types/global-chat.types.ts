@@ -15,6 +15,8 @@ export type GlobalChatMessage = {
   content: string;
   imageFileId: string;
   sessionId: string;
+  // 发送消息的设备指纹（localStorage 持久 UUID）；空串表示历史消息或旧客户端。
+  deviceId: string;
   createdAt: string;
   status: "pending" | "confirmed" | "failed";
 };
@@ -40,6 +42,8 @@ export function fromContractMessage(item: GlobalChatMessageResponse): GlobalChat
     content: item.content,
     imageFileId: item.imageFileId,
     sessionId: item.sessionId,
+    // 契约字段 optional（旧后端滚动发布窗口可能缺省），空串回退 userId 判定。
+    deviceId: item.deviceId ?? "",
     createdAt: item.createdAt,
     status: "confirmed",
   };

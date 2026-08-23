@@ -18,13 +18,13 @@ func newTestService(repo *fakeRepo) (*Service, *Hub) {
 
 func TestSendTextValidation(t *testing.T) {
 	service, _ := newTestService(&fakeRepo{})
-	if _, err := service.SendText(context.Background(), 0, "sess-1", "hi"); !errors.Is(err, ErrInvalidMessage) {
+	if _, err := service.SendText(context.Background(), 0, "sess-1", "dev-1", "hi"); !errors.Is(err, ErrInvalidMessage) {
 		t.Fatalf("SendText() with zero user error = %v, want ErrInvalidMessage", err)
 	}
-	if _, err := service.SendText(context.Background(), 7, "sess-1", "   "); !errors.Is(err, ErrInvalidMessage) {
+	if _, err := service.SendText(context.Background(), 7, "sess-1", "dev-1", "   "); !errors.Is(err, ErrInvalidMessage) {
 		t.Fatalf("SendText() blank content error = %v, want ErrInvalidMessage", err)
 	}
-	if _, err := service.SendText(context.Background(), 7, "sess-1", strings.Repeat("字", maxTextContentLength+1)); !errors.Is(err, ErrInvalidMessage) {
+	if _, err := service.SendText(context.Background(), 7, "sess-1", "dev-1", strings.Repeat("字", maxTextContentLength+1)); !errors.Is(err, ErrInvalidMessage) {
 		t.Fatalf("SendText() oversized content error = %v, want ErrInvalidMessage", err)
 	}
 }
@@ -35,7 +35,7 @@ func TestSendTextSnapshotsUserAndBroadcasts(t *testing.T) {
 	events, _, cancel := hub.Subscribe(42)
 	defer cancel()
 
-	item, err := service.SendText(context.Background(), 7, "sess-1", "大家好 😀")
+	item, err := service.SendText(context.Background(), 7, "sess-1", "dev-1", "大家好 😀")
 	if err != nil {
 		t.Fatalf("SendText() error = %v", err)
 	}
@@ -45,6 +45,9 @@ func TestSendTextSnapshotsUserAndBroadcasts(t *testing.T) {
 	if item.MessageType != domainglobalchat.MessageTypeText || item.Content != "大家好 😀" {
 		t.Fatalf("SendText() item = %#v", item)
 	}
+	if item.SessionID != "sess-1" || item.DeviceID != "dev-1" {
+		t.Fatalf("SendText() session/device = %q/%q, want sess-1/dev-1", item.SessionID, item.DeviceID)
+	}
 	if event := nextDataEvent(t, events); event.Type != EventMessage {
 		t.Fatalf("broadcast event type = %q, want %q", event.Type, EventMessage)
 	}
@@ -53,7 +56,7 @@ func TestSendTextSnapshotsUserAndBroadcasts(t *testing.T) {
 func TestSendTextFallbackDisplayName(t *testing.T) {
 	hub := NewHub(nil)
 	service := NewService(&fakeRepo{}, hub, &fakeUserRepo{user: domainuser.User{ID: 8, Username: "bob"}}, nil)
-	item, err := service.SendText(context.Background(), 8, "sess-1", "hi")
+	item, err := service.SendText(context.Background(), 8, "sess-1", "dev-1", "hi")
 	if err != nil {
 		t.Fatalf("SendText() error = %v", err)
 	}
@@ -66,16 +69,16 @@ func TestSendImageValidation(t *testing.T) {
 	repo := &fakeRepo{imageFile: &domainglobalchat.ImageFile{FileID: "f1", MimeType: "image/png"}}
 	service, _ := newTestService(repo)
 
-	if _, err := service.SendImage(context.Background(), 7, "sess-1", ""); !errors.Is(err, ErrInvalidMessage) {
+	if _, err := service.SendImage(context.Background(), 7, "sess-1", "dev-1", ""); !errors.Is(err, ErrInvalidMessage) {
 		t.Fatalf("SendImage() empty fileID error = %v, want ErrInvalidMessage", err)
 	}
 	repo.imageErr = repository.ErrNotFound
-	if _, err := service.SendImage(context.Background(), 7, "sess-1", "missing"); !errors.Is(err, ErrImageFileInvalid) {
+	if _, err := service.SendImage(context.Background(), 7, "sess-1", "dev-1", "missing"); !errors.Is(err, ErrImageFileInvalid) {
 		t.Fatalf("SendImage() missing file error = %v, want ErrImageFileInvalid", err)
 	}
 	repo.imageErr = nil
 	repo.imageFile.MimeType = "application/pdf"
-	if _, err := service.SendImage(context.Background(), 7, "sess-1", "f1"); !errors.Is(err, ErrImageFileInvalid) {
+	if _, err := service.SendImage(context.Background(), 7, "sess-1", "dev-1", "f1"); !errors.Is(err, ErrImageFileInvalid) {
 		t.Fatalf("SendImage() non-image error = %v, want ErrImageFileInvalid", err)
 	}
 }
@@ -84,7 +87,7 @@ func TestSendImageCreatesMessageWithFileReference(t *testing.T) {
 	repo := &fakeRepo{imageFile: &domainglobalchat.ImageFile{FileID: "img-1", MimeType: "image/png"}}
 	service, _ := newTestService(repo)
 
-	item, err := service.SendImage(context.Background(), 7, "sess-1", "img-1")
+	item, err := service.SendImage(context.Background(), 7, "sess-1", "dev-1", "img-1")
 	if err != nil {
 		t.Fatalf("SendImage() error = %v", err)
 	}

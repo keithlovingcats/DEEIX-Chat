@@ -19015,6 +19015,10 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "deviceId": {
+                    "description": "DeviceID 是发送消息的设备指纹（客户端 localStorage 持久 UUID），\n用于同账号多设备场景下的自我区分展示。",
+                    "type": "string"
+                },
                 "displayName": {
                     "type": "string"
                 },
@@ -19117,6 +19121,10 @@ const docTemplate = `{
                 "content": {
                     "type": "string",
                     "maxLength": 2000
+                },
+                "deviceId": {
+                    "type": "string",
+                    "maxLength": 128
                 },
                 "fileId": {
                     "type": "string",

@@ -9,6 +9,7 @@ import {
   sendGlobalChatMessage,
   uploadGlobalChatImage,
 } from "@/shared/api/global-chat";
+import { readDeviceId } from "@/shared/auth/device-id";
 import { readSessionSnapshot } from "@/shared/auth/session";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
@@ -53,6 +54,7 @@ export function useGlobalChatSend(options: {
         content: input.content,
         imageFileId: "",
         sessionId: readSessionSnapshot().sessionID,
+        deviceId: readDeviceId(),
         createdAt: new Date().toISOString(),
         status: "pending",
       };
@@ -68,6 +70,7 @@ export function useGlobalChatSend(options: {
           content: input.messageType === "text" ? input.content : "",
           fileId: input.messageType === "image" ? fileId : "",
           sessionId: pending.sessionId,
+          deviceId: pending.deviceId || undefined,
         });
         // 服务端事件可能先于 POST 响应到达；confirmPending 与流去重共同保证幂等。
         pendingController.confirmPending(pendingId, confirmed);
