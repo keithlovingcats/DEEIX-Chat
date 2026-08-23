@@ -26,6 +26,7 @@ type GlobalChatMessageResponse struct {
 	MessageType string    `json:"messageType"`
 	Content     string    `json:"content"`
 	ImageFileID string    `json:"imageFileId"`
+	SessionID   string    `json:"sessionId"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
@@ -34,6 +35,7 @@ type GlobalChatSendMessageRequest struct {
 	MessageType string `json:"messageType" binding:"required,oneof=text image"`
 	Content     string `json:"content,omitempty" binding:"omitempty,max=2000"`
 	FileID      string `json:"fileId,omitempty" binding:"omitempty,max=64"`
+	SessionID   string `json:"sessionId,omitempty" binding:"omitempty,max=128"`
 }
 
 // GlobalChatMessageListData 消息列表响应数据。
@@ -108,6 +110,7 @@ func toMessageResponse(item domainglobalchat.Message) GlobalChatMessageResponse 
 		MessageType: item.MessageType,
 		Content:     item.Content,
 		ImageFileID: item.ImageFileID,
+		SessionID:   item.SessionID,
 		CreatedAt:   item.CreatedAt,
 	}
 }

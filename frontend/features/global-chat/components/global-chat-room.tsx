@@ -27,12 +27,14 @@ import { OnlineIndicator } from "@/features/global-chat/components/sections/onli
 import { batchDeleteGlobalChatMessages } from "@/shared/api/global-chat";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { readSessionSnapshot } from "@/shared/auth/session";
 
 // 全服聊天室主容器：组装流订阅、消息状态、滚动行为、输入与管理员批量删除。
 export function GlobalChatRoom() {
   const t = useTranslations("globalChat");
   const { user, accessToken } = useAuthSession();
   const [previewSrc, setPreviewSrc] = React.useState<string | null>(null);
+  const currentSessionId = React.useMemo(() => readSessionSnapshot().sessionID, []);
   const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
   const [selectionMode, setSelectionMode] = React.useState(false);
@@ -177,6 +179,7 @@ export function GlobalChatRoom() {
         selectionMode={selectionMode}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelect}
+        currentSessionId={currentSessionId}
       />
 
       {!selectionMode ? (

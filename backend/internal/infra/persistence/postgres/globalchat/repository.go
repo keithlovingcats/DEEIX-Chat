@@ -89,6 +89,7 @@ func (r *Repo) CreateMessage(ctx context.Context, item *domainglobalchat.Message
 		MessageType: item.MessageType,
 		Content:     item.Content,
 		ImageFileID: strings.TrimSpace(item.ImageFileID),
+		SessionID:   strings.TrimSpace(item.SessionID),
 	}
 	if err := r.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return nil, translateError(err)
@@ -187,6 +188,7 @@ func toDomain(item model.GlobalChatMessage) domainglobalchat.Message {
 		MessageType: item.MessageType,
 		Content:     item.Content,
 		ImageFileID: item.ImageFileID,
+		SessionID:   item.SessionID,
 		CreatedAt:   item.CreatedAt,
 		UpdatedAt:   item.UpdatedAt,
 	}

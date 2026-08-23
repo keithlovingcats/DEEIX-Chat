@@ -3317,6 +3317,8 @@ definitions:
         type: string
       publicId:
         type: string
+      sessionId:
+        type: string
       userId:
         type: integer
       username:
@@ -3330,6 +3332,7 @@ definitions:
     - imageFileId
     - messageType
     - publicId
+    - sessionId
     - userId
     - username
     type: object
@@ -3389,6 +3392,9 @@ definitions:
         enum:
         - text
         - image
+        type: string
+      sessionId:
+        maxLength: 128
         type: string
     required:
     - messageType

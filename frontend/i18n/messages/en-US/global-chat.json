@@ -22,6 +22,7 @@
   "deleteConfirmTitle": "Delete messages",
   "deleteConfirmDescription": "{count} messages will be deleted. This cannot be undone.",
   "deleteFailed": "Failed to delete. Please try again.",
+  "otherDevice": "Another device",
   "emojiCategories": {
     "smileys": "Smileys",
     "gestures": "Gestures",

@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, ImageOff, LoaderCircle } from "lucide-react";
+import { Check, ImageOff, LoaderCircle, Smartphone } from "lucide-react";
+import { useTranslations } from "next-intl";
 import * as React from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -22,6 +23,7 @@ export function MessageItem({
   selectionMode = false,
   selected = false,
   onToggleSelect,
+  currentSessionId = "",
 }: {
   message: GlobalChatMessage;
   currentUserId: number | null;
@@ -30,9 +32,17 @@ export function MessageItem({
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
+  currentSessionId?: string;
 }) {
+  const t = useTranslations("globalChat");
   const isOwn = currentUserId != null && message.userId === currentUserId;
   const pending = message.status === "pending";
+  // 同账号其他会话/设备发送的消息：仅自己可见的轻量标记，不对外展示。
+  const fromOtherSession =
+    isOwn &&
+    Boolean(message.sessionId) &&
+    Boolean(currentSessionId) &&
+    message.sessionId !== currentSessionId;
   const [imageSrc, setImageSrc] = React.useState<string | null>(() =>
     message.messageType === "image" ? getCachedImageObjectURL(message.imageFileId) : null,
   );
@@ -117,6 +127,12 @@ export function MessageItem({
           <span className="text-foreground truncate font-medium">
             {message.displayName || message.username}
           </span>
+          {fromOtherSession ? (
+            <span className="text-muted-foreground inline-flex items-center gap-0.5 rounded-full bg-muted/70 px-1.5 py-0.5 text-[10px]">
+              <Smartphone className="size-2.5" aria-hidden />
+              {t("otherDevice")}
+            </span>
+          ) : null}
           <MessageTime createdAt={message.createdAt} />
         </div>
         <div

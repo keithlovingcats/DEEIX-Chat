@@ -27,6 +27,7 @@ export function MessageList({
   selectionMode = false,
   selectedIds,
   onToggleSelect,
+  currentSessionId = "",
 }: {
   messages: GlobalChatMessage[];
   hasMore: boolean;
@@ -43,6 +44,7 @@ export function MessageList({
   selectionMode?: boolean;
   selectedIds: ReadonlySet<number>;
   onToggleSelect: (id: number) => void;
+  currentSessionId?: string;
 }) {
   const t = useTranslations("globalChat");
   const locale = useLocale();
@@ -95,6 +97,7 @@ export function MessageList({
                   selectionMode={selectionMode}
                   selected={selectedIds.has(message.id)}
                   onToggleSelect={onToggleSelect}
+                  currentSessionId={currentSessionId}
                 />
               ))}
             </div>

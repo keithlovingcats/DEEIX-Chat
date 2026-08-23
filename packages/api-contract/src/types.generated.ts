@@ -1468,6 +1468,7 @@ export interface GlobalChatMessageResponse {
   imageFileId: string;
   messageType: string;
   publicId: string;
+  sessionId: string;
   userId: number;
   username: string;
 }
@@ -1501,6 +1502,8 @@ export interface GlobalChatSendMessageRequest {
   /** @maxLength 64 */
   fileId?: string;
   messageType: "text" | "image";
+  /** @maxLength 128 */
+  sessionId?: string;
 }
 
 export interface GlobalchatErrorDoc {

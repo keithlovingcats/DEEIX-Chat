@@ -18994,6 +18994,7 @@
                 "imageFileId",
                 "messageType",
                 "publicId",
+                "sessionId",
                 "userId",
                 "username"
             ],
@@ -19020,6 +19021,9 @@
                     "type": "string"
                 },
                 "publicId": {
+                    "type": "string"
+                },
+                "sessionId": {
                     "type": "string"
                 },
                 "userId": {
@@ -19117,6 +19121,10 @@
                         "text",
                         "image"
                     ]
+                },
+                "sessionId": {
+                    "type": "string",
+                    "maxLength": 128
                 }
             }
         },

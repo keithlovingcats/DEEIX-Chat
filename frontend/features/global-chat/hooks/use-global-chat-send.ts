@@ -9,6 +9,7 @@ import {
   sendGlobalChatMessage,
   uploadGlobalChatImage,
 } from "@/shared/api/global-chat";
+import { readSessionSnapshot } from "@/shared/auth/session";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
 // 发送者信息由调用方（会话层）注入，用于乐观更新展示。
@@ -51,6 +52,7 @@ export function useGlobalChatSend(options: {
         messageType: input.messageType,
         content: input.content,
         imageFileId: "",
+        sessionId: readSessionSnapshot().sessionID,
         createdAt: new Date().toISOString(),
         status: "pending",
       };
@@ -65,6 +67,7 @@ export function useGlobalChatSend(options: {
           messageType: input.messageType,
           content: input.messageType === "text" ? input.content : "",
           fileId: input.messageType === "image" ? fileId : "",
+          sessionId: pending.sessionId,
         });
         // 服务端事件可能先于 POST 响应到达；confirmPending 与流去重共同保证幂等。
         pendingController.confirmPending(pendingId, confirmed);

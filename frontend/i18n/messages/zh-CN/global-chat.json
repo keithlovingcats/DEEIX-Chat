@@ -22,6 +22,7 @@
   "deleteConfirmTitle": "确认删除消息",
   "deleteConfirmDescription": "将删除 {count} 条消息，此操作不可撤销。",
   "deleteFailed": "删除失败，请重试",
+  "otherDevice": "其他设备",
   "emojiCategories": {
     "smileys": "表情",
     "gestures": "手势",

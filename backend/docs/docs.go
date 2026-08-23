@@ -19001,6 +19001,7 @@ const docTemplate = `{
                 "imageFileId",
                 "messageType",
                 "publicId",
+                "sessionId",
                 "userId",
                 "username"
             ],
@@ -19027,6 +19028,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "publicId": {
+                    "type": "string"
+                },
+                "sessionId": {
                     "type": "string"
                 },
                 "userId": {
@@ -19124,6 +19128,10 @@ const docTemplate = `{
                         "text",
                         "image"
                     ]
+                },
+                "sessionId": {
+                    "type": "string",
+                    "maxLength": 128
                 }
             }
         },

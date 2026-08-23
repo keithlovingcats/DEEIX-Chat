@@ -20,6 +20,7 @@ type Message struct {
 	MessageType string
 	Content     string
 	ImageFileID string
+	SessionID   string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

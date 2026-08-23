@@ -14,6 +14,7 @@ export type GlobalChatMessage = {
   messageType: GlobalChatMessageType;
   content: string;
   imageFileId: string;
+  sessionId: string;
   createdAt: string;
   status: "pending" | "confirmed" | "failed";
 };
@@ -38,6 +39,7 @@ export function fromContractMessage(item: GlobalChatMessageResponse): GlobalChat
     messageType: (item.messageType === "image" ? "image" : "text"),
     content: item.content,
     imageFileId: item.imageFileId,
+    sessionId: item.sessionId,
     createdAt: item.createdAt,
     status: "confirmed",
   };
