@@ -97,14 +97,13 @@ export function NoteEditDialog({
     void flush().finally(onClose);
   };
 
-  const handleManualSave = async () => {
+  // 保存并关闭：等 flush 成功再关；失败停留在弹窗内等待重试。
+  const handleSaveAndClose = async () => {
     const ok = await flush();
     if (!ok) {
       return;
     }
-    if (!title.trim() && content.trim()) {
-      setTitle(suggestTitle(content));
-    }
+    onClose();
   };
 
   return (
@@ -243,14 +242,14 @@ export function NoteEditDialog({
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <Button variant="ghost" className="rounded-lg text-sm font-medium" onClick={handleClose}>
-              {t("close")}
+              {t("cancel")}
             </Button>
             <Button
               className="rounded-lg text-sm font-medium shadow-none"
               disabled={blockingSave || status === "saving"}
-              onClick={() => void handleManualSave()}
+              onClick={() => void handleSaveAndClose()}
             >
-              {status === "saving" ? t("saving") : t("saveNow")}
+              {status === "saving" ? t("saving") : t("saveAndClose")}
             </Button>
           </div>
         </div>
