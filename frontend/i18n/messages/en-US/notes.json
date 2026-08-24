@@ -23,6 +23,8 @@
   "titleRequired": "Title is required",
   "insertChecklist": "Insert checklist",
   "checklistProgress": "{done}/{total} done",
+  "wrapLines": "Word wrap",
+  "unwrapLines": "No wrap",
   "previewMode": "Preview",
   "editMode": "Edit",
   "previewEmpty": "Nothing to preview",

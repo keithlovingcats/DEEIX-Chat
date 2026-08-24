@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpToLine, ChevronDown, CircleAlert, Film, GalleryHorizontalEnd } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, ChevronDown, CircleAlert, Film, GalleryHorizontalEnd } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { GrainientBackground } from "@/components/reactbits/backgrounds/grainient";
@@ -14,7 +14,7 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useOptionalMessageScroller } from "@/components/ui/message-scroller";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -135,6 +135,23 @@ function resolveEditableImageAttachment(
   return null;
 }
 
+// 在滚动视口内按 public id 查找消息项元素（MessageScrollerItem 上的
+// data-message-public-id 由聊天区渲染时标注）。分支切换会重挂载消息元素，
+// 需要按 id 重查而不是依赖旧 ref。
+function findMessageItemByPublicID(
+  viewport: HTMLElement | null,
+  publicID: string,
+): HTMLElement | null {
+  if (!viewport || !publicID) {
+    return null;
+  }
+  return (
+    Array.from(viewport.querySelectorAll<HTMLElement>("[data-message-public-id]")).find(
+      (element) => element.dataset.messagePublicId === publicID,
+    ) ?? null
+  );
+}
+
 type ChatMessageBotProps = {
   item: ChatAreaMessage;
   busy?: boolean;
@@ -200,29 +217,74 @@ export function ChatMessageBot({
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingValue, setEditingValue] = React.useState(item.content);
   // 多模型并行：滚回本条回答顶部（tab 条处），方便切换其他模型查看。
-  // 通过 DOM 最近消息项容器滚动，避免依赖 MessageScroller Provider（分享页无该上下文）。
   const hasModelBranches = (item.branchNavigator?.siblings?.length ?? 0) > 1;
   const backToModelTabsRef = React.useRef<HTMLButtonElement | null>(null);
   const messageRootRef = React.useRef<HTMLDivElement | null>(null);
   const [showFloatingBackToTop, setShowFloatingBackToTop] = React.useState(false);
-  const scrollToMessageTop = React.useCallback(() => {
-    const messageItem =
-      backToModelTabsRef.current?.closest<HTMLElement>("[data-message-id]") ??
-      messageRootRef.current?.closest<HTMLElement>("[data-message-id]") ??
-      messageRootRef.current;
-    if (!messageItem) {
-      return;
-    }
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    messageItem.scrollIntoView({
-      behavior: reducedMotion ? "auto" : "smooth",
-      block: "start",
-    });
-  }, []);
+  const [showFloatingGoToBottom, setShowFloatingGoToBottom] = React.useState(false);
+  // 优先走 MessageScroller 的 scrollToMessage：它会先把滚动器切到 settling-jump
+  // 模式再定位，后续内容高度变化（如多模型 tab 切到长回复分支）不会被跟底逻辑
+  // 拉到对话最底部。原生 scrollIntoView 只改 scrollTop，滚动器仍处于
+  // following-bottom，视口会在分支内容变高时被 scrollToEnd 拉走。
+  // 无 scroller 上下文（分享页）时回退 DOM 最近消息项容器原生滚动。
+  const scrollerApi = useOptionalMessageScroller();
+  const scrollMessageItemIntoView = React.useCallback(
+    (messageItem: HTMLElement | null, align: "start" | "end", immediate = false) => {
+      if (!messageItem) {
+        return;
+      }
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const behavior: ScrollBehavior = immediate || reducedMotion ? "auto" : "smooth";
+      const scrollerID = messageItem.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+      if (scrollerID && scrollerApi?.scrollToMessage(scrollerID, { align, behavior })) {
+        return;
+      }
+      messageItem.scrollIntoView({ behavior, block: align });
+    },
+    [scrollerApi],
+  );
+  const scrollToMessageTop = React.useCallback(
+    (immediate = false) => {
+      const messageItem =
+        backToModelTabsRef.current?.closest<HTMLElement>("[data-message-id]") ??
+        messageRootRef.current?.closest<HTMLElement>("[data-message-id]") ??
+        messageRootRef.current;
+      scrollMessageItemIntoView(messageItem, "start", immediate);
+    },
+    [scrollMessageItemIntoView],
+  );
+  // 滚到当前回复正文底部（与 scrollToMessageTop 对称）：多模型 tab 下用户
+  // 想快速跳到本条回复末尾查看结论，而不是跳到整个对话最底部。
+  const scrollToMessageBottom = React.useCallback(
+    (immediate = false) => {
+      const messageItem =
+        messageRootRef.current?.closest<HTMLElement>("[data-message-id]") ?? messageRootRef.current;
+      scrollMessageItemIntoView(messageItem, "end", immediate);
+    },
+    [scrollMessageItemIntoView],
+  );
+  // 切换模型 tab：切完分支后视口立即重新定位到本条回答顶部，从头阅读新模型的回复。
+  // 分支切换会换成另一条消息渲染（publicID/key 变化 → 整条消息重挂载），本组件
+  // 实例连同 ref 一帧后失效，因此点击时先抓住滚动视口，帧内从视口中按 public id
+  // 重查新挂载的分支消息再定位。
+  const handleSelectModelBranch = React.useCallback(
+    (parentPublicID: string | null, childPublicID: string) => {
+      const viewport = (
+        backToModelTabsRef.current ?? messageRootRef.current
+      )?.closest<HTMLElement>("[data-slot='message-scroller-viewport']");
+      onSelectMessageBranch?.(parentPublicID, childPublicID);
+      requestAnimationFrame(() => {
+        const messageItem = findMessageItemByPublicID(viewport, childPublicID);
+        scrollMessageItemIntoView(messageItem, "start", true);
+      });
+    },
+    [onSelectMessageBranch, scrollMessageItemIntoView],
+  );
 
   React.useEffect(() => {
     if (!hasModelBranches || readOnly) {
       setShowFloatingBackToTop(false);
+      setShowFloatingGoToBottom(false);
       return;
     }
     const messageItem =
@@ -230,6 +292,7 @@ export function ChatMessageBot({
     const viewport = messageItem?.closest<HTMLElement>("[data-slot='message-scroller-viewport']");
     if (!messageItem || !viewport) {
       setShowFloatingBackToTop(false);
+      setShowFloatingGoToBottom(false);
       return;
     }
 
@@ -240,6 +303,11 @@ export function ChatMessageBot({
       const topOutOfView = messageRect.top < viewportRect.top - 48;
       const bodyStillVisible = messageRect.bottom > viewportRect.top + 96;
       setShowFloatingBackToTop(topOutOfView && bodyStillVisible);
+      // 消息底部滚出视口下方，且消息主体仍在视口中时，显示悬浮跳底。
+      // 与回顶对称：用户正在阅读长回复中段，想快速跳到本条回复末尾。
+      const bottomOutOfView = messageRect.bottom > viewportRect.bottom + 48;
+      const topStillVisible = messageRect.top < viewportRect.bottom - 96;
+      setShowFloatingGoToBottom(bottomOutOfView && topStillVisible);
     };
 
     updateVisibility();
@@ -250,9 +318,16 @@ export function ChatMessageBot({
       window.removeEventListener("resize", updateVisibility);
     };
   }, [hasModelBranches, item.key, item.publicID, readOnly]);
+  const [retryInFlight, setRetryInFlight] = React.useState(false);
   const onRetry = React.useCallback(() => {
-    void onRetryAssistantMessage(item);
-  }, [item, onRetryAssistantMessage]);
+    if (retryInFlight) {
+      return;
+    }
+    setRetryInFlight(true);
+    void Promise.resolve(onRetryAssistantMessage(item)).finally(() => {
+      setRetryInFlight(false);
+    });
+  }, [item, onRetryAssistantMessage, retryInFlight]);
   const onContinue = React.useCallback(() => {
     void onContinueAssistantMessage?.(item);
   }, [item, onContinueAssistantMessage]);
@@ -414,7 +489,7 @@ export function ChatMessageBot({
     <div ref={messageRootRef} className="group/assistant-message relative flex w-full flex-col items-start">
       {/* 多模型并行：tab 头置于回答顶部（与 HaloWebUI 一致），先选模型再看内容。 */}
       {(item.branchNavigator?.siblings?.length ?? 0) > 1 && onSelectMessageBranch ? (
-        <ModelBranchTabs item={item} onSelectBranch={onSelectMessageBranch} />
+        <ModelBranchTabs item={item} onSelectBranch={handleSelectModelBranch} />
       ) : null}
       <MessageProcessTrace
         trace={processTrace}
@@ -507,7 +582,7 @@ export function ChatMessageBot({
                 variant="outline"
                 size="xs"
                 className="text-muted-foreground hover:text-foreground"
-                onClick={scrollToMessageTop}
+                onClick={() => scrollToMessageTop()}
               >
                 <ArrowUpToLine className="size-3" strokeWidth={1.8} />
                 {tMessages("backToModelTabs")}
@@ -518,23 +593,42 @@ export function ChatMessageBot({
         </div>
       ) : null}
 
-      {hasModelBranches && showFloatingBackToTop ? (
+      {hasModelBranches && (showFloatingBackToTop || showFloatingGoToBottom) ? (
         // sticky + h-0：不占布局空间；长回复阅读中途按钮悬浮于滚动视口右下角，
         // 滚到回复底部时回落到消息右下角自然位置（避免锚死在消息底部而够不着）。
         <div className="pointer-events-none sticky bottom-6 z-20 h-0 w-full" data-screenshot-exclude="true">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="pointer-events-auto absolute bottom-0 right-0 inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
-                aria-label={tMessages("backToModelTabs")}
-                onClick={scrollToMessageTop}
-              >
-                <ArrowUpToLine className="size-4" strokeWidth={1.8} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{tMessages("backToModelTabs")}</TooltipContent>
-          </Tooltip>
+          <div className="absolute bottom-0 right-0 flex flex-col gap-1.5">
+            {showFloatingBackToTop ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
+                    aria-label={tMessages("backToModelTabs")}
+                    onClick={() => scrollToMessageTop()}
+                  >
+                    <ArrowUpToLine className="size-4" strokeWidth={1.8} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{tMessages("backToModelTabs")}</TooltipContent>
+              </Tooltip>
+            ) : null}
+            {showFloatingGoToBottom ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
+                    aria-label={tMessages("goToMessageEnd")}
+                    onClick={() => scrollToMessageBottom()}
+                  >
+                    <ArrowDownToLine className="size-4" strokeWidth={1.8} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{tMessages("goToMessageEnd")}</TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -549,7 +643,9 @@ export function ChatMessageBot({
         item={item}
         busy={busy}
         reaction={reaction}
+        retrying={retryInFlight}
         onCycleBranch={onCycleMessageBranch}
+        onSelectBranch={handleSelectModelBranch}
         onRetry={onRetry}
         onContinue={onContinueAssistantMessage ? onContinue : undefined}
         onEdit={() => setIsEditing(true)}
@@ -718,7 +814,16 @@ function formatJSON(value: string): string {
   }
 }
 
-export function AssistantMessageSkeleton({ fileProc, label }: { fileProc?: boolean; label?: string } = {}) {
+export function AssistantMessageSkeleton({
+  fileProc,
+  label,
+  showTypingHint = true,
+}: {
+  fileProc?: boolean;
+  label?: string;
+  /** 整页布局骨架（ChatAreaSkeleton）复用时不显示“正在思考”文案。 */
+  showTypingHint?: boolean;
+} = {}) {
   const t = useTranslations("chat.messages");
   if (fileProc) {
     return (
@@ -729,11 +834,30 @@ export function AssistantMessageSkeleton({ fileProc, label }: { fileProc?: boole
     );
   }
   return (
-    <div className="w-full max-w-[680px] space-y-2.5 pt-1">
-      <Skeleton className="h-4 w-[72%] rounded-full bg-muted/35" />
-      <Skeleton className="h-4 w-[96%] rounded-full bg-muted/35" />
-      <Skeleton className="h-4 w-[88%] rounded-full bg-muted/35" />
-      <Skeleton className="h-4 w-[64%] rounded-full bg-muted/35" />
+    <div className="w-full max-w-[680px] space-y-3 pt-1">
+      {/* 三点跳动 + 文案：未收到首个流式 token 时的高可见等待指示 */}
+      {showTypingHint ? (
+        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+          <span className="flex items-center gap-1 pb-0.5" aria-hidden="true">
+            {[0, 150, 300].map((delay) => (
+              <span
+                key={delay}
+                style={{ animationDelay: `${delay}ms` }}
+                className="size-1.5 animate-bounce rounded-full bg-foreground/45 motion-reduce:animate-none"
+              />
+            ))}
+          </span>
+          <span>{label?.trim() || t("thinking")}</span>
+        </div>
+      ) : null}
+      {/* 扫光骨架条：比纯 pulse 更明显的持续动效 */}
+      <div className="space-y-2.5">
+        {["w-[72%]", "w-[96%]", "w-[88%]", "w-[64%]"].map((width) => (
+          <div key={width} className={cn("relative h-4 overflow-hidden rounded-full bg-muted/35", width)}>
+            <div className="absolute inset-0 -translate-x-full animate-[chat-skeleton-shimmer_1.8s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-foreground/10 to-transparent motion-reduce:animate-none" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

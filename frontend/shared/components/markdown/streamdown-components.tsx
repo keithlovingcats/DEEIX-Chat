@@ -26,6 +26,7 @@ import {
   resolveProtectedMarkdownImageSource,
 } from "@/shared/lib/markdown-image-source";
 import { sanitizeHTMLStyle } from "./streamdown-style";
+import { stabilizeViewportOnExpand } from "@/shared/lib/collapse-expand-scroll";
 
 const CODE_BLOCK_COLLAPSE_LINE_THRESHOLD = 16;
 const DEFAULT_CODE_BLOCK_LANGUAGE = "markdown";
@@ -476,7 +477,12 @@ export function CollapsibleCodePre({ children, node: _node, "data-markdown-sourc
       <div className="flex justify-center">
         <button
           type="button"
-          onClick={() => setExpanded((current) => !current)}
+          onClick={(event) => {
+            if (!expanded) {
+              stabilizeViewportOnExpand(event.currentTarget);
+            }
+            setExpanded((current) => !current);
+          }}
           onMouseEnter={() => setIsToggleHovered(true)}
           onMouseLeave={() => setIsToggleHovered(false)}
           className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"

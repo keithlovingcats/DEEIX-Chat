@@ -90,6 +90,27 @@ type QueuedComposerMessage = {
   attachmentCount: number;
 };
 
+const CHAT_INPUT_RESIZE_STORAGE_KEY = "deeix.chat.input-height.v1";
+// 与 textarea 的 min-h-12（48px）对齐。
+const CHAT_INPUT_MIN_HEIGHT_PX = 48;
+const CHAT_INPUT_MAX_VIEWPORT_RATIO = 0.6;
+// 键盘方向键单次调整步长（px）。
+const CHAT_INPUT_KEY_RESIZE_STEP_PX = 24;
+
+function maxManualInputHeight(viewportHeight = typeof window === "undefined" ? 0 : window.innerHeight) {
+  return Math.max(
+    CHAT_INPUT_MIN_HEIGHT_PX,
+    Math.round(viewportHeight * CHAT_INPUT_MAX_VIEWPORT_RATIO),
+  );
+}
+
+function clampManualInputHeight(height: number, viewportHeight?: number) {
+  return Math.min(
+    Math.max(height, CHAT_INPUT_MIN_HEIGHT_PX),
+    maxManualInputHeight(viewportHeight),
+  );
+}
+
 type ChatInputProps = {
   draft: string;
   loading: boolean;
@@ -344,6 +365,17 @@ function ChatInputComponent({
   // IME 组合态守卫：输入法按 Enter 确认候选词时不应触发发送。
   const { compositionProps, isComposing } = useImeCompositionGuard();
   const [inputGroupHeight, setInputGroupHeight] = React.useState<number | null>(null);
+  // 手动拖拽设定的输入框高度（px）；null = 跟随内容自动增高。
+  const [manualInputHeight, setManualInputHeight] = React.useState<number | null>(null);
+  const [isInputResizing, setIsInputResizing] = React.useState(false);
+  const [viewportMaxInputHeight, setViewportMaxInputHeight] = React.useState(CHAT_INPUT_MIN_HEIGHT_PX);
+  // latestHeight 同步记录拖拽中的最新高度：pointerup 持久化时读渲染闭包里的
+  // manualInputHeight，最后一次 pointermove 与 pointerup 同批到达时会落后一帧。
+  const inputResizeDragRef = React.useRef<{
+    startClientY: number;
+    startHeight: number;
+    latestHeight: number;
+  } | null>(null);
   const hasDraftText = draft.trim().length > 0;
   const hasSubmitContent = hasDraftText || attachments.length > 0;
   const canSend = hasSubmitContent && !loading && !uploading;
@@ -361,6 +393,116 @@ function ChatInputComponent({
   const showMarkdownPreview = markdownPreview && hasDraftText;
   const inputHeightClassName =
     inputHeight === "compact" ? "max-h-32" : inputHeight === "loose" ? "max-h-64" : "max-h-44";
+
+  React.useEffect(() => {
+    const raw = window.localStorage.getItem(CHAT_INPUT_RESIZE_STORAGE_KEY);
+    const parsed = raw === null ? NaN : Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed)) {
+      setManualInputHeight(clampManualInputHeight(parsed));
+    }
+  }, []);
+
+  // 窗口变矮时把已持久化的高度重新 clamp，避免输入区撑破视口。
+  React.useEffect(() => {
+    const onResize = () => {
+      setViewportMaxInputHeight(maxManualInputHeight());
+      setManualInputHeight((current) =>
+        current === null ? current : clampManualInputHeight(current),
+      );
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isInputResizing) {
+      return;
+    }
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isInputResizing]);
+
+  /** 统一提交手动高度：null = 恢复跟随内容自动增高，并同步 localStorage。 */
+  const commitManualInputHeight = (height: number | null) => {
+    setManualInputHeight(height);
+    try {
+      if (height === null) {
+        window.localStorage.removeItem(CHAT_INPUT_RESIZE_STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(CHAT_INPUT_RESIZE_STORAGE_KEY, String(height));
+      }
+    } catch {
+      // localStorage 不可用时静默降级为会话内记忆。
+    }
+  };
+
+  const handleInputResizePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    inputResizeDragRef.current = {
+      startClientY: event.clientY,
+      startHeight: manualInputHeight ?? textareaRef.current?.offsetHeight ?? CHAT_INPUT_MIN_HEIGHT_PX,
+      latestHeight: manualInputHeight ?? textareaRef.current?.offsetHeight ?? CHAT_INPUT_MIN_HEIGHT_PX,
+    };
+    setIsInputResizing(true);
+  };
+
+  const handleInputResizePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = inputResizeDragRef.current;
+    if (!drag) {
+      return;
+    }
+    // 把手在输入框顶部：向上拖（clientY 减小）增大高度。
+    const delta = drag.startClientY - event.clientY;
+    const next = clampManualInputHeight(drag.startHeight + delta);
+    drag.latestHeight = next;
+    setManualInputHeight(next);
+  };
+
+  const handleInputResizePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = inputResizeDragRef.current;
+    if (!drag) {
+      return;
+    }
+    inputResizeDragRef.current = null;
+    setIsInputResizing(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    commitManualInputHeight(drag.latestHeight);
+  };
+
+  const handleInputResizeDoubleClick = () => {
+    inputResizeDragRef.current = null;
+    setIsInputResizing(false);
+    commitManualInputHeight(null);
+  };
+
+  // 键盘可达：方向键按步长调整（与鼠标拖拽同 clamp/持久化），Enter/空格等价双击重置。
+  const handleInputResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const base =
+        manualInputHeight ?? textareaRef.current?.offsetHeight ?? CHAT_INPUT_MIN_HEIGHT_PX;
+      const delta = event.key === "ArrowUp" ? CHAT_INPUT_KEY_RESIZE_STEP_PX : -CHAT_INPUT_KEY_RESIZE_STEP_PX;
+      commitManualInputHeight(clampManualInputHeight(base + delta));
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleInputResizeDoubleClick();
+    }
+  };
   const { onPreviewScroll, onSourceScroll } = useMarkdownPreviewSync({
     enabled: showMarkdownPreview,
     previewRef: markdownPreviewRef,
@@ -403,7 +545,10 @@ function ChatInputComponent({
         (Number.parseFloat(inputGroupStyle?.borderTopWidth ?? "") || 0) +
         (Number.parseFloat(inputGroupStyle?.borderBottomWidth ?? "") || 0);
       const contentHeight = node.scrollHeight || node.offsetHeight || node.getBoundingClientRect().height;
-      const nextHeight = Math.ceil(contentHeight + borderHeight);
+      const nextHeight = Math.min(
+        Math.ceil(contentHeight + borderHeight),
+        maxManualInputHeight(),
+      );
       if (nextHeight <= 0) {
         return;
       }
@@ -697,8 +842,34 @@ function ChatInputComponent({
           inputGroupHeight === null && "h-auto",
           dropActive && "border-dashed border-foreground/30 bg-muted/20 shadow-none",
         )}
-        style={inputGroupHeight === null ? undefined : { height: inputGroupHeight }}
+        style={inputGroupHeight === null ? undefined : { height: inputGroupHeight, maxHeight: "60dvh" }}
       >
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-valuenow={manualInputHeight ?? CHAT_INPUT_MIN_HEIGHT_PX}
+          aria-valuemin={CHAT_INPUT_MIN_HEIGHT_PX}
+          aria-valuemax={viewportMaxInputHeight}
+          tabIndex={0}
+          aria-label={tComposer("resizeInputHeight")}
+          title={tComposer("resizeInputHeight")}
+          className="group/input-resize absolute inset-x-0 top-0 z-20 flex h-2 cursor-ns-resize touch-none items-start justify-center focus-visible:outline-none"
+          onPointerDown={handleInputResizePointerDown}
+          onPointerMove={handleInputResizePointerMove}
+          onPointerUp={handleInputResizePointerUp}
+          onPointerCancel={handleInputResizePointerUp}
+          onDoubleClick={handleInputResizeDoubleClick}
+          onKeyDown={handleInputResizeKeyDown}
+        >
+          <span
+            className={cn(
+              "mt-0.5 h-0.5 w-10 rounded-full bg-muted-foreground/60 transition-opacity duration-150",
+              isInputResizing
+                ? "opacity-100"
+                : "opacity-0 group-hover/input-resize:opacity-100 group-focus-visible/input-resize:opacity-100",
+            )}
+          />
+        </div>
         <div ref={inputGroupMeasureRef} className="flex w-full flex-col">
           {showSelectedSkills ? (
             <div className="flex w-full max-h-14 flex-wrap items-center justify-start gap-x-3 gap-y-1 overflow-y-auto px-5 pt-3">
@@ -849,11 +1020,15 @@ function ChatInputComponent({
             rows={1}
             aria-controls={showMentionMenu ? mentionMenuID : undefined}
             aria-expanded={showMentionMenu ? true : undefined}
-            style={{ fontFamily: "var(--font-chat)", fontWeight: "var(--font-chat-weight)" }}
+            style={{
+              fontFamily: "var(--font-chat)",
+              fontWeight: "var(--font-chat-weight)",
+              ...(manualInputHeight === null ? null : { height: clampManualInputHeight(manualInputHeight) }),
+            }}
             className={cn(
               "rounded-3xl min-h-12 overflow-y-auto px-5 text-[15px] leading-6 placeholder:text-muted-foreground placeholder:font-[inherit] placeholder:leading-[inherit]",
               showSelectedSkills || hasComposerAttachments ? "pt-2" : "pt-4",
-              inputHeightClassName,
+              manualInputHeight === null ? inputHeightClassName : "max-h-[60dvh] flex-none",
               speechInput.active ? "placeholder:font-normal placeholder:text-muted-foreground" : "",
             )}
             onFocus={handleMentionFocus}

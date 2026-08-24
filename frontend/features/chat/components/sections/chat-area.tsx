@@ -15,12 +15,12 @@ import {
 } from "@/components/ui/message-scroller";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChatMessageDiscussion } from "@/features/chat/components/message/discussion-message";
 import {
   AssistantMessageSkeleton,
   ChatInlineAlertCard,
   ChatMessageBot,
 } from "@/features/chat/components/message/message-bot";
-import { ChatMessageDiscussion } from "@/features/chat/components/message/discussion-message";
 import { type AssistantReaction } from "@/features/chat/components/message/message-meta";
 import { ChatMessageUser } from "@/features/chat/components/message/message-user";
 import { ChatLabel } from "@/features/chat/components/sections/chat-label";
@@ -81,6 +81,146 @@ function ScrollToPendingUser({ scrollKey }: { scrollKey: string }) {
   }, [scrollKey, scrollToEnd]);
 
   return null;
+}
+
+const SCROLL_TO_BOTTOM_MIN_DURATION_MS = 350;
+const SCROLL_TO_BOTTOM_MAX_DURATION_MS = 1000;
+const SCROLL_TO_BOTTOM_DURATION_PER_PX = 0.12;
+const SCROLL_INTERRUPT_TOLERANCE_PX = 4;
+
+function easeInOutCubic(progress: number) {
+  return progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+}
+
+// 浏览器原生 smooth 滚动对长距离采用固定时长 + 大步长，视觉上近似瞬移；
+// 滚动途中异步渲染触发的 handleResize 还会用 behavior:"auto" 覆盖动画。
+// 因此拦截库按钮默认滚动，改用 rAF 动画（每帧重算目标），结束后用
+// behavior:"auto" 收尾并恢复库的跟底模式。
+// 中断判定：滚轮/触摸/导航键是明确的用户滚动意图，立即中止；scrollTop
+// 偏移容差只用于捕获滚动条拖动（无 DOM 事件），且按方向区分——向上偏离
+// 底部才是用户回拉（中止），向下超出多半是滚动锚定补偿/库跟底跳转，
+// 与动画目标一致，直接收尾即可，不应误判为用户操作而齐齐中止。
+function isScrollNavigationKey(key: string) {
+  return (
+    key === "ArrowUp" ||
+    key === "ArrowDown" ||
+    key === "PageUp" ||
+    key === "PageDown" ||
+    key === "Home" ||
+    key === "End" ||
+    key === " "
+  );
+}
+
+function ChatScrollToBottomButton({
+  viewportRef,
+}: {
+  viewportRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const t = useTranslations("chat.messages");
+  const { scrollToEnd } = useMessageScroller();
+  const frameIDRef = React.useRef<number | null>(null);
+  const stopAnimationRef = React.useRef<(() => void) | null>(null);
+
+  React.useEffect(
+    () => () => {
+      if (frameIDRef.current !== null) {
+        window.cancelAnimationFrame(frameIDRef.current);
+      }
+      stopAnimationRef.current?.();
+    },
+    [],
+  );
+
+  const handleClick = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.currentTarget.blur();
+      const viewport = viewportRef.current;
+      if (!viewport) {
+        return;
+      }
+      if (frameIDRef.current !== null) {
+        window.cancelAnimationFrame(frameIDRef.current);
+        frameIDRef.current = null;
+      }
+      stopAnimationRef.current?.();
+      stopAnimationRef.current = null;
+      const maxScrollTop = () => Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      const distance = maxScrollTop() - viewport.scrollTop;
+      if (reducedMotion || distance <= 1) {
+        scrollToEnd({ behavior: "auto" });
+        return;
+      }
+      let userScrolled = false;
+      const onUserScrollInput = () => {
+        userScrolled = true;
+      };
+      const onKeyDown = (keyboardEvent: KeyboardEvent) => {
+        if (isScrollNavigationKey(keyboardEvent.key)) {
+          userScrolled = true;
+        }
+      };
+      viewport.addEventListener("wheel", onUserScrollInput, { passive: true });
+      viewport.addEventListener("touchstart", onUserScrollInput, { passive: true });
+      window.addEventListener("keydown", onKeyDown, { passive: true });
+      const cleanup = () => {
+        viewport.removeEventListener("wheel", onUserScrollInput);
+        viewport.removeEventListener("touchstart", onUserScrollInput);
+        window.removeEventListener("keydown", onKeyDown);
+        stopAnimationRef.current = null;
+      };
+      stopAnimationRef.current = cleanup;
+      const startTop = viewport.scrollTop;
+      const startTime = performance.now();
+      const duration = Math.min(
+        SCROLL_TO_BOTTOM_MAX_DURATION_MS,
+        SCROLL_TO_BOTTOM_MIN_DURATION_MS + distance * SCROLL_TO_BOTTOM_DURATION_PER_PX,
+      );
+      let lastSetTop = startTop;
+      const step = (now: number) => {
+        frameIDRef.current = null;
+        if (userScrolled) {
+          cleanup();
+          return;
+        }
+        const offset = viewport.scrollTop - lastSetTop;
+        if (Math.abs(offset) > SCROLL_INTERRUPT_TOLERANCE_PX) {
+          cleanup();
+          // 向下超出（朝底部）与动画目标一致：直接收尾，不当中断。
+          if (offset > 0) {
+            scrollToEnd({ behavior: "auto" });
+          }
+          return;
+        }
+        const progress = Math.min(1, (now - startTime) / duration);
+        const targetTop = maxScrollTop();
+        const nextTop = startTop + (targetTop - startTop) * easeInOutCubic(progress);
+        viewport.scrollTop = nextTop;
+        lastSetTop = nextTop;
+        if (progress < 1) {
+          frameIDRef.current = window.requestAnimationFrame(step);
+          return;
+        }
+        cleanup();
+        scrollToEnd({ behavior: "auto" });
+      };
+      frameIDRef.current = window.requestAnimationFrame(step);
+    },
+    [scrollToEnd, viewportRef],
+  );
+
+  return (
+    <MessageScrollerButton
+      aria-label={t("scrollToBottom")}
+      title={t("scrollToBottom")}
+      className="z-20 size-8 text-muted-foreground shadow-md hover:text-foreground"
+      onClick={handleClick}
+    >
+      <ArrowDownToLine className="size-4" strokeWidth={1.8} />
+    </MessageScrollerButton>
+  );
 }
 
 function CompactDivider({ summaryPreview }: { summaryPreview: string }) {
@@ -862,13 +1002,7 @@ export function ChatArea({
                 <ChatScreenshotBrandMark placement="bottom" />
               </MessageScrollerContent>
             </MessageScrollerViewport>
-            <MessageScrollerButton
-              aria-label={t("messages.scrollToBottom")}
-              title={t("messages.scrollToBottom")}
-              className="z-20 size-8 text-muted-foreground shadow-md hover:text-foreground"
-            >
-              <ArrowDownToLine className="size-4" strokeWidth={1.8} />
-            </MessageScrollerButton>
+            <ChatScrollToBottomButton viewportRef={messageViewportBoundaryRef} />
             <ChatMessagePositionRail messages={messages} boundaryRef={messageViewportBoundaryRef} />
             <ChatResponseOutlineRail
               boundaryRef={messageViewportBoundaryRef}
@@ -922,7 +1056,7 @@ function ChatUserMessageSkeleton({ widthClassName }: { widthClassName: string })
 function ChatAssistantMessageSkeleton() {
   return (
     <div className="flex w-full flex-col items-start gap-1.5">
-      <AssistantMessageSkeleton />
+      <AssistantMessageSkeleton showTypingHint={false} />
       <div className="flex max-w-full flex-col items-start gap-1 md:flex-row md:items-center">
         <div className="flex items-center gap-1">
           <Skeleton className="size-6 rounded-md bg-muted/35" />

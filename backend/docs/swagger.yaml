@@ -4184,13 +4184,13 @@ definitions:
         maxLength: 64
         type: string
       index:
-        maximum: 30
+        maximum: 120
         minimum: 0
         type: integer
       participants:
         items:
           type: string
-        maxItems: 5
+        maxItems: 20
         type: array
       role:
         enum:

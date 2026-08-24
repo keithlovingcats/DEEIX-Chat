@@ -1872,10 +1872,10 @@ export interface MessageDiscussionMetaRequest {
   discussionID: string;
   /**
    * @min 0
-   * @max 30
+   * @max 120
    */
   index: number;
-  /** @maxItems 5 */
+  /** @maxItems 20 */
   participants?: string[];
   role: "participant" | "final";
   /**

@@ -28,6 +28,21 @@ function MessageScrollerProvider({
   );
 }
 
+type MessageScrollerApi = ReturnType<typeof useMessageScroller>;
+
+// primitive 未导出原始 context，Provider 外无法安全探测；Root 的 children 一定
+// 在 scroller 上下文内，借这个不渲染 DOM 的桥接组件把滚动 API 存进本地 context，
+// 供深层组件（如助手消息多模型 tab）可选使用。分享页等无 scroller 场景拿到
+// null 后回退原生滚动。
+const OptionalMessageScrollerContext = React.createContext<MessageScrollerApi | null>(null);
+
+function MessageScrollerApiBridge({ children }: { children: React.ReactNode }) {
+  const api = useMessageScroller();
+  return (
+    <OptionalMessageScrollerContext.Provider value={api}>{children}</OptionalMessageScrollerContext.Provider>
+  );
+}
+
 function MessageScroller({
   className,
   children,
@@ -43,21 +58,23 @@ function MessageScroller({
       )}
       {...props}
     >
-      {children}
-      <div
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-background from-0% to-transparent to-100% opacity-0 transition-opacity duration-150",
-          scrollable.start && "opacity-100",
-        )}
-      />
-      <div
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute inset-x-0 bottom-0 z-10 h-12 bg-gradient-to-t from-background from-0% to-transparent to-100% opacity-0 transition-opacity duration-150",
-          scrollable.end && "opacity-100",
-        )}
-      />
+      <MessageScrollerApiBridge>
+        {children}
+        <div
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-background from-0% to-transparent to-100% opacity-0 transition-opacity duration-150",
+            scrollable.start && "opacity-100",
+          )}
+        />
+        <div
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 z-10 h-12 bg-gradient-to-t from-background from-0% to-transparent to-100% opacity-0 transition-opacity duration-150",
+            scrollable.end && "opacity-100",
+          )}
+        />
+      </MessageScrollerApiBridge>
     </MessageScrollerPrimitive.Root>
   );
 }
@@ -149,6 +166,10 @@ function MessageScrollerButton({
   );
 }
 
+function useOptionalMessageScroller(): MessageScrollerApi | null {
+  return React.useContext(OptionalMessageScrollerContext);
+}
+
 export {
   MessageScrollerProvider,
   MessageScroller,
@@ -157,6 +178,7 @@ export {
   MessageScrollerItem,
   MessageScrollerButton,
   useMessageScroller,
+  useOptionalMessageScroller,
   useMessageScrollerScrollable,
   useMessageScrollerVisibility,
 };

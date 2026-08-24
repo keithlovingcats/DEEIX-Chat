@@ -194,12 +194,14 @@
     "imageRunning": "正在生成图片",
     "modelBranches": "多模型回答",
     "backToModelTabs": "回到模型切换",
+    "goToMessageEnd": "跳到回复末尾",
     "contextCompressed": "上下文已自动压缩",
     "scrollToBottom": "回到底部",
     "responseOutline": "本轮回复",
     "jumpToResponseSection": "跳转到“{title}”",
     "knowledgeSources": "参考了 {count} 个来源",
     "processing": "正在处理…",
+    "thinking": "正在思考…",
     "expandUserMessage": "展开",
     "collapseUserMessage": "收起",
     "editCreatesBranch": "保存后会在当前 conversation 内创建新分支。",
@@ -322,6 +324,8 @@
     "editReplyFailed": "编辑回复失败",
     "retryReplyFailed": "无法重试这条回复",
     "retryReplyMissingUser": "没有找到对应的用户消息。",
+    "retryInProgress": "回复正在生成中",
+    "retryInProgressDescription": "这条消息的回复尚未生成完成，请等待完成后再重试。",
     "moderationChecking": "安全检查中…",
     "moderationBlocked": "内容已拦截",
     "moderationBlockedDescription": "安全检查后已撤回本轮回答。",
@@ -386,6 +390,7 @@
     "screenshot": "屏幕截图",
     "openTools": "菜单",
     "inputPlaceholder": "输入消息，或用 / 添加上下文，@ 添加资源",
+    "resizeInputHeight": "拖动调整输入框高度，双击恢复自动",
     "voiceStartingPlaceholder": "正在启动语音输入…",
     "voiceListeningPlaceholder": "正在接收语音…",
     "modelOptions": "模型配置",
@@ -584,7 +589,8 @@
     "parallelModelLimitDescription": "最多同时选择 {count} 个模型，且至少保留一个模型",
     "discussionToggle": "多模型讨论",
     "discussionRoundsCount": "{count, plural, other {# 轮}}",
-    "discussionCallsHint": "发送后将串行发起 {count} 次模型调用"
+    "discussionCallsHint": "发送后将串行发起 {count} 次模型调用",
+    "discussionCallCount": "约 {count} 次调用"
   },
   "processTrace": {
     "fileBadges": {

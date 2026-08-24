@@ -44,6 +44,7 @@ import {
   isConversationOptionsObject,
   sanitizeConversationOptions,
 } from "@/features/chat/model/conversation-options";
+import { findLatestDiscussionFinalMessage, sortDiscussionGroup } from "@/features/chat/model/chat-thread";
 import { toPendingAttachment } from "@/features/chat/model/message-submit";
 import type { ChatAreaMessage, ChatDiscussionGroup, MessageAttachment } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings/hooks/use-settings-chat-preferences";
@@ -1094,10 +1095,9 @@ export function AppChatArea() {
     const cache = discussionGroupCacheRef.current;
     const discussionGroups = new Map<string, ChatDiscussionGroup>();
     for (const [discussionID, siblings] of groupsByDiscussion) {
-      const sorted = siblings
-        .slice()
-        .sort((a, b) => (a.discussionMeta?.index ?? 0) - (b.discussionMeta?.index ?? 0));
-      const finalMessage = sorted.find((item) => item.discussionMeta?.role === "final");
+      const sorted = sortDiscussionGroup(siblings);
+      // 终稿可能有多条（失败重试/换模型接替），权威终稿取最新成功稿。
+      const finalMessage = findLatestDiscussionFinalMessage(sorted, { successfulOnly: true });
       const runtime = runtimesByDiscussion.get(discussionID);
       let phase: ChatDiscussionGroup["phase"];
       if (runtime) {
@@ -1106,19 +1106,18 @@ export function AppChatArea() {
         const hasActive = sorted.some(
           (item) => item.isPending || item.isStreaming || (item.status ?? "").trim().toLowerCase() === "pending",
         );
-        const finalFailed = (finalMessage?.status ?? "").trim().toLowerCase() === "error";
-        const finalDone =
-          finalMessage &&
-          (finalMessage.status ?? "success").trim().toLowerCase() !== "error" &&
-          !finalMessage.isPending &&
-          !finalMessage.isStreaming;
+        const latestFinal = findLatestDiscussionFinalMessage(sorted);
+        const latestFinalStatus = (latestFinal?.status ?? "").trim().toLowerCase();
+        const summarizing = Boolean(
+          latestFinal && (latestFinal.isPending || latestFinal.isStreaming || latestFinalStatus === "pending"),
+        );
         phase = hasActive
-          ? finalMessage && (finalMessage.isPending || finalMessage.isStreaming)
+          ? summarizing
             ? "summarizing"
             : "running"
-          : finalDone
+          : finalMessage
             ? "completed"
-            : finalFailed
+            : latestFinalStatus === "error"
               ? "error"
               : "recovered";
       }

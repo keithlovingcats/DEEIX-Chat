@@ -116,8 +116,8 @@ type MessageDiscussionMetaRequest struct {
 	DiscussionID string   `json:"discussionID" binding:"required,max=64"`
 	Round        int      `json:"round" binding:"min=1,max=6"`
 	Role         string   `json:"role" binding:"required,oneof=participant final"`
-	Index        int      `json:"index" binding:"min=0,max=30"`
-	Participants []string `json:"participants,omitempty" binding:"omitempty,max=5,dive,max=128"`
+	Index        int      `json:"index" binding:"min=0,max=120"`
+	Participants []string `json:"participants,omitempty" binding:"omitempty,max=20,dive,max=128"`
 	Rounds       int      `json:"rounds,omitempty" binding:"omitempty,min=1,max=5"`
 }
 

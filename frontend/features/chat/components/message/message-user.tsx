@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { FileContentResult } from "@/shared/api/file";
 import type { PreviewDialogFile } from "@/shared/components/file-preview/preview-dialog";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { stabilizeViewportOnExpand } from "@/shared/lib/collapse-expand-scroll";
 
 const USER_MESSAGE_COLLAPSED_LINES = 6;
 const USER_MESSAGE_LINE_HEIGHT_REM = 2;
@@ -133,9 +134,16 @@ export function ChatMessageUser({
     return () => resizeObserver.disconnect();
   }, [item.content, measurementKey]);
 
+  const [retryInFlight, setRetryInFlight] = React.useState(false);
   const onRetry = React.useCallback(() => {
-    void onRetryUserMessage(item);
-  }, [item, onRetryUserMessage]);
+    if (retryInFlight) {
+      return;
+    }
+    setRetryInFlight(true);
+    void Promise.resolve(onRetryUserMessage(item)).finally(() => {
+      setRetryInFlight(false);
+    });
+  }, [item, onRetryUserMessage, retryInFlight]);
 
   const onFork = React.useCallback(
     () => onForkMessage?.(item),
@@ -305,9 +313,12 @@ export function ChatMessageUser({
                 data-screenshot-exclude="true"
                 className="mt-1 inline-flex items-center gap-1 rounded-md p-0 text-[15px] font-medium leading-8 text-primary-foreground/80 transition-colors hover:text-primary-foreground"
                 aria-expanded={expanded}
-                onClick={() =>
-                  setExpandedContentKey((current) => (current === measurementKey ? "" : measurementKey))
-                }
+                onClick={(event) => {
+                  if (!expanded) {
+                    stabilizeViewportOnExpand(event.currentTarget);
+                  }
+                  setExpandedContentKey((current) => (current === measurementKey ? "" : measurementKey));
+                }}
                 onMouseEnter={() => setIsToggleHovered(true)}
                 onMouseLeave={() => setIsToggleHovered(false)}
               >
@@ -326,6 +337,7 @@ export function ChatMessageUser({
       <UserMessageMeta
         item={item}
         showRetry={!item.isPending && item.status?.trim().toLowerCase() !== "pending"}
+        retrying={retryInFlight}
         onCycleBranch={onCycleMessageBranch}
         onRetry={onRetry}
         onEdit={() => setIsEditing(true)}

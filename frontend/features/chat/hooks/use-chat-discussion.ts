@@ -9,13 +9,13 @@ import type {
 } from "@/shared/api/conversation.types";
 import type { SendMessageResult } from "@/shared/api/conversation.types";
 
-/** 多模型讨论约束（与后端 dto 校验对齐）。 */
-export const MAX_DISCUSSION_MODELS = 5;
+/** 多模型讨论约束（与后端 dto 校验、模型多选上限 MAX_PARALLEL_MODELS 对齐）。 */
+export const MAX_DISCUSSION_MODELS = 20;
 export const MAX_DISCUSSION_ROUNDS = 5;
 export const DEFAULT_DISCUSSION_ROUNDS = 2;
-
-/** transcript 中单个发言的字符截断，防止多轮累积撑爆上下文。 */
-const DISCUSSION_TRANSCRIPT_TURN_CHAR_LIMIT = 8000;
+/** 终稿容错的总尝试上限：候选最多 20 个、每人 2 次，最坏 ~40 次；
+ * 上游整体故障时提前止损，避免长时间收不了尾。 */
+const MAX_DISCUSSION_FINAL_ATTEMPTS = 5;
 
 export type DiscussionTurnStatus = "pending" | "running" | "completed" | "error" | "stopped";
 export type DiscussionPhase = "running" | "summarizing" | "completed" | "stopped" | "error";
@@ -68,14 +68,6 @@ function createDiscussionID(): string {
   return `disc_${randomID}`.slice(0, 64);
 }
 
-function truncateTurnText(text: string): string {
-  const normalized = text.trim();
-  if (normalized.length <= DISCUSSION_TRANSCRIPT_TURN_CHAR_LIMIT) {
-    return normalized;
-  }
-  return `${normalized.slice(0, DISCUSSION_TRANSCRIPT_TURN_CHAR_LIMIT)}…`;
-}
-
 function isTurnCompletedStatus(status: DiscussionTurnStatus): boolean {
   return status === "completed";
 }
@@ -88,18 +80,33 @@ export function buildDiscussionTranscript(turns: DiscussionTurn[]): string {
       continue;
     }
     lines.push(`Round ${turn.round}`);
-    lines.push(`- ${turn.model}: ${truncateTurnText(turn.text)}`);
+    lines.push(`- ${turn.model}: ${turn.text.trim()}`);
     lines.push("");
   }
   return lines.join("\n").trim();
 }
 
+/**
+ * transcript 与失败摘要只收录 participant 发言：终稿自身的多次尝试
+ * （失败重试/换模型接替）是运营故障而非讨论观点，不进后续 prompt。
+ */
 export function buildDiscussionFailureSummary(turns: DiscussionTurn[]): string {
   return turns
-    .filter((turn) => turn.status === "error" || turn.status === "stopped")
+    .filter((turn) => turn.role === "participant" && (turn.status === "error" || turn.status === "stopped"))
     .map((turn) => `- Round ${turn.round} - ${turn.model}: failed`)
     .join("\n")
     .trim();
+}
+
+/** 最新一条成功终稿；失败重试/换模型接替会留下多条同 index 的 final，不能取数组末尾。 */
+export function findLatestCompletedFinalTurn(turns: DiscussionTurn[]): DiscussionTurn | undefined {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn.role === "final" && turn.status === "completed") {
+      return turn;
+    }
+  }
+  return undefined;
 }
 
 export function buildDiscussionParticipantPrompt(params: {
@@ -333,6 +340,66 @@ export function useChatDiscussion({
         }
       };
 
+      // 终稿容错：总结模型失败先同模型重试一次，仍失败则按参与顺序换
+      // 「本次讨论中有成功发言」的参与者接替（每个候选同样一次重试机会），
+      // 全部候选耗尽或达到总尝试上限（MAX_DISCUSSION_FINAL_ATTEMPTS）才判
+      // error——终稿是整场串行讨论的价值收口，不因单个模型不可用而作废。
+      // 失败尝试作为独立 turn 保留在 turns 中（讨论面板可见红色卡片），
+      // 替补发言复用同一 index：同一发言槽位的再次尝试，面板排序与后端
+      // 校验均不受影响。
+      const runFinalWithFallback = async (finalTurn: DiscussionTurn): Promise<void> => {
+        const transcript = buildDiscussionTranscript(turns);
+        const successfulModels = new Set(
+          turns
+            .filter((item) => item.role === "participant" && item.status === "completed")
+            .map((item) => item.model),
+        );
+        const candidates = [
+          finalTurn.model,
+          ...participants.filter((model) => model !== finalTurn.model && successfulModels.has(model)),
+        ];
+
+        let attempts = 0;
+        let current = finalTurn;
+        for (const candidate of candidates) {
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            if (attempts >= MAX_DISCUSSION_FINAL_ATTEMPTS) {
+              // 未开跑的占位不能留 pending，否则收尾会把整场讨论误判为 error/stopped 含糊态。
+              if (current.status === "pending") {
+                current.status = "error";
+                current.errorMessage = "final attempt limit reached";
+              }
+              return;
+            }
+            attempts += 1;
+            if (attempt > 0 || candidate !== finalTurn.model) {
+              current = {
+                model: candidate,
+                round: finalTurn.round,
+                role: "final",
+                index: finalTurn.index,
+                status: "pending",
+                text: "",
+              };
+              turns.push(current);
+            }
+            runtime.phase = "summarizing";
+            bump();
+            const ok = await runTurn(
+              current,
+              buildDiscussionFinalPrompt(content, transcript, buildDiscussionFailureSummary(turns)),
+            );
+            if (ok) {
+              return;
+            }
+            // 用户中止：不再消耗重试/替补候选，交由收尾逻辑判 stopped。
+            if (current.status === "stopped" || runtime.abortRequested) {
+              return;
+            }
+          }
+        }
+      };
+
       // 首条（第 1 轮第 1 个参与者）走 default 分支建立 user 消息与锚点。
       // default 分支的 content 会落库为用户消息并渲染为用户气泡，必须用原始
       // 输入而非讨论 wrapper —— 第 1 轮「独立回答」语义由第 2 轮起的 prompt 补足。
@@ -356,14 +423,7 @@ export function useChatDiscussion({
         if (turn.role === "final") {
           runtime.phase = "summarizing";
           bump();
-          await runTurn(
-            turn,
-            buildDiscussionFinalPrompt(
-              content,
-              buildDiscussionTranscript(turns),
-              buildDiscussionFailureSummary(turns),
-            ),
-          );
+          await runFinalWithFallback(turn);
         } else {
           await runTurn(
             turn,
@@ -377,10 +437,11 @@ export function useChatDiscussion({
         }
       }
 
-      const finalTurn = turns[turns.length - 1];
-      if (finalTurn.status === "completed") {
+      // 终稿可能有多条同 index 尝试：成功以最新 completed 为准，不能看数组末尾
+      // （末尾可能是失败/未开跑的替补）。用户中止优先于 error。
+      if (findLatestCompletedFinalTurn(turns)) {
         runtime.phase = "completed";
-      } else if (finalTurn.status === "stopped" || runtime.abortRequested) {
+      } else if (runtime.abortRequested || turns.some((turn) => turn.role === "final" && turn.status === "stopped")) {
         runtime.phase = "stopped";
       } else {
         runtime.phase = "error";

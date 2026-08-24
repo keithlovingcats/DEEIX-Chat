@@ -295,6 +295,91 @@ export function toBranchKey(publicID?: string | null): string {
   return publicID?.trim() || ROOT_BRANCH_KEY;
 }
 
+function isGeneratingAssistant(item: ChatAreaMessage): boolean {
+  return (
+    item.role === "assistant" &&
+    (item.isPending || item.isStreaming || item.status?.trim().toLowerCase() === "pending")
+  );
+}
+
+function assistantStatus(item: ChatAreaMessage): string {
+  return (item.status ?? "success").trim().toLowerCase();
+}
+
+function isSuccessfulFinalMessage(item: ChatAreaMessage): boolean {
+  if (item.discussionMeta?.role !== "final") {
+    return false;
+  }
+  if (item.isPending || item.isStreaming) {
+    return false;
+  }
+  const status = assistantStatus(item);
+  return status !== "error" && status !== "pending" && status !== "interrupted";
+}
+
+/** 讨论组排序：index 主序；同 index（终稿失败重试）按落库 id，乐观消息（无 id）排最后。 */
+function compareDiscussionMessages(left: ChatAreaMessage, right: ChatAreaMessage): number {
+  const indexDelta = (left.discussionMeta?.index ?? 0) - (right.discussionMeta?.index ?? 0);
+  if (indexDelta !== 0) {
+    return indexDelta;
+  }
+  const leftID = left.serverMessageID;
+  const rightID = right.serverMessageID;
+  if (leftID != null && rightID != null && leftID !== rightID) {
+    return leftID - rightID;
+  }
+  if (leftID == null && rightID != null) {
+    return 1;
+  }
+  if (leftID != null && rightID == null) {
+    return -1;
+  }
+  return (left.createdAt ?? "").localeCompare(right.createdAt ?? "");
+}
+
+export function sortDiscussionGroup(messages: ChatAreaMessage[]): ChatAreaMessage[] {
+  return messages.slice().sort(compareDiscussionMessages);
+}
+
+/** 讨论组中的终稿。默认取最新一条尝试；successfulOnly 时只取最新成功稿。 */
+export function findLatestDiscussionFinalMessage(
+  messages: ChatAreaMessage[],
+  options?: { successfulOnly?: boolean },
+): ChatAreaMessage | undefined {
+  const finals = sortDiscussionGroup(messages).filter((item) => item.discussionMeta?.role === "final");
+  if (options?.successfulOnly) {
+    return finals.filter(isSuccessfulFinalMessage).at(-1);
+  }
+  return finals.at(-1);
+}
+
+/** 该 user 消息下是否仍有生成中的回复（user 气泡重试防并行，不含编辑产生的兄弟 user）。 */
+export function userPromptHasActiveRun(
+  messages: ChatAreaMessage[],
+  userMessage: Pick<ChatAreaMessage, "publicID">,
+): boolean {
+  return branchUserHasActiveRun(messages, userMessage.publicID);
+}
+
+/** 指定 user 下是否仍有生成中的回复；传入模型名时只锁同模型，允许并行 tab 各自重试。 */
+export function branchUserHasActiveRun(
+  messages: ChatAreaMessage[],
+  userPublicID: string,
+  platformModelName?: string,
+): boolean {
+  const userKey = toBranchKey(userPublicID);
+  const modelName = platformModelName?.trim() || "";
+  return messages.some((item) => {
+    if (!isGeneratingAssistant(item) || toBranchKey(item.parentPublicID) !== userKey) {
+      return false;
+    }
+    if (!modelName) {
+      return true;
+    }
+    return (item.platformModelName?.trim() || "") === modelName;
+  });
+}
+
 function toBranchSibling(
   item: ChatAreaMessage,
   children: Map<string, ChatAreaMessage[]>,
@@ -414,6 +499,16 @@ export function buildVisibleMessages(
     if (currentIndex < 0) {
       return item;
     }
+    const siblingSummaries =
+      item.role === "assistant"
+        ? siblings.map((sibling) => toBranchSibling(sibling, children))
+        : undefined;
+    // 多模型 tab 按模型聚合：同模型的多次重试归并到同一 tab，组内版本可切换。
+    const modelName = item.platformModelName?.trim() || "";
+    const modelSiblings =
+      item.role === "assistant" && modelName
+        ? siblingSummaries?.filter((sibling) => (sibling.platformModelName?.trim() || "") === modelName)
+        : undefined;
     return {
       ...item,
       branchNavigator: {
@@ -422,10 +517,8 @@ export function buildVisibleMessages(
         total: siblings.length,
         canPrevious: currentIndex > 0,
         canNext: currentIndex < siblings.length - 1,
-        siblings:
-          item.role === "assistant"
-            ? siblings.map((sibling) => toBranchSibling(sibling, children))
-            : undefined,
+        siblings: siblingSummaries,
+        modelSiblings,
       },
     };
   });

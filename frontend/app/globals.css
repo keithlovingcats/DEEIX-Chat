@@ -1448,3 +1448,10 @@ html[data-branding-pending] body {
     color: #fff;
   }
 }
+
+/* 聊天流式等待骨架屏：扫光动效，一眼可见"正在生成回复" */
+@keyframes chat-skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}

@@ -194,12 +194,14 @@
     "imageRunning": "Generating image",
     "modelBranches": "Model responses",
     "backToModelTabs": "Back to model tabs",
+    "goToMessageEnd": "Jump to end of response",
     "contextCompressed": "Context was automatically compressed",
     "scrollToBottom": "Scroll to bottom",
     "responseOutline": "This response",
     "jumpToResponseSection": "Jump to “{title}”",
     "knowledgeSources": "Used {count} sources",
     "processing": "Processing...",
+    "thinking": "Thinking...",
     "expandUserMessage": "Expand",
     "collapseUserMessage": "Collapse",
     "editCreatesBranch": "Saving creates a new branch in this conversation.",
@@ -322,6 +324,8 @@
     "editReplyFailed": "Failed to edit reply",
     "retryReplyFailed": "Unable to retry this reply",
     "retryReplyMissingUser": "The corresponding user message was not found.",
+    "retryInProgress": "A response is still generating",
+    "retryInProgressDescription": "The response for this message has not finished yet. Please wait for it to complete before retrying.",
     "moderationChecking": "Safety check in progress…",
     "moderationBlocked": "Content blocked",
     "moderationBlockedDescription": "This response was withdrawn after a safety check.",
@@ -386,6 +390,7 @@
     "screenshot": "Screenshot",
     "openTools": "Menu",
     "inputPlaceholder": "Message, or use / for context, @ for resources",
+    "resizeInputHeight": "Drag to resize the input, double-click to reset",
     "voiceStartingPlaceholder": "Starting voice input…",
     "voiceListeningPlaceholder": "Receiving voice input…",
     "modelOptions": "Parameters",
@@ -584,7 +589,8 @@
     "parallelModelLimitDescription": "Up to {count} models can be selected, and at least one model must remain",
     "discussionToggle": "Multi-model discussion",
     "discussionRoundsCount": "{count, plural, one {# round} other {# rounds}}",
-    "discussionCallsHint": "Will issue {count} sequential model calls"
+    "discussionCallsHint": "Will issue {count} sequential model calls",
+    "discussionCallCount": "~{count} calls"
   },
   "processTrace": {
     "fileBadges": {

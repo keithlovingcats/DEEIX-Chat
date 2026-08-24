@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { MAX_DISCUSSION_ROUNDS, MAX_DISCUSSION_MODELS } from "@/features/chat/hooks/use-chat-discussion";
+import { MAX_DISCUSSION_ROUNDS, MAX_DISCUSSION_MODELS, DEFAULT_DISCUSSION_ROUNDS } from "@/features/chat/hooks/use-chat-discussion";
 import { MAX_PARALLEL_MODELS } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { ModelIcon } from "@/shared/components/model-icon";
@@ -85,6 +85,10 @@ export function ConversationParallelModelsBar({
     return null;
   }
 
+  // 讨论预估调用次数：参与者 × 轮次 + 1 次终稿（不含终稿失败重试）。
+  const discussionCallCount =
+    Math.min(selectedNames.length, MAX_DISCUSSION_MODELS) * (discussionRounds ?? DEFAULT_DISCUSSION_ROUNDS) + 1;
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen && onModelCatalogRefresh) {
       void Promise.resolve(onModelCatalogRefresh()).catch(() => undefined);
@@ -150,9 +154,7 @@ export function ConversationParallelModelsBar({
                 ? "bg-primary/10 text-primary"
                 : "bg-muted/40 text-muted-foreground",
             )}
-            title={t("discussionCallsHint", {
-              count: Math.min(selectedNames.length, MAX_DISCUSSION_MODELS) * (discussionRounds ?? 2) + 1,
-            })}
+            title={t("discussionCallsHint", { count: discussionCallCount })}
           >
             <MessageCircle className="size-3" strokeWidth={2} />
             <span className="truncate">{t("discussionToggle")}</span>
@@ -195,6 +197,16 @@ export function ConversationParallelModelsBar({
                 ))}
               </PopoverContent>
             </Popover>
+          ) : null}
+          {/* 调用规模常显提示：20 模型 × 5 轮达 100+ 次串行调用，不能只
+              藏在开关的 hover title 里，调轮数时要一目了然。 */}
+          {discussionEnabled ? (
+            <span
+              className="inline-flex h-6 shrink-0 items-center rounded-full bg-muted/40 px-2 text-[11px] font-medium tabular-nums text-muted-foreground"
+              title={t("discussionCallsHint", { count: discussionCallCount })}
+            >
+              {t("discussionCallCount", { count: discussionCallCount })}
+            </span>
           ) : null}
         </div>
       ) : null}

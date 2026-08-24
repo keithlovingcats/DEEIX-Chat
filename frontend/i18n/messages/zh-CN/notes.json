@@ -23,6 +23,8 @@
   "titleRequired": "请填写标题",
   "insertChecklist": "插入清单",
   "checklistProgress": "已完成 {done}/{total}",
+  "wrapLines": "自动换行",
+  "unwrapLines": "单行滚动",
   "previewMode": "预览",
   "editMode": "编辑",
   "previewEmpty": "暂无内容",

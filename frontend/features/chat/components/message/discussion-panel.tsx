@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, Loader2, MessageCircle } from "lucide-react";
+import { Check, ChevronDown, Copy, Loader2, MessageCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { ChevronDown as AnimatedChevronDown } from "@/components/animate-ui/icons/chevron-down";
@@ -12,8 +12,11 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Marker, MarkerContent } from "@/components/ui/marker";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { findLatestDiscussionFinalMessage, sortDiscussionGroup } from "@/features/chat/model/chat-thread";
 import type { ChatAreaMessage, ChatDiscussionGroup } from "@/features/chat/types/messages";
 import { cn } from "@/lib/utils";
+import { useCopyAction } from "@/shared/components/copy-action";
 
 const DISCUSSION_PANEL_ACCORDION = "discussion-panel";
 
@@ -118,9 +121,18 @@ function TurnCard({
   t: ReturnType<typeof useTranslations>;
   showRound?: boolean;
 }) {
+  const tMessages = useTranslations("chat.messages");
   // 发言卡片默认收起（两行预览），点头部展开全文 —— 讨论动辄数十条发言，
   // 全展开会把全部轮次视图拉到不可用。
   const [expanded, setExpanded] = React.useState(false);
+  // 与普通消息操作栏一致：每条发言可单独复制，桌面 hover 显示、移动端常显。
+  const { copy, isCopied } = useCopyAction({
+    messages: {
+      copied: tMessages("copied"),
+      failed: tMessages("copyFailed"),
+      failedDescription: tMessages("copyFailedDescription"),
+    },
+  });
   const stats = [
     showRound ? t("turnRound", { round: turn.round }) : null,
     formatTokens(turn.message.outputTokens),
@@ -128,10 +140,12 @@ function TurnCard({
   ].filter(Boolean) as string[];
   const content = turn.message.content?.trim() ?? "";
   const collapsible = content.length > 0;
+  const copyKey = turn.message.publicID || turn.message.key;
+  const copied = isCopied(copyKey);
   return (
     <div
       className={cn(
-        "rounded-lg border-[0.5px] px-2.5 py-2 text-[11px]",
+        "group/turn rounded-lg border-[0.5px] px-2.5 py-2 text-[11px]",
         turn.failed
           ? "border-red-500/25 bg-red-500/5"
           : turn.running
@@ -139,33 +153,59 @@ function TurnCard({
             : "border-border bg-muted/25",
       )}
     >
-      <button
-        type="button"
-        className="flex min-w-0 w-full items-center gap-1.5 text-left"
-        aria-expanded={expanded}
-        disabled={!collapsible}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <span
-          className={cn(
-            "size-1.5 shrink-0 rounded-full",
-            turn.failed ? "bg-red-500" : turn.running ? "bg-primary" : turn.stopped ? "bg-muted-foreground/50" : "bg-emerald-500",
-          )}
-        />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
-          {turn.role === "final" ? t("finalTurnLabel", { model: turn.model }) : turn.model}
-        </span>
-        <TurnStatusBadge turn={turn} t={t} />
-        {collapsible ? (
-          <ChevronDown
+      <div className="flex w-full items-center gap-1">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          aria-expanded={expanded}
+          disabled={!collapsible}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <span
             className={cn(
-              "size-3 shrink-0 text-muted-foreground transition-transform duration-200",
-              expanded && "rotate-180",
+              "size-1.5 shrink-0 rounded-full",
+              turn.failed ? "bg-red-500" : turn.running ? "bg-primary" : turn.stopped ? "bg-muted-foreground/50" : "bg-emerald-500",
             )}
-            strokeWidth={1.8}
           />
+          <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
+            {turn.role === "final" ? t("finalTurnLabel", { model: turn.model }) : turn.model}
+          </span>
+          <TurnStatusBadge turn={turn} t={t} />
+          {collapsible ? (
+            <ChevronDown
+              className={cn(
+                "size-3 shrink-0 text-muted-foreground transition-transform duration-200",
+                expanded && "rotate-180",
+              )}
+              strokeWidth={1.8}
+            />
+          ) : null}
+        </button>
+        {content ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-screenshot-exclude="true"
+                className={cn(
+                  "inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:text-foreground",
+                  "md:pointer-events-none md:opacity-0 md:group-hover/turn:pointer-events-auto md:group-hover/turn:opacity-100 md:focus-visible:pointer-events-auto md:focus-visible:opacity-100",
+                  copied && "md:pointer-events-auto md:opacity-100",
+                )}
+                aria-label={copied ? t("copied") : t("copy")}
+                onClick={() => void copy(content, { key: copyKey })}
+              >
+                {copied ? (
+                  <Check className="size-3 text-emerald-500" strokeWidth={1.8} />
+                ) : (
+                  <Copy className="size-3" strokeWidth={1.8} />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{copied ? t("copied") : t("copy")}</TooltipContent>
+          </Tooltip>
         ) : null}
-      </button>
+      </div>
       {stats.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {stats.map((stat) => (
@@ -232,7 +272,7 @@ export function DiscussionPanel({
   }, [active]);
 
   const turns = React.useMemo(
-    () => group.map(toTurnView).sort((a, b) => (a.message.discussionMeta?.index ?? 0) - (b.message.discussionMeta?.index ?? 0)),
+    () => sortDiscussionGroup(group).map(toTurnView),
     [group],
   );
   // 参与者优先取 meta.participants（权威、不因中途停止/未落库的发言缺失）；
@@ -253,7 +293,10 @@ export function DiscussionPanel({
     }
     return names;
   }, [group, turns]);
-  const finalTurn = turns.find((turn) => turn.role === "final");
+  // 终稿可能有多条（失败重试/换模型接替）；头部展示实际产出终稿的模型。
+  const successfulFinal = findLatestDiscussionFinalMessage(group, { successfulOnly: true });
+  const latestFinal = findLatestDiscussionFinalMessage(group);
+  const finalTurn = turns.find((turn) => turn.message.publicID === (successfulFinal ?? latestFinal)?.publicID);
   const runningTurn = turns.find((turn) => turn.running);
 
   const [selectedModel, setSelectedModel] = React.useState<string>("");

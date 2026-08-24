@@ -12,6 +12,7 @@ import {
   DatabaseZap,
   FilePenLine,
   Forward,
+  LoaderCircle,
   TicketSlash,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -33,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { resolvePersistedPublicID } from "@/features/chat/model/message-submit";
-import type { ChatBillingCost, ChatMessageBranchNavigator } from "@/features/chat/types/messages";
+import type { ChatBillingCost, ChatMessageBranchNavigator, ChatMessageBranchSibling } from "@/features/chat/types/messages";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cn } from "@/lib/utils";
 import { upsertUserMemory } from "@/shared/api/memory";
@@ -141,13 +142,60 @@ function MessageTimestamp({ timestamp }: { timestamp: MessageTimestampLabel | nu
 function BranchSwitcher({
   item,
   onCycle,
+  navigationSiblings,
+  onSelectBranch,
 }: {
   item: ChatMetaMessage;
   onCycle: (parentPublicID: string | null, direction: "previous" | "next") => void;
+  /** 限定导航范围的消息列表（多模型 tab 场景 = 同模型版本）；提供且含当前消息时按列表内移动。 */
+  navigationSiblings?: { publicID: string }[];
+  onSelectBranch?: (parentPublicID: string | null, childPublicID: string) => void;
 }) {
   const t = useTranslations("chat.messages");
-  if (!item.branchNavigator) {
+  const navigator = item.branchNavigator;
+  if (!navigator) {
     return null;
+  }
+
+  // 限定范围导航：多模型 tab 下底部切换器只切换同模型版本，不跨模型。
+  const scoped = navigationSiblings?.length ? navigationSiblings : null;
+  const scopedIndex = scoped ? scoped.findIndex((sibling) => sibling.publicID === item.publicID) : -1;
+  if (scoped && scopedIndex < 0) {
+    return null;
+  }
+  if (scoped && onSelectBranch) {
+    const total = scoped.length;
+    const select = (direction: "previous" | "next") => {
+      const target = scoped[direction === "previous" ? scopedIndex - 1 : scopedIndex + 1];
+      if (target) {
+        onSelectBranch(navigator.parentPublicID ?? null, target.publicID);
+      }
+    };
+    return (
+      <div className="inline-flex items-center" data-screenshot-exclude="true">
+        <button
+          type="button"
+          className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-35"
+          aria-label={t("previousBranch")}
+          disabled={scopedIndex <= 0}
+          onClick={() => select("previous")}
+        >
+          <ChevronLeft size={14} strokeWidth={1.8} animateOnHover="default" />
+        </button>
+        <span className="min-w-7 text-center tabular-nums text-xs font-medium tracking-[0.01em] text-muted-foreground">
+          {scopedIndex + 1}/{total}
+        </span>
+        <button
+          type="button"
+          className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-35"
+          aria-label={t("nextBranch")}
+          disabled={scopedIndex >= total - 1}
+          onClick={() => select("next")}
+        >
+          <ChevronRight size={14} strokeWidth={1.8} animateOnHover="default" />
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -177,12 +225,44 @@ function BranchSwitcher({
   );
 }
 
-function resolveSiblingTabLabel(
-  sibling: NonNullable<ChatMetaMessage["branchNavigator"]>["siblings"] extends (infer S)[] | undefined ? S : never,
-  index: number,
-): string {
-  const modelName = sibling.platformModelName?.trim() || "";
-  return modelName || `#${index + 1}`;
+type ModelBranchTabGroup = {
+  /** 分组键：模型名；无模型名的消息各自独立成组（用序号保证唯一）。 */
+  key: string;
+  /** tab 显示名（模型名或 #序号）。 */
+  label: string;
+  /** 组内消息（创建顺序），末尾为最新版本。 */
+  siblings: ChatMessageBranchSibling[];
+  /** 点击 tab 时应选中的消息（组内当前展示的，或最新一条）。 */
+  activePublicID: string;
+  /** 组内是否含当前展示消息。 */
+  active: boolean;
+};
+
+function buildModelBranchTabGroups(
+  siblings: ChatMessageBranchSibling[],
+  currentPublicID: string,
+): ModelBranchTabGroup[] {
+  const groups: ModelBranchTabGroup[] = [];
+  const groupsByKey = new Map<string, ModelBranchTabGroup>();
+  siblings.forEach((sibling, index) => {
+    const modelName = sibling.platformModelName?.trim() || "";
+    const key = modelName || `#${index + 1}`;
+    let group = groupsByKey.get(key);
+    if (!group) {
+      group = { key, label: key, siblings: [], activePublicID: sibling.publicID, active: false };
+      groupsByKey.set(key, group);
+      groups.push(group);
+    }
+    group.siblings.push(sibling);
+  });
+  for (const group of groups) {
+    group.active = group.siblings.some((sibling) => sibling.publicID === currentPublicID);
+    // 点击 tab 切到该模型当前展示的消息；无展示态（首次点入）时取最新版本。
+    group.activePublicID =
+      group.siblings.find((sibling) => sibling.publicID === currentPublicID)?.publicID ??
+      group.siblings[group.siblings.length - 1].publicID;
+  }
+  return groups;
 }
 
 export function ModelBranchTabs({
@@ -197,12 +277,10 @@ export function ModelBranchTabs({
   if (!siblings || siblings.length <= 1) {
     return null;
   }
-  const labelCounts = new Map<string, number>();
-  for (const sibling of siblings) {
-    const label = sibling.platformModelName?.trim() || "";
-    if (label) {
-      labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
-    }
+  // tab 按模型聚合：同模型的多次重试归并为一个 tab，重试在当前 tab 内重新生成。
+  const groups = buildModelBranchTabGroups(siblings, item.publicID);
+  if (groups.length <= 1) {
+    return null;
   }
 
   return (
@@ -212,49 +290,50 @@ export function ModelBranchTabs({
       role="tablist"
       aria-label={t("modelBranches")}
     >
-      {siblings.map((sibling, index) => {
-        const label = resolveSiblingTabLabel(sibling, index);
-        const duplicated = (labelCounts.get(sibling.platformModelName?.trim() || "") ?? 0) > 1;
-        const active = sibling.publicID === item.publicID;
-        const generating = Boolean(sibling.isPending || sibling.isStreaming || sibling.status?.trim().toLowerCase() === "pending");
-        const failed = sibling.status?.trim().toLowerCase() === "error";
+      {groups.map((group) => {
+        const activeSibling =
+          group.siblings.find((sibling) => sibling.publicID === group.activePublicID) ??
+          group.siblings[group.siblings.length - 1];
+        const generating = group.siblings.some(
+          (sibling) => sibling.isPending || sibling.isStreaming || sibling.status?.trim().toLowerCase() === "pending",
+        );
+        const failed = activeSibling.status?.trim().toLowerCase() === "error";
+        const hasBranches = group.siblings.some((sibling) => sibling.hasBranches);
         return (
           <button
-            key={sibling.publicID}
+            key={group.key}
             type="button"
             role="tab"
-            aria-selected={active}
-            title={sibling.platformModelName?.trim() || label}
+            aria-selected={group.active}
+            title={group.label}
             className={cn(
               "relative inline-flex h-8 max-w-48 items-center gap-1.5 rounded-lg px-2.5 text-[12px] leading-none transition-all",
-              active
+              group.active
                 ? "border border-foreground/20 bg-background font-semibold text-foreground shadow-sm ring-2 ring-foreground/20"
                 : "border border-transparent bg-transparent font-medium text-muted-foreground hover:bg-background/90 hover:text-foreground",
-              !active && generating && "animate-pulse",
-              !active && failed && "text-destructive/80 hover:text-destructive",
+              !group.active && generating && "animate-pulse",
+              !group.active && failed && "text-destructive/80 hover:text-destructive",
             )}
             onClick={() => {
-              if (!active) {
-                onSelectBranch(item.branchNavigator?.parentPublicID ?? null, sibling.publicID);
+              if (!group.active) {
+                onSelectBranch(item.branchNavigator?.parentPublicID ?? null, group.activePublicID);
               }
             }}
           >
             <ModelIcon
               iconUrl={resolveModelIconURL(
-                resolveModelIdentity({ code: sibling.platformModelName ?? "" }).modelIcon,
+                resolveModelIdentity({ code: activeSibling.platformModelName ?? "" }).modelIcon,
               )}
-              label={label}
+              label={group.label}
             />
-            <span className="truncate">
-              {duplicated ? `${label} ${index + 1}` : label}
-            </span>
-            {active ? (
+            <span className="truncate">{group.label}</span>
+            {group.active ? (
               <span
                 className="absolute inset-x-2 -bottom-[5px] h-0.5 rounded-full bg-foreground"
                 aria-hidden="true"
               />
             ) : null}
-            {sibling.hasBranches ? (
+            {hasBranches ? (
               <span
                 className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-sky-500 ring-2 ring-background"
                 aria-hidden="true"
@@ -377,6 +456,7 @@ function ForkMessageButton({
 export function UserMessageMeta({
   item,
   showRetry,
+  retrying = false,
   onCycleBranch,
   onRetry,
   onEdit,
@@ -389,6 +469,8 @@ export function UserMessageMeta({
 }: {
   item: ChatMetaMessage;
   showRetry: boolean;
+  /** 该消息的重试 run 进行中：按钮禁用并转圈，防止连点堆积并行任务。 */
+  retrying?: boolean;
   onCycleBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onRetry: () => void;
   onEdit: () => void;
@@ -414,10 +496,14 @@ export function UserMessageMeta({
           {showRetry && hasPersistedMessage ? (
             <MetaIconButton
               label={t("retryMessage")}
-              disabled={messagePending}
+              disabled={messagePending || retrying}
               onClick={onRetry}
             >
-              <RotateCcw size={14} strokeWidth={1.8} animateOnHover="default" />
+              {retrying ? (
+                <LoaderCircle className="size-3.5 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <RotateCcw size={14} strokeWidth={1.8} animateOnHover="default" />
+              )}
             </MetaIconButton>
           ) : null}
           <MetaIconButton
@@ -1081,7 +1167,9 @@ export function AssistantMessageMeta({
   item,
   busy,
   reaction,
+  retrying = false,
   onCycleBranch,
+  onSelectBranch,
   onRetry,
   onContinue,
   onEdit,
@@ -1102,7 +1190,10 @@ export function AssistantMessageMeta({
   item: ChatMetaMessage;
   busy: boolean;
   reaction: AssistantReaction;
+  /** 该消息的重试 run 进行中：按钮禁用并转圈，防止连点堆积并行任务。 */
+  retrying?: boolean;
   onCycleBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
+  onSelectBranch?: (parentPublicID: string | null, childPublicID: string) => void;
   onRetry: () => void;
   onContinue?: () => void;
   onEdit?: () => void;
@@ -1133,9 +1224,12 @@ export function AssistantMessageMeta({
   const canEdit = Boolean(canRetry && !busy && onEdit);
   const canContinue = Boolean(canRetry && !busy && item.status === "interrupted");
   const canFork = Boolean(canRetry && onFork);
-  // 多模型并行时顶部已有模型 tab 条，底部箭头切换器冗余，隐藏。
+  // 多模型并行时顶部已有按模型聚合的 tab 条；底部切换器仅在无 tab，
+  // 或同模型组内存在多个重试版本（tab 已归并）时展示，用于版本间导航。
+  const hasModelTabs = (item.branchNavigator?.siblings?.length ?? 0) > 1;
+  const modelVersionCount = item.branchNavigator?.modelSiblings?.length ?? 1;
   const canShowBranchNavigator = Boolean(
-    showBranchNavigator && item.branchNavigator && (item.branchNavigator.siblings?.length ?? 0) <= 1,
+    showBranchNavigator && item.branchNavigator && (!hasModelTabs || modelVersionCount > 1),
   );
   const hasTokenUsage = Boolean(
     (item.inputTokens ?? 0) > 0 ||
@@ -1230,9 +1324,14 @@ export function AssistantMessageMeta({
                 {canRetry ? (
                   <MetaIconButton
                     label={t("retryReply")}
+                    disabled={retrying}
                     onClick={onRetry}
                   >
-                    <RotateCcw size={14} strokeWidth={1.8} animateOnHover="default" />
+                    {retrying ? (
+                      <LoaderCircle className="size-3.5 animate-spin" strokeWidth={1.8} />
+                    ) : (
+                      <RotateCcw size={14} strokeWidth={1.8} animateOnHover="default" />
+                    )}
                   </MetaIconButton>
                 ) : null}
                 {canContinue && onContinue ? (
@@ -1252,7 +1351,14 @@ export function AssistantMessageMeta({
                 <QuickMemoryPin disabled={messagePending} />
               </>
             ) : null}
-            {canShowBranchNavigator ? <BranchSwitcher item={item} onCycle={onCycleBranch} /> : null}
+            {canShowBranchNavigator ? (
+              <BranchSwitcher
+                item={item}
+                onCycle={onCycleBranch}
+                navigationSiblings={hasModelTabs && modelVersionCount > 1 && onSelectBranch ? item.branchNavigator?.modelSiblings : undefined}
+                onSelectBranch={onSelectBranch}
+              />
+            ) : null}
             <MessageTimestamp timestamp={timestamp} />
           </div>
         ) : null}

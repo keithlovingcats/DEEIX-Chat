@@ -11,9 +11,11 @@ import {
 } from "@/features/chat/hooks/use-chat-discussion";
 import { resolveChatSubmitDecision } from "@/features/chat/model/chat-task";
 import {
+  branchUserHasActiveRun,
   buildChildrenIndex,
   parseAttachments,
   toBranchKey,
+  userPromptHasActiveRun,
 } from "@/features/chat/model/chat-thread";
 import { sanitizeConversationOptions } from "@/features/chat/model/conversation-options";
 import { buildMediaImagePreviewMarkdown } from "@/features/chat/model/media-image-preview";
@@ -237,6 +239,11 @@ function buildSubmissionBranchScopePath(
 
 function branchScopePathsEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((publicID, index) => publicID === right[index]);
+}
+
+/** 提交分支路径是否位于当前可见链上（是可见路径的前缀，含相等/根路径）。 */
+function branchScopePathPrefixes(prefix: readonly string[], path: readonly string[]): boolean {
+  return prefix.length <= path.length && prefix.every((publicID, index) => publicID === path[index]);
 }
 
 function branchScopesEqual(left: BranchScope, right: BranchScope): boolean {
@@ -800,6 +807,8 @@ export function useChatMessageSubmit({
         branchScopePath: targetBranchScopePath,
         branchScopeRunID: queuedSubmission?.branchScopeRunID ?? clientRunID,
       };
+      const resolvedBranchReason = branchReason ?? "default";
+      const concurrentBranchRun = resolvedBranchReason === "retry" || resolvedBranchReason === "edit";
       const shouldFollowSubmittedBranch =
         !queuedSubmission &&
         !programmaticFanOut && (
@@ -809,11 +818,14 @@ export function useChatMessageSubmit({
             conversationScopeKeyRef.current,
             visibleBranchScopePathRef.current,
             visibleMessagesRef.current,
-          )
+          ) ||
+          // 重试/编辑的目标挂在当前可见链上时也跟随切换到新分支：
+          // 否则新回复分支不显示，界面只制出分支切换器，
+          // 用户看不到正在生成，易误以为未响应而连续点击。
+          (concurrentBranchRun &&
+            branchScopePathPrefixes(targetBranchScopePath, visibleBranchScopePathRef.current))
         );
       const selectedModel = modelOptions.find((item) => item.platformModelName === requestPlatformModelName) ?? null;
-      const resolvedBranchReason = branchReason ?? "default";
-      const concurrentBranchRun = resolvedBranchReason === "retry" || resolvedBranchReason === "edit";
       const targetConversationHasActiveStream = Array.from(activeStreamsRef.current.values()).some(
         (active) =>
           queuedSubmission
@@ -1133,6 +1145,8 @@ export function useChatMessageSubmit({
           // 多模型并行组合随主请求持久化到会话（服务端按会话存储，供后续轮次/刷新恢复）。
           // 单模型也写回单元素组合，覆盖会话中放弃并行的旧组合。
           // 队列出队发送同样回写，保证组合与实际发送行为一致。
+          // 在此快照：pendingFanOutModels 会在 onMessageCreated 中被置空，
+          // completed 后的列表 patch 需要请求时发送的组合。
           parallelModels:
             !programmaticFanOut && resolvedBranchReason === "default"
               ? persistParallelModels ?? [requestPlatformModelName, ...pendingFanOutModels]
@@ -1146,6 +1160,8 @@ export function useChatMessageSubmit({
           discussionMeta,
         };
         let terminalStreamError: Extract<StreamMessageEvent, { type: "error" }> | null = null;
+        // 服务端剔除不可用并行模型时记录，completed 后同步列表项用（与服务端实际持久化的组合对齐）。
+        let serverFilteredParallelModels: string[] = [];
         const streamOptions: ConversationStreamOptions = {
           signal: streamAbortController.signal,
           onInterrupted: (event) => {
@@ -1159,6 +1175,7 @@ export function useChatMessageSubmit({
           },
           // 服务端过滤掉不可用模型（不存在/无权限）时提示用户。
           onParallelModelsFiltered: (invalidModels) => {
+            serverFilteredParallelModels = Array.isArray(invalidModels) ? invalidModels : [];
             if (invalidModels.length === 0) {
               return;
             }
@@ -1541,8 +1558,20 @@ export function useChatMessageSubmit({
             optimisticMessageCountsRef.current.get(targetConversationScopeKey) ?? 0,
           ) + (assistantOnlyBranch ? 1 : 2);
         optimisticMessageCountsRef.current.set(targetConversationScopeKey, optimisticMessageCount);
+        const requestedParallelModels = commonStreamPayload.parallelModels;
+        // 与服务端持久化行为对齐：仅 chat 发送会持久化组合（media 任务服务端不解析该字段，
+        // 不能同步列表）；剔除被过滤模型后仍非空才写入。
+        // 不同步的话，切回会话时恢复逻辑（use-chat-model-options）会读到陈旧组合
+        // （旧值/null），静默清空并行选择，下一轮退化为单模型（丢失模型分支 tab）。
+        const effectiveParallelModels =
+          submitTask === "chat"
+            ? requestedParallelModels?.filter((name) => !serverFilteredParallelModels.includes(name))
+            : undefined;
         const conversationPatch: Partial<ConversationDTO> = {
           ...(shouldUpdateConversationModel ? { model: requestPlatformModelName } : {}),
+          ...(effectiveParallelModels && effectiveParallelModels.length > 0
+            ? { parallelModels: effectiveParallelModels }
+            : {}),
           updatedAt: new Date().toISOString(),
           messageCount: optimisticMessageCount,
         };
@@ -2326,6 +2355,15 @@ export function useChatMessageSubmit({
     visibleMessages,
   ]);
 
+  // 重试防并行：同一消息的重试在整个生成期间只允许一个 run（submitMessage 会 await
+  // 完整生成流才 resolve）。ref 覆盖乐观渲染前的双击窗口，活跃 run 检查覆盖切到
+  // 其他分支后再次点击的场景；两者命中时提示用户而不发起新任务。
+  const retryInFlightRef = React.useRef(new Set<string>());
+  // 用 ref 持有最新 combinedMessages：重试回调内部读 ref 即可拿到最新列表，
+  // 不必把 combinedMessages 放入 useCallback deps，避免每次流式 token 更新都重建回调。
+  const combinedMessagesRef = React.useRef(combinedMessages);
+  combinedMessagesRef.current = combinedMessages;
+
   const onRetryUserMessage = React.useCallback(
     async (message: ChatAreaMessage) => {
       const sourceMessagePublicID = resolvePersistedPublicID(message.publicID);
@@ -2333,21 +2371,33 @@ export function useChatMessageSubmit({
         toast.error(t("retryReplyFailed"), { description: t("continueReplyUnavailable") });
         return;
       }
-      await submitMessage({
-        content: message.content.trim(),
-        currentAttachments: toPendingAttachments(message),
-        resetComposer: false,
-        parentMessagePublicID: message.parentPublicID,
-        sourceMessagePublicID,
-        branchReason: "retry",
-      });
+      if (
+        retryInFlightRef.current.has(sourceMessagePublicID) ||
+        userPromptHasActiveRun(combinedMessagesRef.current, message)
+      ) {
+        toast(t("retryInProgress"), { description: t("retryInProgressDescription") });
+        return;
+      }
+      retryInFlightRef.current.add(sourceMessagePublicID);
+      try {
+        await submitMessage({
+          content: message.content.trim(),
+          currentAttachments: toPendingAttachments(message),
+          resetComposer: false,
+          parentMessagePublicID: message.parentPublicID,
+          sourceMessagePublicID,
+          branchReason: "retry",
+        });
+      } finally {
+        retryInFlightRef.current.delete(sourceMessagePublicID);
+      }
     },
     [submitMessage, t],
   );
 
   const onRetryAssistantMessage = React.useCallback(
     async (message: ChatAreaMessage) => {
-      const parentUser = combinedMessages.find((item) => item.publicID === message.parentPublicID && item.role === "user");
+      const parentUser = combinedMessagesRef.current.find((item) => item.publicID === message.parentPublicID && item.role === "user");
       if (!parentUser) {
         toast.error(t("retryReplyFailed"), { description: t("retryReplyMissingUser") });
         return;
@@ -2358,16 +2408,34 @@ export function useChatMessageSubmit({
         toast.error(t("retryReplyFailed"), { description: t("continueReplyUnavailable") });
         return;
       }
-      await submitMessage({
-        content: parentUser.content.trim(),
-        currentAttachments: toPendingAttachments(parentUser),
-        resetComposer: false,
-        parentMessagePublicID: parentUserPublicID,
-        sourceMessagePublicID: assistantSourceMessagePublicID,
-        branchReason: "retry",
-      });
+      if (
+        retryInFlightRef.current.has(assistantSourceMessagePublicID) ||
+        branchUserHasActiveRun(
+          combinedMessagesRef.current,
+          parentUserPublicID,
+          message.platformModelName,
+        )
+      ) {
+        toast(t("retryInProgress"), { description: t("retryInProgressDescription") });
+        return;
+      }
+      retryInFlightRef.current.add(assistantSourceMessagePublicID);
+      try {
+        await submitMessage({
+          content: parentUser.content.trim(),
+          currentAttachments: toPendingAttachments(parentUser),
+          resetComposer: false,
+          parentMessagePublicID: parentUserPublicID,
+          sourceMessagePublicID: assistantSourceMessagePublicID,
+          branchReason: "retry",
+          // 重试沿用该回答原本的模型：多模型并行 tab 下不应被 composer 当前选中模型抢占。
+          overridePlatformModelName: message.platformModelName?.trim() || undefined,
+        });
+      } finally {
+        retryInFlightRef.current.delete(assistantSourceMessagePublicID);
+      }
     },
-    [combinedMessages, submitMessage, t],
+    [submitMessage, t],
   );
 
   const onContinueAssistantMessage = React.useCallback(

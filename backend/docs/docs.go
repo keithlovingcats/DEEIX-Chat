@@ -20271,12 +20271,12 @@ const docTemplate = `{
                 },
                 "index": {
                     "type": "integer",
-                    "maximum": 30,
+                    "maximum": 120,
                     "minimum": 0
                 },
                 "participants": {
                     "type": "array",
-                    "maxItems": 5,
+                    "maxItems": 20,
                     "items": {
                         "type": "string"
                     }

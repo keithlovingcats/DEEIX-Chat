@@ -39,6 +39,8 @@ export type ChatMessageBranchNavigator = {
   canNext: boolean;
   /** 同 parent 的兄弟回答摘要；多模型并行时用于渲染模型标签页。 */
   siblings?: ChatMessageBranchSibling[];
+  /** 同 parent 下与当前回答同模型的兄弟（含自身，按创建顺序）；多模型 tab 聚合后用于同模型多版本切换。 */
+  modelSiblings?: ChatMessageBranchSibling[];
 };
 
 export type RAGCitation = {

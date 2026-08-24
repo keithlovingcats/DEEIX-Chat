@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DiscussionPanel } from "@/features/chat/components/message/discussion-panel";
 import { AssistantMessageSkeleton } from "@/features/chat/components/message/message-bot";
+import { findLatestDiscussionFinalMessage } from "@/features/chat/model/chat-thread";
 import type { ChatAreaMessage, ChatDiscussionGroup } from "@/features/chat/types/messages";
 import { cn } from "@/lib/utils";
 import { useCopyAction } from "@/shared/components/copy-action";
@@ -84,7 +85,8 @@ export function ChatMessageDiscussion({
     };
   }, []);
   const streamingMessage = group.find((message) => message.isStreaming || message.isPending);
-  const finalMessage = group.find((message) => message.discussionMeta?.role === "final");
+  // 终稿可能有多条（失败重试/换模型接替），正文取最新成功稿；重试期间流式消息优先。
+  const finalMessage = findLatestDiscussionFinalMessage(group, { successfulOnly: true });
   const displayMessage = streamingMessage ?? finalMessage ?? item;
   const running = discussion.phase === "running" || discussion.phase === "summarizing";
   const content = displayMessage.content?.trim() ?? "";
@@ -165,7 +167,7 @@ export function ChatMessageDiscussion({
         <DiscussionPanel group={group} phase={discussion.phase} />
       </div>
 
-      <div className="mt-2 flex w-full justify-start" data-screenshot-exclude="true">
+      <div className="mt-2 flex w-full items-center gap-2" data-screenshot-exclude="true">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -181,6 +183,27 @@ export function ChatMessageDiscussion({
           </TooltipTrigger>
           <TooltipContent>{t("backToDiscussionTop")}</TooltipContent>
         </Tooltip>
+        {content ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={handleCopy}
+              >
+                {isCopied(copyKey) ? (
+                  <Check className="size-3 text-emerald-500" strokeWidth={1.8} />
+                ) : (
+                  <Copy className="size-3" strokeWidth={1.8} />
+                )}
+                {isCopied(copyKey) ? t("copied") : t("copy")}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{isCopied(copyKey) ? t("copied") : t("copy")}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
 
       {showFloatingBackToTop ? (

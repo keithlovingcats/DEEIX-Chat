@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, ListChecks, PencilLine } from "lucide-react";
+import { Eye, ListChecks, PencilLine, WrapText } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 
@@ -13,7 +13,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  NoteMarkdownEditor,
+  type NoteMarkdownEditorRef,
+} from "@/features/notes/components/note-markdown-editor";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type NoteAutosaveStatus, useNoteAutosave } from "@/features/notes/hooks/use-note-autosave";
 import { countChecklist, suggestTitle } from "@/features/notes/lib/checklist";
@@ -44,10 +47,11 @@ export function NoteEditDialog({
   onSaved: (note: NoteDTO, isNew: boolean) => void;
 }) {
   const t = useTranslations("notes");
-  const [title, setTitle] = React.useState("");
-  const [content, setContent] = React.useState("");
+  const [title, setTitle] = React.useState(note?.title ?? "");
+  const [content, setContent] = React.useState(note?.content ?? "");
   const [showPreview, setShowPreview] = React.useState(false);
-  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const [wordWrap, setWordWrap] = React.useState(true);
+  const editorRef = React.useRef<NoteMarkdownEditorRef | null>(null);
 
   // 弹窗打开时重置为当前笔记内容。
   React.useEffect(() => {
@@ -73,26 +77,14 @@ export function NoteEditDialog({
     }
   };
 
-  // 在光标处插入清单条目并恢复光标。
+  // 在光标处插入清单条目。
   const insertChecklist = () => {
-    const template = "- [ ] ";
-    const textarea = textareaRef.current;
-    if (!textarea) {
+    if (editorRef.current) {
+      editorRef.current.insertChecklist();
+    } else {
+      const template = "- [ ] ";
       setContent((current) => (current ? `${current}\n${template}` : template));
-      return;
     }
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const before = content.slice(0, start);
-    const after = content.slice(end);
-    const prefix = before.length > 0 && !before.endsWith("\n") ? "\n" : before;
-    const next = `${before}${prefix}${template}${after}`;
-    setContent(next);
-    const pos = start + prefix.length + template.length;
-    requestAnimationFrame(() => {
-      textarea.setSelectionRange(pos, pos);
-      textarea.focus();
-    });
   };
 
   const checklist = countChecklist(content);
@@ -146,45 +138,69 @@ export function NoteEditDialog({
 
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-                    onClick={insertChecklist}
-                  >
-                    <ListChecks className="size-3.5" strokeWidth={1.8} />
-                    <span>{t("insertChecklist")}</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("insertChecklist")}</TooltipContent>
-              </Tooltip>
+              {!showPreview ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                      onClick={insertChecklist}
+                    >
+                      <ListChecks className="size-3.5" strokeWidth={1.8} />
+                      <span>{t("insertChecklist")}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("insertChecklist")}</TooltipContent>
+                </Tooltip>
+              ) : null}
               {checklist ? (
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {t("checklistProgress", { done: checklist.done, total: checklist.total })}
                 </span>
               ) : null}
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="ml-auto h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setShowPreview((current) => !current)}
-            >
-              {showPreview ? (
-                <PencilLine className="size-3.5" strokeWidth={1.8} />
-              ) : (
-                <Eye className="size-3.5" strokeWidth={1.8} />
-              )}
-              <span>{showPreview ? t("editMode") : t("previewMode")}</span>
-            </Button>
+            <div className="ml-auto flex items-center gap-1">
+              {!showPreview ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground",
+                        wordWrap && "bg-muted/60 text-foreground",
+                      )}
+                      onClick={() => setWordWrap((current) => !current)}
+                    >
+                      <WrapText className="size-3.5" strokeWidth={1.8} />
+                      <span>{wordWrap ? t("wrapLines") : t("unwrapLines")}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{wordWrap ? t("wrapLines") : t("unwrapLines")}</TooltipContent>
+                </Tooltip>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPreview((current) => !current)}
+              >
+                {showPreview ? (
+                  <PencilLine className="size-3.5" strokeWidth={1.8} />
+                ) : (
+                  <Eye className="size-3.5" strokeWidth={1.8} />
+                )}
+                <span>{showPreview ? t("editMode") : t("previewMode")}</span>
+              </Button>
+            </div>
           </div>
 
           {showPreview ? (
-            <div className="chat-font-content min-h-[220px] flex-1 overflow-y-auto rounded-lg border-[0.5px] border-border bg-muted/20 p-4 text-[15px] leading-8 text-foreground">
+            <div className="chat-font-content min-h-[260px] flex-1 overflow-y-auto rounded-lg border-[0.5px] border-border bg-muted/20 p-4 text-[15px] leading-8 text-foreground">
               {content.trim() ? (
                 <StreamdownRender content={content} externalLinkBehavior="open" breaks />
               ) : (
@@ -192,13 +208,12 @@ export function NoteEditDialog({
               )}
             </div>
           ) : (
-            <Textarea
-              ref={textareaRef}
+            <NoteMarkdownEditor
+              ref={editorRef}
               value={content}
+              wordWrap={wordWrap}
               placeholder={t("contentPlaceholder")}
-              className="chat-font-content min-h-[220px] flex-1 resize-none rounded-lg border-[0.5px] border-border bg-background px-3 py-2 text-[15px] leading-8 shadow-none"
-              style={{ fontFamily: "var(--font-chat)", fontWeight: "var(--font-chat-weight)" }}
-              onChange={(event) => setContent(event.target.value)}
+              onChange={setContent}
             />
           )}
 
