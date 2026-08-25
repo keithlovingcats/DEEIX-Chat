@@ -49,7 +49,10 @@ func newMessageSendRunState(
 			UpstreamModelID:    0,
 			UpstreamName:       "",
 			RequestedModelName: strings.TrimSpace(conversation.Model),
-			PlatformModelName:  "",
+			// 路由解析失败（如全部渠道不可用）时 applyRouteToRun 不会执行，
+			// 以请求模型名兜底：消息的 platform_model_name 由 run 表补水，留空会让
+			// 前端刷新后无法按模型归组（多模型 tab 退化为 #N，模型 tab 消失）。
+			PlatformModelName: strings.TrimSpace(conversation.Model),
 			RoutedBindingCode:  "",
 			ModelVendor:        "",
 			ModelIcon:          "",

@@ -179,6 +179,7 @@ export function useChatRuntime({
     resetToken,
     messages,
     pendingExchanges,
+    parallelPlatformModelNames,
     liveActivityLabels,
     liveRunIDs: liveServerRunIDs,
   });

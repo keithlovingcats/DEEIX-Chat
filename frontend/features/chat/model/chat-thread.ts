@@ -406,22 +406,112 @@ export function buildChildrenIndex(messages: ChatAreaMessage[]) {
   return children;
 }
 
+/**
+ * 多模型并行兄弟按选择器顺序重排展示序。
+ *
+ * fan-out 的各模型是独立 run，服务端按落库先后返回（并发竞态），与顶部
+ * 模型选择顺序无关；ModelBranchTabs / 分支导航的顺序应跟随用户的选择
+ * 顺序（会话 parallelModels，刷新后同序恢复）。
+ *
+ * 仅重排「同 parent 且全为 assistant」的兄弟组；user 编辑分支组不受影响。
+ * 组内按模型在 modelOrder 中的位置稳定排序：同模型多次重试保持时间序
+ * （末尾仍为最新版本）；不在 modelOrder 中的模型（旧轮次组合、手动换
+ * 模型重试）保持原相对顺序排在已知模型之后。组成员在原数组中该组首次
+ * 出现的位置聚拢输出（多模型兄弟落库时连续相邻，即组内原位重排）。
+ */
+export function sortAssistantSiblingsByModelPreference(
+  messages: ChatAreaMessage[],
+  modelOrder: readonly string[],
+): ChatAreaMessage[] {
+  const order = modelOrder.map((name) => name.trim()).filter(Boolean);
+  if (order.length < 2 || messages.length < 3) {
+    return messages;
+  }
+  const orderIndex = new Map(order.map((name, index) => [name, index]));
+  const children = buildChildrenIndex(messages);
+  const reorderedGroups = new Map<string, ChatAreaMessage[]>();
+  for (const [parentKey, siblings] of children.entries()) {
+    if (siblings.length < 2 || siblings.some((item) => item.role !== "assistant")) {
+      continue;
+    }
+    const sorted = siblings
+      .map((item, index) => ({
+        item,
+        index,
+        rank: orderIndex.get(item.platformModelName?.trim() || "") ?? order.length,
+      }))
+      .sort((left, right) => left.rank - right.rank || left.index - right.index)
+      .map((entry) => entry.item);
+    if (sorted.some((item, index) => item !== siblings[index])) {
+      reorderedGroups.set(parentKey, sorted);
+    }
+  }
+  if (reorderedGroups.size === 0) {
+    return messages;
+  }
+  const result: ChatAreaMessage[] = [];
+  const emitted = new Set<string>();
+  for (const item of messages) {
+    const group = reorderedGroups.get(toBranchKey(item.parentPublicID));
+    if (group) {
+      for (const member of group) {
+        if (!member.publicID || !emitted.has(member.publicID)) {
+          if (member.publicID) {
+            emitted.add(member.publicID);
+          }
+          result.push(member);
+        }
+      }
+      continue;
+    }
+    if (!item.publicID || !emitted.has(item.publicID)) {
+      if (item.publicID) {
+        emitted.add(item.publicID);
+      }
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+/** 兜底比较：candidate 不早于 current 即视为更新（平局取数组靠后者，保持落库序语义）。 */
+function isNewerBranchMessage(candidate: ChatAreaMessage, current: ChatAreaMessage): boolean {
+  return (candidate.createdAt ?? "").localeCompare(current.createdAt ?? "") >= 0;
+}
+
+/**
+ * 兄弟组兜底选中：取 createdAt 最新的一条。不直接用数组末位——
+ * sortAssistantSiblingsByModelPreference 重排后末位是偏好序末位模型而非最新消息。
+ */
+function latestBranchSibling(siblings: ChatAreaMessage[]): ChatAreaMessage | undefined {
+  let latest: ChatAreaMessage | undefined;
+  for (const item of siblings) {
+    if (!latest || isNewerBranchMessage(item, latest)) {
+      latest = item;
+    }
+  }
+  return latest;
+}
+
 export function reconcileBranchSelections(messages: ChatAreaMessage[], previous: Record<string, string>) {
   const next: Record<string, string> = {};
   const children = buildChildrenIndex(messages);
   const messagesByPublicID = new Map<string, ChatAreaMessage>();
-  let latestPublicID = "";
+  let latestSeededMessage: ChatAreaMessage | null = null;
 
   for (const item of messages) {
     const publicID = item.publicID.trim();
     if (publicID) {
       messagesByPublicID.set(publicID, item);
-      latestPublicID = publicID;
+      // 种子链取 createdAt 最新（平局取靠后），不依赖数组末位（可能被模型偏好重排移动）。
+      if (!latestSeededMessage || isNewerBranchMessage(item, latestSeededMessage)) {
+        latestSeededMessage = item;
+      }
     }
   }
 
   const visited = new Set<string>();
-  let current = latestPublicID ? messagesByPublicID.get(latestPublicID) ?? null : null;
+  let current = latestSeededMessage;
 
   while (current) {
     const publicID = current.publicID.trim();
@@ -444,7 +534,7 @@ export function reconcileBranchSelections(messages: ChatAreaMessage[], previous:
     if (next[parentKey]) {
       continue;
     }
-    const latest = siblings[siblings.length - 1];
+    const latest = latestBranchSibling(siblings);
     if (latest) {
       next[parentKey] = latest.publicID;
     }
@@ -468,8 +558,9 @@ export function buildVisibleMessages(
       break;
     }
 
-    const selectedPublicID = reconciledSelections[parentKey] || siblings[siblings.length - 1]?.publicID;
-    const selected = siblings.find((item) => item.publicID === selectedPublicID) ?? siblings[siblings.length - 1];
+    const fallbackSibling = latestBranchSibling(siblings);
+    const selectedPublicID = reconciledSelections[parentKey] || fallbackSibling?.publicID;
+    const selected = siblings.find((item) => item.publicID === selectedPublicID) ?? fallbackSibling;
     if (!selected || visited.has(selected.publicID)) {
       break;
     }
@@ -550,7 +641,7 @@ function buildTailVisibleMessages(messages: ChatAreaMessage[]): ChatAreaMessage[
   const byPublicID = new Map(messages.map((item) => [item.publicID, item]));
   const visible: ChatAreaMessage[] = [];
   const visited = new Set<string>();
-  let current = messages.at(-1) ?? null;
+  let current = latestBranchSibling(messages) ?? null;
 
   while (current && !visited.has(current.publicID)) {
     visited.add(current.publicID);

@@ -1,5 +1,6 @@
 "use client";
 
+import type { HighlightResult } from "@streamdown/code";
 import { cjk } from "@streamdown/cjk";
 import { createMathPlugin } from "@streamdown/math";
 import { useTranslations } from "next-intl";
@@ -269,8 +270,10 @@ const BASE_MARKDOWN_CLASSNAME = cn(
   "[&_[data-streamdown='code-block']]:![content-visibility:visible] [&_[data-streamdown='code-block']]:![contain-intrinsic-size:none]",
   "[&_[data-streamdown='code-block']>div:first-child]:min-h-0 [&_[data-streamdown='code-block']>div:first-child]:justify-between [&_[data-streamdown='code-block']>div:first-child]:gap-2 [&_[data-streamdown='code-block']>div:first-child]:border-0 [&_[data-streamdown='code-block']>div:first-child]:bg-transparent [&_[data-streamdown='code-block']>div:first-child]:mt-2 [&_[data-streamdown='code-block']>div:first-child]:pb-6 [&_[data-streamdown='code-block']>div:first-child]:text-[11px] [&_[data-streamdown='code-block']>div:first-child]:font-medium [&_[data-streamdown='code-block']>div:first-child]:tracking-[0.06em] [&_[data-streamdown='code-block']>div:first-child]:text-muted-foreground/85 [&_[data-streamdown='code-block']>div:first-child]:shadow-none",
   "[&_[data-streamdown='code-block']>div:last-child]:!w-full [&_[data-streamdown='code-block']>div:last-child]:min-w-0 [&_[data-streamdown='code-block']>div:last-child]:border-0 [&_[data-streamdown='code-block']>div:last-child]:rounded-none [&_[data-streamdown='code-block']>div:last-child]:bg-transparent [&_[data-streamdown='code-block']>div:last-child]:p-0 [&_[data-streamdown='code-block']>div:last-child]:shadow-none",
-  "[&_[data-streamdown='code-block-body']]:!bg-muted/40 [&_[data-streamdown='code-block-body']]:!rounded-xl",
-  "[&_pre]:group [&_pre]:my-0 [&_pre]:block [&_pre]:!w-full [&_pre]:!min-w-0 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:overflow-y-hidden [&_pre]:border-0 [&_pre]:bg-transparent [&_pre]:px-0 [&_pre]:pt-0 [&_pre]:pb-2 [&_pre]:shadow-none [&_pre]:outline-none [&_pre]:ring-0",
+  // 代码画布背景跟随所选 shiki 主题（--sdm-bg 浅色槽 / --shiki-dark-bg 深色槽，
+  // 变量由 streamdown 挂在 pre 的 style 上，深浅切换即取对应槽；选定主题两槽同值恒定）。
+  // 未上色阶段（插件异步加载中 / 纯文本语言）变量缺失回落透明，透出气泡背景。
+  "[&_pre]:group [&_pre]:my-0 [&_pre]:block [&_pre]:!w-full [&_pre]:!min-w-0 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:overflow-y-hidden [&_pre]:border-0 [&_pre]:bg-[var(--sdm-bg)] [&_pre]:dark:bg-[var(--shiki-dark-bg,var(--sdm-bg))] [&_pre]:!rounded-xl [&_pre]:px-0 [&_pre]:pt-0 [&_pre]:pb-2 [&_pre]:shadow-none [&_pre]:outline-none [&_pre]:ring-0",
   "[&_pre>code]:block [&_pre>code]:w-max [&_pre>code]:min-w-full [&_pre>code]:max-w-none [&_pre>code]:border-0 [&_pre>code]:bg-transparent [&_pre>code]:py-4 [&_pre>code]:font-mono [&_pre>code]:text-[13px] [&_pre>code]:leading-5 [&_pre>code]:text-foreground/92 [&_pre>code]:shadow-none [&_pre>code]:outline-none [&_pre>code]:ring-0",
   "[&_[data-streamdown='code-block-actions']]:gap-2 [&_[data-streamdown='code-block-actions']]:!opacity-100 [&_[data-streamdown='code-block-actions']]:border-0 [&_[data-streamdown='code-block-actions']]:rounded-none [&_[data-streamdown='code-block-actions']]:bg-transparent [&_[data-streamdown='code-block-actions']]:p-0 [&_[data-streamdown='code-block-actions']]:shadow-none [&_[data-streamdown='code-block-actions']]:backdrop-blur-none",
   "[&_[data-streamdown='code-block-actions']_button]:inline-flex [&_[data-streamdown='code-block-actions']_button]:items-center [&_[data-streamdown='code-block-actions']_button]:justify-center [&_[data-streamdown='code-block-actions']_button]:rounded-md [&_[data-streamdown='code-block-actions']_button]:border-0 [&_[data-streamdown='code-block-actions']_button]:bg-transparent [&_[data-streamdown='code-block-actions']_button]:p-1 [&_[data-streamdown='code-block-actions']_button]:text-muted-foreground [&_[data-streamdown='code-block-actions']_button]:shadow-none [&_[data-streamdown='code-block-actions']_button:hover]:bg-foreground/[0.04] [&_[data-streamdown='code-block-actions']_button:hover]:text-foreground",
@@ -306,7 +309,6 @@ const THINKING_MARKDOWN_CLASSNAME = cn(
   "[&_em]:italic [&_em]:text-foreground/92",
   "[&_blockquote]:my-0.5 [&_blockquote]:border-l-0 [&_blockquote]:pl-0 [&_blockquote]:text-[12px] [&_blockquote]:text-muted-foreground/78",
   "[&_code:not(pre_code)]:bg-foreground/[0.03] [&_code:not(pre_code)]:text-[11px] [&_code:not(pre_code)]:text-muted-foreground/88",
-  "[&_[data-streamdown='code-block-body']]:!bg-muted/20",
   "[&_pre]:pb-0",
   "[&_pre>code]:py-2 [&_pre>code]:text-[11px] [&_pre>code]:leading-5 [&_pre>code]:text-muted-foreground/82",
   "[&_th]:py-0.5 [&_th]:text-[11px] [&_th]:text-muted-foreground/86",
@@ -403,6 +405,37 @@ function getInitialStreamdownPlugins(features: StreamdownFeatureFlags): PluginCo
   return STREAMDOWN_MATH_BASE_PLUGINS;
 }
 
+/**
+ * shiki 双主题输出的 bg/fg 是复合串（"#fff;--shiki-dark-bg:#24292e"），streamdown 会把
+ * bg/fg 原样写入 --sdm-bg/--sdm-fg 单变量：SSR 序列化成 style 属性时能拆成两条声明，
+ * 但客户端渲染走 setProperty 原样存串，CSS var() 替换后声明非法（背景整条失效，透出
+ * 气泡底色）。此处拆串：浅色槽留在 bg/fg 原字段，深色槽经 rootStyle 注入为独立变量
+ * （streamdown 会把 rootStyle 解析成独立 style 键）。对已规范化的结果幂等。
+ */
+function normalizeDualThemeHighlightResult(result: HighlightResult): HighlightResult {
+  const bgLight = (result.bg ?? "").split(";")[0];
+  const bgDark = /--shiki-dark-bg:([^;]+)/.exec(result.bg ?? "")?.[1];
+  const fgLight = (result.fg ?? "").split(";")[0];
+  const fgDark = /--shiki-dark:([^;]+)/.exec(result.fg ?? "")?.[1];
+  const injectedStyle = [
+    bgDark ? `--shiki-dark-bg:${bgDark}` : "",
+    fgDark ? `--shiki-dark:${fgDark}` : "",
+  ]
+    .filter(Boolean)
+    .join(";");
+  if (!injectedStyle) {
+    return result;
+  }
+  if (bgLight) {
+    result.bg = bgLight;
+  }
+  if (fgLight) {
+    result.fg = fgLight;
+  }
+  result.rootStyle = result.rootStyle ? `${result.rootStyle};${injectedStyle}` : injectedStyle;
+  return result;
+}
+
 async function loadStreamdownPlugins(
   features: StreamdownFeatureFlags,
   mermaidTheme: MermaidTheme,
@@ -430,7 +463,16 @@ async function loadStreamdownPlugins(
     if (features.code) {
       // 主题必须注入 code plugin（streamdown 内部 plugins.code.getThemes() 优先于 shikiTheme prop）。
       const { createCodePlugin } = await import("@streamdown/code");
-      plugins.code = createCodePlugin({ themes: shikiThemePair });
+      const rawCodePlugin = createCodePlugin({ themes: shikiThemePair });
+      plugins.code = {
+        ...rawCodePlugin,
+        highlight: (options, callback) => {
+          const immediate = rawCodePlugin.highlight(options, (parsed) =>
+            callback?.(normalizeDualThemeHighlightResult(parsed)),
+          );
+          return immediate ? normalizeDualThemeHighlightResult(immediate) : immediate;
+        },
+      };
     }
 
     if (features.math) {

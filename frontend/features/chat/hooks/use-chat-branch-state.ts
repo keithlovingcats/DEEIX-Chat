@@ -9,6 +9,7 @@ import {
   buildVisibleMessages,
   mapServerMessage,
   reconcileBranchSelections,
+  sortAssistantSiblingsByModelPreference,
 } from "@/features/chat/model/chat-thread";
 import type { MessageDTO } from "@/shared/api/conversation.types";
 import type { UpstreamDebugInfo } from "@/shared/api/conversation.types";
@@ -215,6 +216,7 @@ export function useChatBranchState({
   resetToken,
   messages,
   pendingExchanges,
+  parallelPlatformModelNames,
   liveRunIDs,
   liveActivityLabels,
 }: {
@@ -223,6 +225,8 @@ export function useChatBranchState({
   resetToken: number;
   messages: MessageDTO[];
   pendingExchanges: PendingExchangeMap;
+  /** 顶部多模型选择顺序（含主模型），用于对齐兄弟展示序；缺省不排序。 */
+  parallelPlatformModelNames?: string[];
   liveRunIDs?: ReadonlySet<string>;
   liveActivityLabels?: ReadonlyMap<string, string>;
 }) {
@@ -264,14 +268,26 @@ export function useChatBranchState({
 
   const combinedMessages = React.useMemo(
     () =>
-      buildPendingMessages({
-        conversationID,
-        conversationScopeKey,
-        pendingExchanges,
-        serverTreeMessages,
-        serverMessagePublicIDs,
-      }),
-    [conversationID, conversationScopeKey, pendingExchanges, serverMessagePublicIDs, serverTreeMessages],
+      // 多模型兄弟的展示序跟随选择器顺序（而非落库竞态序），ModelBranchTabs
+      // 与分支导航据此与顶部模型选择顺序保持一致（含刷新后恢复场景）。
+      sortAssistantSiblingsByModelPreference(
+        buildPendingMessages({
+          conversationID,
+          conversationScopeKey,
+          pendingExchanges,
+          serverTreeMessages,
+          serverMessagePublicIDs,
+        }),
+        parallelPlatformModelNames ?? [],
+      ),
+    [
+      conversationID,
+      conversationScopeKey,
+      parallelPlatformModelNames,
+      pendingExchanges,
+      serverMessagePublicIDs,
+      serverTreeMessages,
+    ],
   );
   const combinedMessagesRef = React.useRef(combinedMessages);
   React.useEffect(() => {

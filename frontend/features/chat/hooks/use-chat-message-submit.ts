@@ -685,6 +685,13 @@ export function useChatMessageSubmit({
     for (const [exchangeKey, exchange] of Object.entries(pendingExchanges)) {
       const userPublicID = exchange.userPublicID || exchange.tempUserPublicID;
       const assistantPublicID = exchange.assistantPublicID || exchange.tempAssistantPublicID;
+      // 流式/等待中的 exchange 不清理：主请求的 user/assistant 真实 ID 在 message_created
+      // 即 remap，多模型并行时任一兄弟 error/completed 触发 reload 会让下方分支提前命中，
+      // 删掉仍在生成的主请求乐观态——后续流式 delta 与 error 终态将无处落地（流 buffer
+      // 与 catch 路径都写 exchange），主模型气泡会冻结/丢状态直到下次 reload。
+      if (exchange.assistantPending || exchange.assistantStreaming) {
+        continue;
+      }
       if (serverMessagePublicIDs.has(userPublicID) && serverMessagePublicIDs.has(assistantPublicID)) {
         completedKeys.push(exchangeKey);
         continue;
