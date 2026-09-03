@@ -286,9 +286,10 @@ export function useChatDiscussion({
           sourceMessagePublicID: isFirstTurn ? undefined : anchor.assistantPublicID,
           branchReason: isFirstTurn ? "default" : "retry",
           programmaticFanOut: !isFirstTurn,
-          // 首条 default 请求会把 parallelModels 持久化到会话；显式传完整参与者
-          // 组合，避免默认的单元素组合在刷新后重置用户的多模型选择。
-          persistParallelModels: isFirstTurn ? participants : undefined,
+          // 首条 default 请求会把 parallelModels 持久化到会话。不显式传参与者组合：
+          // submitMessage 内部会按全量选中组合（含被禁用的附加模型）持久化，
+          // 禁用是会话内临时退出而非从组合删除；显式传 participants 会把禁用
+          // 模型从持久化组合中擦除（participants 仅含启用的发言者）。
           overridePlatformModelName: turn.model,
           discussionMeta: meta,
           onAssistantCreated: (created) => {

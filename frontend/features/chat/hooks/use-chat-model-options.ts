@@ -667,6 +667,9 @@ export function useChatModelOptions({
     }
     previousResetTokenRef.current = resetToken;
     userSelectedModelRef.current = false;
+    // 新对话是全新语境：禁用态（会话内内存态）随之重置。
+    setDisabledPlatformModelNames([]);
+    disabledModelNamesRef.current = [];
   }, [resetToken]);
 
   React.useEffect(() => {
@@ -697,10 +700,16 @@ export function useChatModelOptions({
       const [primary, ...additional] = names;
       if (!primary) {
         setAdditionalPlatformModelNames([]);
+        additionalModelNamesRef.current = [];
+        setDisabledPlatformModelNames([]);
+        disabledModelNamesRef.current = [];
         return false;
       }
       setSelectedPlatformModelName(primary);
       setAdditionalPlatformModelNames(additional);
+      // 恢复的是服务端组合（不含禁用语义）：禁用是会话内内存态，跨会话不泄漏。
+      setDisabledPlatformModelNames([]);
+      disabledModelNamesRef.current = [];
       return true;
     };
 
@@ -718,6 +727,9 @@ export function useChatModelOptions({
           userSelectedModelRef.current = true;
         } else {
           setAdditionalPlatformModelNames([]);
+          additionalModelNamesRef.current = [];
+          setDisabledPlatformModelNames([]);
+          disabledModelNamesRef.current = [];
         }
       }
     } else if (

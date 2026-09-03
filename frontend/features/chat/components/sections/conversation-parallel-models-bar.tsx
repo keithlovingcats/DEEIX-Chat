@@ -83,6 +83,11 @@ export function ConversationParallelModelsBar({
     () => new Set((disabledPlatformModelNames ?? []).map((name) => name.trim()).filter(Boolean)),
     [disabledPlatformModelNames],
   );
+  // 启用模型（实际参与者）：讨论次数与门槛都按启用列表计，禁用的不参与讨论。
+  const activeNames = React.useMemo(
+    () => selectedNames.filter((name) => !disabledNames.has(name)),
+    [selectedNames, disabledNames],
+  );
   const [activeGroupKey, setActiveGroupKey] = React.useState("");
   const modelGroups = React.useMemo(() => resolveModelGroups(modelOptions), [modelOptions]);
   const activeGroup = React.useMemo(
@@ -97,7 +102,7 @@ export function ConversationParallelModelsBar({
 
   // 讨论预估调用次数：参与者 × 轮次 + 1 次终稿（不含终稿失败重试）。
   const discussionCallCount =
-    Math.min(selectedNames.length, MAX_DISCUSSION_MODELS) * (discussionRounds ?? DEFAULT_DISCUSSION_ROUNDS) + 1;
+    Math.min(activeNames.length, MAX_DISCUSSION_MODELS) * (discussionRounds ?? DEFAULT_DISCUSSION_ROUNDS) + 1;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen && onModelCatalogRefresh) {
@@ -180,7 +185,7 @@ export function ConversationParallelModelsBar({
               );
             })}
       </div>
-      {selectedNames.length >= 2 && onToggleDiscussion ? (
+      {activeNames.length >= 2 && onToggleDiscussion ? (
         <div className="flex shrink-0 items-center gap-1.5">
           <span
             className={cn(
