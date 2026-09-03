@@ -91,6 +91,7 @@ export function useChatRuntime({
   activeConversation,
   selectedPlatformModelName,
   parallelPlatformModelNames,
+  disabledParallelModelNames,
   modelOptions,
   selectedToolIDs,
   selectedSkills,
@@ -129,6 +130,8 @@ export function useChatRuntime({
   activeConversation: ConversationDTO | null;
   selectedPlatformModelName: string;
   parallelPlatformModelNames?: string[];
+  /** jun 定制（多模型禁用）：附加模型中临时退出 fan-out/讨论的名单；组合持久化仍含全量。 */
+  disabledParallelModelNames?: string[];
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -210,6 +213,7 @@ export function useChatRuntime({
     activeConversation,
     selectedPlatformModelName,
     parallelPlatformModelNames,
+    disabledParallelModelNames,
     modelOptions,
     selectedToolIDs,
     selectedSkills,

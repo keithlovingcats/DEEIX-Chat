@@ -520,7 +520,7 @@ export function MarkdownCodePre({ children, node: _node, "data-markdown-source-l
   const artifactPreviewable = Boolean(
     resolveArtifactPreviewKind(language, codeContent) ?? resolveArtifactCodeViewKind(language),
   );
-  const _isCollapsible =
+  const isCollapsible =
     childElement != null && !mermaid && lineCount > CODE_BLOCK_COLLAPSE_LINE_THRESHOLD;
   const [expanded, setExpanded] = React.useState(false);
   const [isToggleHovered, setIsToggleHovered] = React.useState(false);
@@ -531,9 +531,18 @@ export function MarkdownCodePre({ children, node: _node, "data-markdown-source-l
 
   const codeBlock = React.cloneElement(childElement, { "data-block": "true" });
 
+  if (!isCollapsible) {
+    return (
+      <div className="relative w-full" data-markdown-source-line={sourceLine}>
+        {!mermaid ? <CodeBlockActions code={codeContent} language={language} previewable={artifactPreviewable} /> : null}
+        {codeBlock}
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-full" data-markdown-source-line={sourceLine}>
-      {!mermaid ? <CodeBlockActions code={codeContent} language={language} previewable={artifactPreviewable} /> : null}
+      <CodeBlockActions code={codeContent} language={language} previewable={artifactPreviewable} />
       <div
         className={cn(
           "w-full",

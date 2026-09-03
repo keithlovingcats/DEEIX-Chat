@@ -88,6 +88,7 @@ export function useChatMessageSubmit({
   activeConversation,
   selectedPlatformModelName,
   parallelPlatformModelNames,
+  disabledParallelModelNames,
   modelOptions,
   selectedToolIDs,
   selectedSkills,
@@ -143,6 +144,8 @@ export function useChatMessageSubmit({
   activeConversation: ConversationDTO | null;
   selectedPlatformModelName: string;
   parallelPlatformModelNames?: string[];
+    /** jun 定制（多模型禁用）：附加模型中临时退出 fan-out/讨论的名单（组合持久化仍含全量）。 */
+    disabledParallelModelNames?: string[];
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -216,12 +219,20 @@ export function useChatMessageSubmit({
   } = useChatSubmissionQueue({ releaseAttachments });
   // 多模型并行：以 ref 读取最新选择，避免 submitMessage 闭包过期。
   const parallelPlatformModelNamesRef = React.useRef<string[]>(parallelPlatformModelNames ?? []);
+  // 禁用名单快照：fan-out/队列快照过滤用；持久化组合不受影响。
+  const disabledParallelModelNamesRef = React.useRef<string[]>(disabledParallelModelNames ?? []);
   React.useEffect(() => {
     const names = (parallelPlatformModelNames ?? [])
       .map((name) => name.trim())
       .filter(Boolean);
     parallelPlatformModelNamesRef.current = Array.from(new Set(names));
   }, [parallelPlatformModelNames]);
+  React.useEffect(() => {
+    const names = (disabledParallelModelNames ?? [])
+      .map((name) => name.trim())
+      .filter(Boolean);
+    disabledParallelModelNamesRef.current = Array.from(new Set(names));
+  }, [disabledParallelModelNames]);
   const isRunActive = React.useCallback((runID: string) => activeStreamsRef.current.has(runID), []);
   const {
     getStatus: getHiddenParentRunStatus,
@@ -613,9 +624,16 @@ export function useChatMessageSubmit({
         let serverFilteredParallelModels: string[] = [];
         // 主请求并行组合快照：onMessageCreated fan-out 后 pendingFanOutModels 被置空，
         // completed 后的会话 patch 需要请求时发送的组合。
+        // 持久化组合统一保留全量（含禁用模型——禁用是会话内临时退出而非从组合删除），
+        // 即时与队列出队同源 ref：fan-out 已在快照/过滤层排除禁用，不影响实际发送。
         const requestedParallelModels =
           !programmaticFanOut && plan.branchReason === "default"
-            ? persistParallelModels ?? [platformModelName, ...pendingFanOutModels]
+            ? persistParallelModels ?? [
+                platformModelName,
+                ...parallelPlatformModelNamesRef.current.filter(
+                  (name) => name.trim() && name.trim() !== platformModelName,
+                ),
+              ]
             : undefined;
         // 多模型并行/讨论的 message_created 编排：fan-out 兄弟请求、讨论锚点回调、乐观 ID remap。
         const handleStreamMessageCreated: NonNullable<ConversationStreamOptions["onMessageCreated"]> = (event) => {
@@ -1079,9 +1097,12 @@ export function useChatMessageSubmit({
           content,
           attachments: currentAttachments,
           platformModelName: selectedPlatformModelName,
-          // 入队时快照当前并行选择，避免出队时用户已改选导致组合漂移。
+          // 入队时快照当前并行选择，避免出队时用户已改选导致组合漂移；禁用的不参与发送。
           parallelPlatformModelNames: parallelPlatformModelNamesRef.current.filter(
-            (name) => name.trim() && name.trim() !== selectedPlatformModelName.trim(),
+            (name) =>
+              name.trim() &&
+              name.trim() !== selectedPlatformModelName.trim() &&
+              !disabledParallelModelNamesRef.current.includes(name.trim()),
           ),
           options: sanitizeConversationOptions(options),
           selectedToolIDs: selectedToolIDs.slice(),
@@ -1202,9 +1223,12 @@ export function useChatMessageSubmit({
       resolvePersistedPublicID(currentLeafMessage?.publicID) ??
       resolveDefaultSubmissionParentMessage(visibleMessages)?.publicID ??
       null;
-    // 多模型并行：主模型以外的附加模型在 message_created 后 fan-out。
+    // 多模型并行：主模型以外的附加模型在 message_created 后 fan-out；禁用的不参与。
     const fanOutModels = parallelPlatformModelNamesRef.current.filter(
-      (name) => name.trim() && name.trim() !== selectedPlatformModelName.trim(),
+      (name) =>
+        name.trim() &&
+        name.trim() !== selectedPlatformModelName.trim() &&
+        !disabledParallelModelNamesRef.current.includes(name.trim()),
     );
     // 多模型讨论：启用且参与者足够时改走串行讨论编排，不再并行 fan-out。
     if (multiModelDiscussion?.enabled) {

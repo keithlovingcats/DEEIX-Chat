@@ -129,5 +129,6 @@ export function useChatStopMessage({
     reload,
     visibleBranchScopePathRef,
     visibleMessagesRef,
+    onParallelRunsRemaining,
   ]);
 }

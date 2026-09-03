@@ -3,16 +3,15 @@
 import * as React from "react";
 
 import type { BundledTheme } from "streamdown";
-
+import type { UserSettingsMap } from "@/shared/api/user-settings";
 import { readAccessToken, SESSION_SNAPSHOT_CHANGED_EVENT } from "@/shared/auth/session";
 import {
   DEFAULT_MERMAID_THEME,
   DEFAULT_SHIKI_THEME_PAIR,
+  type MermaidTheme,
   normalizeMermaidTheme,
   resolveShikiThemePair,
-  type MermaidTheme,
 } from "@/shared/components/markdown/markdown-themes";
-import type { UserSettingsMap } from "@/shared/api/user-settings";
 import {
   readUserSettingsSnapshot,
   subscribeUserSettings,

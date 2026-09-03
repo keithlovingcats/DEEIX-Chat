@@ -272,6 +272,9 @@ export function AppChatArea() {
     selectedPlatformModelName,
     setSelectedPlatformModelName,
     selectedPlatformModelNames,
+    activePlatformModelNames,
+    disabledPlatformModelNames,
+    toggleParallelModelEnabled,
     togglePlatformModelName,
     clearParallelModels,
     discussionEnabled,
@@ -290,10 +293,11 @@ export function AppChatArea() {
   // 多模型讨论配置：useMemo 稳定身份，避免 onSendMessage 等下游回调每渲染重建。
   const multiModelDiscussion = React.useMemo(
     () => ({
-      enabled: discussionEnabled && selectedPlatformModelNames.length >= 2,
+      // 启用列表 ≥2 才可开讨论：禁用的模型不参与（fan-out 与讨论同规则）。
+      enabled: discussionEnabled && activePlatformModelNames.length >= 2,
       rounds: discussionRounds,
     }),
-    [discussionEnabled, discussionRounds, selectedPlatformModelNames.length],
+    [discussionEnabled, discussionRounds, activePlatformModelNames.length],
   );
 
   const {
@@ -483,6 +487,7 @@ export function AppChatArea() {
     activeConversation: currentConversation,
     selectedPlatformModelName,
     parallelPlatformModelNames: selectedPlatformModelNames,
+    disabledParallelModelNames: disabledPlatformModelNames,
     modelOptions,
     selectedToolIDs,
     selectedSkills,
@@ -908,8 +913,10 @@ export function AppChatArea() {
               <ConversationParallelModelsBar
                 modelOptions={modelOptions}
                 selectedPlatformModelNames={selectedPlatformModelNames}
+                disabledPlatformModelNames={disabledPlatformModelNames}
                 loading={modelsLoading}
                 onToggleParallelModel={togglePlatformModelName}
+                onToggleParallelModelEnabled={toggleParallelModelEnabled}
                 onModelCatalogRefresh={refreshModelCatalogForComposer}
                 discussionEnabled={discussionEnabled}
                 onToggleDiscussion={setDiscussionEnabled}
@@ -983,9 +990,11 @@ export function AppChatArea() {
                   parallelModelsBar={{
                     modelOptions,
                     selectedPlatformModelNames,
+                    disabledPlatformModelNames,
                     loading: modelsLoading,
                     disabled: false,
                     onToggle: togglePlatformModelName,
+                    onToggleEnabled: toggleParallelModelEnabled,
                     onCatalogRefresh: refreshModelCatalogForComposer,
                     discussionEnabled,
                     onToggleDiscussion: setDiscussionEnabled,

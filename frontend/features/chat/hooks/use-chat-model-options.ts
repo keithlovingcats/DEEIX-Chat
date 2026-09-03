@@ -428,11 +428,15 @@ export function useChatModelOptions({
   // 多模型讨论：会话内内存态开关（默认关闭），不随会话持久化。
   const [discussionEnabled, setDiscussionEnabled] = React.useState(false);
   const [discussionRounds, setDiscussionRounds] = React.useState(DEFAULT_DISCUSSION_ROUNDS);
+  // 多模型并行「禁用」集合：附加模型可临时退出 fan-out/讨论但不从组合移除；
+  // 会话内内存态，刷新/切换会话后恢复全启用（组合本身持久化保留全量）。
+  const [disabledPlatformModelNames, setDisabledPlatformModelNames] = React.useState<string[]>([]);
   const activeConversationRef = React.useRef<string | null>(null);
   const userSelectedModelRef = React.useRef(false);
   // toggle 快照：与对应 state 同步，避免嵌套 setState 读取过期值。
   const selectedPrimaryModelRef = React.useRef("");
   const additionalModelNamesRef = React.useRef<string[]>([]);
+  const disabledModelNamesRef = React.useRef<string[]>([]);
   const previousResetTokenRef = React.useRef(resetToken);
   const runModelRequestRef = React.useRef(0);
   const modelCatalogRequestRef = React.useRef<Promise<ModelCatalogRefreshResult> | null>(null);
@@ -458,12 +462,16 @@ export function useChatModelOptions({
     // 主模型切换时收敛为单选；多选通过 togglePlatformModelName 建立在当前主模型之上。
     setAdditionalPlatformModelNames([]);
     additionalModelNamesRef.current = [];
+    setDisabledPlatformModelNames([]);
+    disabledModelNamesRef.current = [];
   }, []);
 
   // 一键清除附加并行模型，收敛回单模型（主模型保留，不可清空）。
   const clearParallelModels = React.useCallback(() => {
     setAdditionalPlatformModelNames([]);
     additionalModelNamesRef.current = [];
+    setDisabledPlatformModelNames([]);
+    disabledModelNamesRef.current = [];
   }, []);
 
   const togglePlatformModelName = React.useCallback(
@@ -483,8 +491,17 @@ export function useChatModelOptions({
         if (currentPrimary === normalizedName && currentAdditional.length === 0) {
           return false;
         }
+        const nextDisabled = disabledModelNamesRef.current.filter(
+          (name) =>
+            name !== normalizedName &&
+            (currentPrimary === normalizedName
+              ? currentAdditional.slice(1).includes(name)
+              : currentAdditional.includes(name)),
+        );
+        setDisabledPlatformModelNames(nextDisabled);
+        disabledModelNamesRef.current = nextDisabled;
         if (currentPrimary === normalizedName) {
-          // 主模型被移除：提升第一个附加模型为主模型。
+          // 主模型被移除：提升第一个附加模型为主模型（提升的附加模型必然启用）。
           const [nextPrimary, ...restAdditional] = currentAdditional;
           setSelectedPlatformModelName(nextPrimary);
           selectedPrimaryModelRef.current = nextPrimary;
@@ -509,6 +526,25 @@ export function useChatModelOptions({
     [],
   );
 
+  // 启用/禁用附加模型：禁用的模型保留在组合里（持久化/恢复不受影响），仅退出
+  // fan-out 与讨论参与者。主模型不可禁用（发送模型不可悬空），返回 false 供 UI 提示。
+  const toggleParallelModelEnabled = React.useCallback(
+    (platformModelName: string): boolean => {
+      const normalizedName = platformModelName.trim();
+      if (!normalizedName || normalizedName === selectedPrimaryModelRef.current) {
+        return false;
+      }
+      const currentDisabled = disabledModelNamesRef.current;
+      const nextDisabled = currentDisabled.includes(normalizedName)
+        ? currentDisabled.filter((name) => name !== normalizedName)
+        : [...currentDisabled, normalizedName];
+      setDisabledPlatformModelNames(nextDisabled);
+      disabledModelNamesRef.current = nextDisabled;
+      return true;
+    },
+    [],
+  );
+
   // ref 快照与 state 保持同步（涵盖 effect 驱动的会话切换/默认模型回填路径）。
   React.useEffect(() => {
     selectedPrimaryModelRef.current = selectedPlatformModelName;
@@ -516,6 +552,22 @@ export function useChatModelOptions({
   React.useEffect(() => {
     additionalModelNamesRef.current = additionalPlatformModelNames;
   }, [additionalPlatformModelNames]);
+  React.useEffect(() => {
+    disabledModelNamesRef.current = disabledPlatformModelNames;
+  }, [disabledPlatformModelNames]);
+  // 禁用集合收缩：组合变化（恢复服务端组合/移除模型）后清掉不在组合内的名字；
+  // 会话切换恢复的组合默认全启用。
+  React.useEffect(() => {
+    const inCombo = new Set([selectedPlatformModelName, ...additionalPlatformModelNames]);
+    setDisabledPlatformModelNames((current) => {
+      const next = current.filter((name) => inCombo.has(name));
+      if (next.length === current.length) {
+        return current;
+      }
+      disabledModelNamesRef.current = next;
+      return next;
+    });
+  }, [selectedPlatformModelName, additionalPlatformModelNames]);
 
   const loadModelCatalog = React.useCallback((accessToken?: string): Promise<ModelCatalogRefreshResult> => {
     if (modelCatalogRequestRef.current) {
@@ -774,6 +826,13 @@ export function useChatModelOptions({
     () => [selectedPlatformModelName, ...additionalPlatformModelNames].filter(Boolean),
     [selectedPlatformModelName, additionalPlatformModelNames],
   );
+  // 启用列表：发送侧（fan-out/讨论参与者/队列快照）只消费这份；禁用的仅保留在组合里。
+  const activePlatformModelNames = React.useMemo(() => {
+    const disabled = new Set(disabledPlatformModelNames);
+    return [selectedPlatformModelName, ...additionalPlatformModelNames].filter(
+      (name) => name && !disabled.has(name),
+    );
+  }, [selectedPlatformModelName, additionalPlatformModelNames, disabledPlatformModelNames]);
 
   // 对话区宽度即时切换并持久化为用户设置（chat.content_width）；
   // store 乐观更新驱动所有订阅方即时刷新，失败时由快照回滚。
@@ -820,6 +879,9 @@ export function useChatModelOptions({
     selectedPlatformModelName,
     setSelectedPlatformModelName: selectPlatformModelName,
     selectedPlatformModelNames,
+    activePlatformModelNames,
+    disabledPlatformModelNames,
+    toggleParallelModelEnabled,
     togglePlatformModelName,
     clearParallelModels,
     discussionEnabled,

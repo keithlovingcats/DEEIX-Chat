@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, MessageCircle, Plus, X } from "lucide-react";
+import { Ban, Check, MessageCircle, Plus, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
@@ -43,9 +43,11 @@ function resolveModelGroups(modelOptions: ChatModelOption[]) {
 export function ConversationParallelModelsBar({
   modelOptions,
   selectedPlatformModelNames,
+  disabledPlatformModelNames,
   loading,
   disabled,
   onToggleParallelModel,
+  onToggleParallelModelEnabled,
   onModelCatalogRefresh,
   discussionEnabled,
   onToggleDiscussion,
@@ -55,9 +57,13 @@ export function ConversationParallelModelsBar({
 }: {
   modelOptions: ChatModelOption[];
   selectedPlatformModelNames: string[];
+  /** jun 定制（多模型禁用）：临时退出 fan-out/讨论的附加模型名单（主模型不可禁用）。 */
+  disabledPlatformModelNames?: string[];
   loading?: boolean;
   disabled?: boolean;
   onToggleParallelModel?: (platformModelName: string) => boolean;
+  /** 启用/禁用附加模型；返回 false 表示不可禁用（主模型）。 */
+  onToggleParallelModelEnabled?: (platformModelName: string) => boolean;
   onModelCatalogRefresh?: () => void | Promise<void>;
   /** 多模型讨论：启用后发送改为串行辩论（≥2 个模型才可开）。 */
   discussionEnabled?: boolean;
@@ -72,6 +78,10 @@ export function ConversationParallelModelsBar({
   const selectedNames = React.useMemo(
     () => Array.from(new Set(selectedPlatformModelNames.map((name) => name.trim()).filter(Boolean))),
     [selectedPlatformModelNames],
+  );
+  const disabledNames = React.useMemo(
+    () => new Set((disabledPlatformModelNames ?? []).map((name) => name.trim()).filter(Boolean)),
+    [disabledPlatformModelNames],
   );
   const [activeGroupKey, setActiveGroupKey] = React.useState("");
   const modelGroups = React.useMemo(() => resolveModelGroups(modelOptions), [modelOptions]);
@@ -117,21 +127,46 @@ export function ConversationParallelModelsBar({
       <div className="flex min-w-0 flex-wrap items-center gap-1">
         {loading && modelOptions.length === 0
           ? [0, 1].map((index) => <Skeleton key={index} className="h-6 w-20 rounded-full bg-muted/40" />)
-          : selectedNames.map((name) => {
+          : selectedNames.map((name, index) => {
               const option = modelOptions.find((item) => item.platformModelName === name);
               const iconURL = option
                 ? resolveModelIconURL(
                     resolveModelIdentity({ code: option.platformModelName, vendor: option.vendor, icon: option.icon }).modelIcon,
                   )
                 : resolveModelIconURL(resolveModelIdentity({ code: name }).modelIcon);
+              // 首位是主模型（发送模型），不可禁用；其余附加模型可临时退出对话。
+              const isPrimary = index === 0;
+              const modelDisabled = disabledNames.has(name);
               return (
                 <span
                   key={name}
-                  title={name}
-                  className="inline-flex h-6 max-w-44 items-center gap-1 rounded-full border-[0.5px] border-border bg-muted/40 pl-1.5 pr-1 text-[11px] font-medium text-foreground"
+                  title={modelDisabled ? `${name} · ${t("parallelModelDisabledHint")}` : name}
+                  className={cn(
+                    "inline-flex h-6 max-w-44 items-center gap-1 rounded-full border-[0.5px] pl-1.5 pr-1 text-[11px] font-medium transition-opacity",
+                    modelDisabled
+                      ? "border-dashed border-border bg-muted/20 text-muted-foreground/70"
+                      : "border-border bg-muted/40 text-foreground",
+                  )}
                 >
                   <ModelIcon iconUrl={iconURL} label={name} />
                   <span className="truncate">{name}</span>
+                  {!isPrimary && onToggleParallelModelEnabled ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted disabled:opacity-40",
+                        modelDisabled
+                          ? "text-primary/80 hover:text-primary"
+                          : "text-muted-foreground/70 hover:text-foreground",
+                      )}
+                      aria-label={modelDisabled ? t("enableParallelModel") : t("disableParallelModel")}
+                      title={modelDisabled ? t("enableParallelModel") : t("disableParallelModel")}
+                      disabled={disabled}
+                      onClick={() => onToggleParallelModelEnabled(name)}
+                    >
+                      <Ban className="size-3" strokeWidth={2} />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"

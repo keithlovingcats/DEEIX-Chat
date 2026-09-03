@@ -262,9 +262,12 @@ type ChatAreaProps = {
   parallelModelsBar?: {
     modelOptions: ChatModelOption[];
     selectedPlatformModelNames: string[];
+    /** jun 定制（多模型禁用）：临时退出对话的附加模型名单。 */
+    disabledPlatformModelNames?: string[];
     loading?: boolean;
     disabled?: boolean;
     onToggle: (platformModelName: string) => boolean;
+    onToggleEnabled?: (platformModelName: string) => boolean;
     onCatalogRefresh?: () => void | Promise<void>;
     /** 多模型讨论：开关与轮数（≥2 模型时 bar 内渲染讨论开关）。 */
     discussionEnabled?: boolean;
@@ -798,8 +801,10 @@ export function ChatArea({
             <ConversationParallelModelsBar
               modelOptions={parallelModelsBar?.modelOptions ?? []}
               selectedPlatformModelNames={parallelModelsBar?.selectedPlatformModelNames ?? []}
+              disabledPlatformModelNames={parallelModelsBar?.disabledPlatformModelNames}
               loading={parallelModelsBar?.loading}
               disabled={parallelModelsBar?.disabled}
+              onToggleParallelModelEnabled={parallelModelsBar?.onToggleEnabled}
               onToggleParallelModel={parallelModelsBar?.onToggle}
               onModelCatalogRefresh={parallelModelsBar?.onCatalogRefresh}
               discussionEnabled={parallelModelsBar?.discussionEnabled}

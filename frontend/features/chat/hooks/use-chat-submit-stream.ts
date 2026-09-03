@@ -24,6 +24,7 @@ export function useChatSubmitStream({
   activeConversation,
   selectedPlatformModelName,
   parallelPlatformModelNames,
+  disabledParallelModelNames,
   modelOptions,
   selectedToolIDs,
   selectedSkills,
@@ -71,6 +72,8 @@ export function useChatSubmitStream({
   activeConversation: ConversationDTO | null;
   selectedPlatformModelName: string;
   parallelPlatformModelNames?: string[];
+  /** jun 定制（多模型禁用）：附加模型中临时退出 fan-out/讨论的名单。 */
+  disabledParallelModelNames?: string[];
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -128,6 +131,7 @@ export function useChatSubmitStream({
     activeConversation,
     selectedPlatformModelName,
     parallelPlatformModelNames,
+    disabledParallelModelNames,
     modelOptions,
     selectedToolIDs,
     selectedSkills,
