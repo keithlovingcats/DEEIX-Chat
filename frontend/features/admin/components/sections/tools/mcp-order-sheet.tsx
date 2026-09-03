@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { ListOrdered } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,21 +15,21 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
+import {
+  listAdminMCPServerTools,
+  reorderAdminMCPServers,
+} from "@/features/admin/api";
+import type { AdminMCPOrderGroupDTO, AdminMCPServerDTO } from "@/features/admin/api/mcp.types";
 import {
   AdminSortableHandle,
   AdminSortableItem,
   AdminSortableList,
   moveSortableItem,
 } from "@/features/admin/components/sections/shared/admin-sortable-list";
-import {
-  listAdminMCPServerTools,
-  reorderAdminMCPServers,
-} from "@/features/admin/api";
-import type { AdminMCPOrderGroupDTO, AdminMCPServerDTO } from "@/features/admin/api/mcp.types";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { cn } from "@/lib/utils";
 import type { MCPToolDTO } from "@/shared/api/mcp.types";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
 type MCPOrderSheetProps = {
   open: boolean;

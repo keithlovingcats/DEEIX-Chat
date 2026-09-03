@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NoteEditDialog } from "@/features/notes/components/note-edit-dialog";
 import { useNotesPage } from "@/features/notes/hooks/use-notes-page";
-import { notePreview, countChecklist } from "@/features/notes/lib/checklist";
+import { countChecklist, notePreview } from "@/features/notes/lib/checklist";
 import type { NoteSort } from "@/shared/api/notes.types";
 import { useCopyAction } from "@/shared/components/copy-action";
 

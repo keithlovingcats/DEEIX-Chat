@@ -1,19 +1,18 @@
 'use client';
 
-import * as React from 'react';
 import {
+  type HTMLMotionProps,
+  type LegacyAnimationControls,
   motion,
-  useAnimation,
   type SVGMotionProps,
   type UseInViewOptions,
-  type LegacyAnimationControls,
+  useAnimation,
   type Variants,
-  type HTMLMotionProps,
 } from 'motion/react';
-
-import { cn } from '@/lib/utils';
+import * as React from 'react';
 import { useIsInView } from '@/components/animate-ui/hooks/use-is-in-view';
 import { Slot, type WithAsChild } from '@/components/animate-ui/primitives/animate/slot';
+import { cn } from '@/lib/utils';
 
 const staticAnimations = {
   path: {
@@ -643,14 +642,14 @@ function getVariants<
 }
 
 export {
-  pathClassName,
-  staticAnimations,
   AnimateIcon,
-  IconWrapper,
-  useAnimateIconContext,
+  type AnimateIconContextValue,
+  type AnimateIconProps,
   getVariants,
   type IconProps,
+  IconWrapper,
   type IconWrapperProps,
-  type AnimateIconProps,
-  type AnimateIconContextValue,
+  pathClassName,
+  staticAnimations,
+  useAnimateIconContext,
 };

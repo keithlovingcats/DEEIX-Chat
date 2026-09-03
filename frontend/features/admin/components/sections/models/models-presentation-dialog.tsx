@@ -26,7 +26,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useVirtualTableRows } from "@/components/ui/virtual-table";
-import { cn } from "@/lib/utils";
 import type {
   AdminLLMModelDisplayGroupDTO,
   AdminLLMModelVendorDTO,
@@ -35,8 +34,9 @@ import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm
 import { ModelIconField } from "@/features/admin/components/sections/models/model-icon-field";
 import {
   type PresentationTab,
-  useModelPresentationEditor,
-} from "@/features/admin/hooks/use-model-presentation-editor";
+  useAdminPresentationEditor,
+} from "@/features/admin/hooks/use-admin-presentation-editor";
+import { cn } from "@/lib/utils";
 import { ModelIcon } from "@/shared/components/model-icon";
 import { resolveModelIconURL } from "@/shared/lib/model-identity";
 
@@ -207,7 +207,7 @@ export function ModelPresentationDialog({
     toggleEditorModel,
     saveEditor,
     confirmDelete,
-  } = useModelPresentationEditor({ onChanged, onClose });
+  } = useAdminPresentationEditor({ onChanged, onClose });
   const keyInputID = React.useId();
   const nameInputID = React.useId();
   const iconInputID = React.useId();

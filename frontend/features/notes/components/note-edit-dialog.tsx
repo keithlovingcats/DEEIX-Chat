@@ -13,11 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   NoteMarkdownEditor,
   type NoteMarkdownEditorRef,
 } from "@/features/notes/components/note-markdown-editor";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type NoteAutosaveStatus, useNoteAutosave } from "@/features/notes/hooks/use-note-autosave";
 import { countChecklist, suggestTitle } from "@/features/notes/lib/checklist";
 import { cn } from "@/lib/utils";

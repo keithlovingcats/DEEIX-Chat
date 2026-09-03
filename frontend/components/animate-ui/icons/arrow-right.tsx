@@ -4,9 +4,9 @@ import { motion, type Variants } from 'motion/react';
 
 import {
   getVariants,
-  useAnimateIconContext,
-  IconWrapper,
   type IconProps,
+  IconWrapper,
+  useAnimateIconContext,
 } from '@/components/animate-ui/icons/icon';
 
 type ArrowRightProps = IconProps<keyof typeof animations>;
@@ -145,9 +145,9 @@ function ArrowRight(props: ArrowRightProps) {
 }
 
 export {
-  animations,
   ArrowRight,
   ArrowRight as ArrowRightIcon,
   type ArrowRightProps,
   type ArrowRightProps as ArrowRightIconProps,
+  animations,
 };

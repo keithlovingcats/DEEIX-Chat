@@ -1,9 +1,9 @@
 "use client";
 
 import { ArrowDownToLine, ArrowUpToLine, ChevronDown, CircleAlert, Film, GalleryHorizontalEnd } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import * as React from "react";
-import { GrainientBackground } from "@/components/reactbits/backgrounds/grainient";
 import {
   Accordion,
   AccordionContent,
@@ -22,7 +22,7 @@ import { MessageAttachmentRow } from "@/features/chat/components/message/message
 import { MessageKnowledgeSources } from "@/features/chat/components/message/message-knowledge-sources";
 import type { AssistantReaction } from "@/features/chat/components/message/message-meta";
 import { AssistantMessageMeta, ModelBranchTabs } from "@/features/chat/components/message/message-meta";
-import { MessageProcessTrace, MessageTraceEventBlocks } from "@/features/chat/components/message/message-process-trace";
+import { MessageAgentTrace, MessageProcessTrace } from "@/features/chat/components/message/message-process-trace";
 import { resolveLeadingImagePreview } from "@/features/chat/model/media-image-preview";
 import {
   clearLiveUpstreamThinkTrace,
@@ -37,9 +37,9 @@ import type {
 import { isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cn } from "@/lib/utils";
-import { type FileContentResult, fetchFileContent } from "@/shared/api/file";
+import { fetchFileContent } from "@/shared/api/file";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import type { PreviewDialogFile } from "@/shared/components/file-preview/preview-dialog";
+import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
 import { PreviewMedia } from "@/shared/components/file-preview/preview-media";
 import { type MarkdownArtifactActions, MarkdownImage } from "@/shared/components/markdown/streamdown-components";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
@@ -47,7 +47,11 @@ import { MediaActionBar, MediaActionButton } from "@/shared/components/media-act
 import { useBranding } from "@/shared/config/branding-provider";
 import type { BillingDisplayCurrency } from "@/shared/lib/billing-display";
 
-const EMPTY_TRACE_EVENTS: NonNullable<ChatAreaMessage["processTrace"]>["events"] = [];
+const EMPTY_TRACE_EVENTS: NonNullable<NonNullable<ChatAreaMessage["processTrace"]>["events"]> = [];
+const GrainientBackground = dynamic(
+  () => import("@/components/reactbits/backgrounds/grainient").then((mod) => mod.GrainientBackground),
+  { ssr: false, loading: () => null },
+);
 
 function isEditableImageAttachment(attachment: MessageAttachment): boolean {
   const mimeType = attachment.mimeType.toLowerCase();
@@ -166,6 +170,9 @@ type ChatMessageBotProps = {
   onCopy: () => void;
   copySucceeded?: boolean;
   markdownRender?: boolean;
+  autoExpandThinking?: boolean;
+  autoExpandToolCalls?: boolean;
+  allowFullToolResults?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
@@ -173,7 +180,7 @@ type ChatMessageBotProps = {
   billingDisplayCurrency?: BillingDisplayCurrency;
   billingDisplayUsdToCnyRate?: number | null;
   readOnly?: boolean;
-  attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
+  attachmentContentLoader?: FileContentLoader;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onExtendVideoAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   artifactActions?: MarkdownArtifactActions;
@@ -196,6 +203,9 @@ export function ChatMessageBot({
   onCopy,
   copySucceeded = false,
   markdownRender = true,
+  autoExpandThinking = true,
+  autoExpandToolCalls = true,
+  allowFullToolResults = false,
   showModelInfo = true,
   showLatency = true,
   showTokenUsage = true,
@@ -274,7 +284,7 @@ export function ChatMessageBot({
       )?.closest<HTMLElement>("[data-slot='message-scroller-viewport']");
       onSelectMessageBranch?.(parentPublicID, childPublicID);
       requestAnimationFrame(() => {
-        const messageItem = findMessageItemByPublicID(viewport, childPublicID);
+        const messageItem = findMessageItemByPublicID(viewport ?? null, childPublicID);
         scrollMessageItemIntoView(messageItem, "start", true);
       });
     },
@@ -496,12 +506,16 @@ export function ChatMessageBot({
         active={messageStreaming}
         autoCollapseReady={processAutoCollapseReady}
       />
-      <MessageTraceEventBlocks
+      <MessageAgentTrace
         events={postProcessEvents}
         activeToolBlock={toolTrace}
         activeThinkBlock={upstreamThink}
         messageStreaming={messageStreaming}
         autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
+        autoExpandThinking={autoExpandThinking}
+        autoExpandToolCalls={autoExpandToolCalls}
+        runID={item.runID}
+        allowFullToolResults={allowFullToolResults && !messageStreaming}
       />
 
       <div
@@ -524,6 +538,7 @@ export function ChatMessageBot({
               <StreamdownRender
                 content={streamdownContent}
                 streaming={Boolean(item.isStreaming)}
+                autoExpandThinking={autoExpandThinking}
                 imageActions={markdownImageActions}
                 artifactActions={artifactActions}
               />
@@ -535,6 +550,7 @@ export function ChatMessageBot({
           <StreamdownRender
             content={streamdownContent}
             streaming={Boolean(item.isStreaming)}
+            autoExpandThinking={autoExpandThinking}
             imageActions={markdownImageActions}
             artifactActions={artifactActions}
           />
@@ -881,7 +897,12 @@ export function AssistantImageGenerationSkeleton({
         <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted border-t-foreground/50" />
         {label?.trim() || t("processing")}
       </div>
-      <div className={cn("relative w-full overflow-hidden rounded-xl bg-muted/20 text-primary", aspectClassName)}>
+      <div
+        className={cn(
+          "relative w-full overflow-hidden rounded-xl bg-[linear-gradient(135deg,#BAE6FD_0%,#60A5FA_52%,#A78BFA_100%)] text-primary",
+          aspectClassName,
+        )}
+      >
         <GrainientBackground
           className="absolute inset-0 text-primary/75"
           color1="#BAE6FD"
@@ -912,7 +933,7 @@ export function AssistantVideoGenerationSkeleton({ label }: { label?: string }) 
         <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted border-t-foreground/50" />
         {label?.trim() || t("processing")}
       </div>
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-muted/20 text-primary">
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-[linear-gradient(135deg,#FDE68A_0%,#FDA4AF_52%,#FB7185_100%)] text-primary">
         <GrainientBackground
           className="absolute inset-0 text-primary/75"
           color1="#FDE68A"
@@ -956,7 +977,7 @@ function MessageInlineVideoPreview({
   onExtend,
 }: {
   attachment: MessageAttachment;
-  loadContent?: (file: PreviewDialogFile) => Promise<FileContentResult>;
+  loadContent?: FileContentLoader;
   onExtend?: () => void;
 }) {
   const tPreview = useTranslations("files.previewDialog");
@@ -988,6 +1009,7 @@ function MessageInlineVideoPreview({
 
   React.useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     revokeObjectURL();
 
     if (previewURL) {
@@ -1009,18 +1031,18 @@ function MessageInlineVideoPreview({
           sizeBytes,
         };
         const result = loadContent
-          ? await loadContent(file)
+          ? await loadContent(file, controller.signal)
           : await (async () => {
               const token = await resolveAccessToken();
               if (!token) {
                 throw new Error(tPreview("sessionExpired"));
               }
-              return fetchFileContent(token, fileID);
+              return fetchFileContent(token, fileID, controller.signal);
             })();
         const objectURL = URL.createObjectURL(result.blob);
         objectURLRef.current = objectURL;
 
-        if (cancelled) {
+        if (cancelled || controller.signal.aborted) {
           URL.revokeObjectURL(objectURL);
           if (objectURLRef.current === objectURL) {
             objectURLRef.current = null;
@@ -1034,7 +1056,7 @@ function MessageInlineVideoPreview({
           contentType: result.contentType || detectedMime || mimeType,
         });
       } catch (error) {
-        if (cancelled) {
+        if (cancelled || controller.signal.aborted) {
           return;
         }
         setState({ status: "error", message: resolveErrorMessage(error, tPreview("loadFailed")) });
@@ -1043,6 +1065,7 @@ function MessageInlineVideoPreview({
 
     return () => {
       cancelled = true;
+      controller.abort();
       revokeObjectURL();
     };
   }, [

@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Box, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import {
@@ -17,8 +17,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,11 +33,11 @@ import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
   EMPTY_SKILL_FORM,
   SKILL_LIMITS,
+  type SkillFormValue,
   skillFormFromDTO,
   skillFormIsWithinLimits,
   skillPayloadFromForm,
   skillPayloadIsComplete,
-  type SkillFormValue,
 } from "@/shared/model/skills";
 
 const SKILL_PAGE_SIZE = 100;

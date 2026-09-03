@@ -1,15 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
-
+import { Toaster } from "@/components/ui/sonner";
 import { AppVersionGuard } from "@/features/layouts";
 import { AppearancePreferencesProvider } from "@/features/settings";
-import { MarkdownThemeProvider } from "@/shared/components/markdown/markdown-theme-provider";
 import { AppI18nProvider } from "@/i18n/app-i18n-provider";
-import { BrandingProvider } from "@/shared/config/branding-provider";
 import { DevtoolsBrandBanner } from "@/shared/components/devtools-brand-banner";
+import { MarkdownThemeProvider } from "@/shared/components/markdown/markdown-theme-provider";
 import { ThemeProvider } from "@/shared/components/theme-provider";
+import { BrandingProvider } from "@/shared/config/branding-provider";
 import { LegacyPWAServiceWorkerMigration } from "@/shared/pwa/migrations/legacy-service-worker-migration";
-import { Toaster } from "@/components/ui/sonner";
 
 import "./globals.css";
 import "katex/dist/katex.min.css";

@@ -1,9 +1,9 @@
-import type { ChatContentWidth } from "@/shared/model/chat-content-width";
 import type { ChatFontOption, ChatFontWeightOption } from "@/features/settings/utils/chat-font";
 import type { FontSizeOption } from "@/features/settings/utils/font-size";
-import type { ThemePreset } from "@/shared/components/theme-provider";
 import type { PublicModelDTO } from "@/shared/api/model.types";
 import type { MermaidTheme } from "@/shared/components/markdown/markdown-themes";
+import type { ThemePreset } from "@/shared/components/theme-provider";
+import type { ChatContentWidth } from "@/shared/model/chat-content-width";
 
 export type SendShortcut = "enter" | "ctrl_enter" | "meta_enter";
 export type FileMode = "auto" | "full_context" | "rag";
@@ -16,6 +16,8 @@ export type ChatSettings = {
   showLatency: boolean;
   showBillingCost: boolean;
   markdownRender: boolean;
+  autoExpandThinking: boolean;
+  autoExpandToolCalls: boolean;
   autoGenerateTitle: boolean;
   autoGenerateLabels: boolean;
   deleteFilesByDefault: boolean;

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	appbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
-	appcompact "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/compact"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
@@ -33,8 +32,8 @@ func (r *rejectedMessageRepositoryStub) GetConversationByUser(_ context.Context,
 	return &item, nil
 }
 
-func (r *rejectedMessageRepositoryStub) ListRecentMessages(context.Context, uint, int) ([]model.Message, int64, error) {
-	return nil, 0, nil
+func (r *rejectedMessageRepositoryStub) ListLatestBranchPreviewMessages(context.Context, uint, int, int) ([]model.Message, error) {
+	return nil, nil
 }
 
 func (r *rejectedMessageRepositoryStub) CreateMessagePairWithUserAttachments(
@@ -90,13 +89,11 @@ func TestPersistMessageUsageRejectionStoresStableFailedTurn(t *testing.T) {
 			Model:    "gpt-test",
 		},
 	}
-	logger := zap.NewNop()
 	service := &Service{
 		cfg:    runtimeCfg,
 		repo:   repo,
-		logger: logger,
+		logger: zap.NewNop(),
 	}
-	service.compactSvc = appcompact.NewServiceWithRuntime(runtimeCfg, repo, logger)
 
 	err := service.PersistMessageUsageRejection(
 		context.Background(),

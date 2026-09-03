@@ -1,16 +1,15 @@
 "use client";
 
-import * as React from "react";
 import {
   MessageScroller as MessageScrollerPrimitive,
   useMessageScroller,
   useMessageScrollerScrollable,
   useMessageScrollerVisibility,
 } from "@shadcn/react/message-scroller";
-
+import { ArrowDownIcon } from "lucide-react";
+import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ArrowDownIcon } from "lucide-react";
 
 const MESSAGE_SCROLLER_EDGE_THRESHOLD_PX = 48;
 
@@ -90,7 +89,7 @@ function MessageScrollerViewport({
     <MessageScrollerPrimitive.Viewport
       data-slot="message-scroller-viewport"
       className={cn(
-        "size-full min-h-0 min-w-0 scrollbar-none overflow-y-auto overscroll-contain contain-content [overflow-anchor:none]",
+        "size-full min-h-0 min-w-0 scrollbar-none overflow-y-auto overscroll-contain outline-none contain-content [overflow-anchor:none]",
         className,
       )}
       preserveScrollOnPrepend={preserveScrollOnPrepend}
@@ -171,14 +170,14 @@ function useOptionalMessageScroller(): MessageScrollerApi | null {
 }
 
 export {
-  MessageScrollerProvider,
   MessageScroller,
-  MessageScrollerViewport,
+  MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
-  MessageScrollerButton,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
   useMessageScroller,
-  useOptionalMessageScroller,
   useMessageScrollerScrollable,
   useMessageScrollerVisibility,
+  useOptionalMessageScroller,
 };

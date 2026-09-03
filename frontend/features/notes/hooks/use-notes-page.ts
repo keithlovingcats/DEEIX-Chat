@@ -1,14 +1,13 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { ApiError } from "@/shared/api/http-client";
 import { deleteNote, listNotes } from "@/shared/api/notes";
 import type { NoteDTO, NoteSort } from "@/shared/api/notes.types";
-import { ApiError } from "@/shared/api/http-client";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const NOTES_PAGE_SIZE = 50;

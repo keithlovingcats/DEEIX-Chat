@@ -5,7 +5,6 @@ import (
 	"time"
 
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 )
 
 // MessageUsageUpdate 定义消息 token 用量更新字段。
@@ -49,7 +48,7 @@ type CreateForkedConversationInput struct {
 	Messages             []ForkConversationMessage
 }
 
-// ConversationForkRepository 封装新会话、消息链和附件引用的原子复制能力。
+// ConversationForkRepository 封装新会话、消息链、附件引用和历史展示轨迹的原子复制能力。
 type ConversationForkRepository interface {
 	CreateForkedConversation(ctx context.Context, input CreateForkedConversationInput) error
 }
@@ -75,10 +74,8 @@ type ConversationMetadataRepository interface {
 	ReorderConversationProjects(ctx context.Context, userID uint, publicIDs []string) error
 	UpdateConversationProjectAssignmentByPublicID(ctx context.Context, userID uint, conversationPublicID string, projectID *uint) (*domainconversation.Conversation, error)
 	BatchUpdateConversationProjectByPublicIDs(ctx context.Context, userID uint, conversationPublicIDs []string, projectID *uint) (int64, error)
-	GetActiveConversationShareByConversation(ctx context.Context, userID uint, conversationID uint) (*domainconversation.ConversationShare, error)
 	GetLatestConversationShareByConversation(ctx context.Context, userID uint, conversationID uint) (*domainconversation.ConversationShare, error)
 	GetActiveConversationShareByShareID(ctx context.Context, shareID string) (*domainconversation.ConversationShare, *domainconversation.Conversation, error)
-	CreateConversationShare(ctx context.Context, item *domainconversation.ConversationShare) error
 	ReplaceActiveConversationShare(ctx context.Context, item *domainconversation.ConversationShare) error
 	RevokeActiveConversationShares(ctx context.Context, userID uint, conversationIDs []uint) error
 	TouchConversationShareAccess(ctx context.Context, shareID string, accessedAt time.Time) error
@@ -89,7 +86,6 @@ type ConversationMetadataRepository interface {
 	UpdateConversationStarByPublicID(ctx context.Context, userID uint, publicID string, starred bool) (*domainconversation.Conversation, error)
 	UpdateConversationArchiveByPublicID(ctx context.Context, userID uint, publicID string, archived bool) (*domainconversation.Conversation, error)
 	DeleteConversationByPublicID(ctx context.Context, userID uint, publicID string, deleteFiles bool) ([]string, error)
-	GetUserByID(ctx context.Context, userID uint) (*domainuser.User, error)
 	IncrementMessageCount(ctx context.Context, conversationID uint, delta int) error
 	UpdateConversationLastResponseID(ctx context.Context, conversationID uint, responseID string) error
 	UpdateConversationStatefulResponse(ctx context.Context, conversationID uint, responseID string, promptFingerprint string) error
@@ -115,17 +111,14 @@ type MessageRepository interface {
 	InterruptPendingAssistantMessageByRunID(ctx context.Context, userID uint, runID string, errorCode string, errorMessage string) (bool, error)
 	UpdateAssistantMessageCompletion(ctx context.Context, messageID uint, update AssistantMessageCompletionUpdate) error
 	UpdateMessageBilling(ctx context.Context, messageID uint, billedCurrency string, billedNanousd int64, pricingSnapshot string) error
-	SumMessageTokens(ctx context.Context, conversationID uint) (int64, error)
 	ListMessages(ctx context.Context, conversationID uint, offset int, limit int) ([]domainconversation.Message, int64, error)
 	ListMessagesBeforeID(ctx context.Context, conversationID uint, beforeID uint, limit int) ([]domainconversation.Message, int64, error)
 	ListAllMessages(ctx context.Context, conversationID uint) ([]domainconversation.Message, error)
 	ListMessagesForShare(ctx context.Context, conversationID uint, publicIDs []string) ([]domainconversation.Message, error)
 	ListRecentMessages(ctx context.Context, conversationID uint, limit int) ([]domainconversation.Message, int64, error)
 	GetMessageByID(ctx context.Context, conversationID uint, messageID uint) (*domainconversation.Message, error)
-	GetLatestMessage(ctx context.Context, conversationID uint) (*domainconversation.Message, error)
 	ListMessageAncestors(ctx context.Context, conversationID uint, leafMessageID uint, maxDepth int) ([]domainconversation.Message, error)
 	ListLatestBranchPreviewMessages(ctx context.Context, conversationID uint, maxDepth int, limit int) ([]domainconversation.Message, error)
-	ListMessageAncestorsUntil(ctx context.Context, conversationID uint, leafMessageID uint, stopMessageID uint, maxDepth int) ([]domainconversation.Message, bool, error)
 }
 
 // MessageFeedbackRepository 封装消息反馈能力。
@@ -152,8 +145,10 @@ type ConversationTraceRepository interface {
 	CreateConversationToolCalls(ctx context.Context, items []domainconversation.ToolCall) error
 	ListConversationRuns(ctx context.Context, userID uint, conversationID uint, offset int, limit int) ([]domainconversation.Run, int64, error)
 	ListConversationRunsByRunIDs(ctx context.Context, userID uint, conversationID uint, runIDs []string) ([]domainconversation.Run, error)
+	ListConversationRunStatusesByRunIDs(ctx context.Context, userID uint, runIDs []string) ([]domainconversation.RunStatus, error)
 	ListConversationEventLogs(ctx context.Context, filter ConversationEventLogListFilter, offset int, limit int) ([]domainconversation.EventLog, int64, error)
 	GetConversationEventLog(ctx context.Context, eventID uint) (*domainconversation.EventLog, error)
+	GetConversationToolCallDetail(ctx context.Context, userID uint, runID string, toolCallID string) (*domainconversation.ToolCallDetail, error)
 }
 
 // ConversationEventLogListFilter 描述管理员对话事件列表筛选和排序条件。

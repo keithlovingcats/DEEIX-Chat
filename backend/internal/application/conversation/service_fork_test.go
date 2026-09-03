@@ -77,7 +77,7 @@ func TestForkConversationFromMessageBuildsAtomicFork(t *testing.T) {
 			ParallelModelsJSON:    `["model-a","model-b"]`,
 			LastResponseID:        "response-to-drop",
 		},
-		message: &model.Message{ID: leafID, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Status: "success"},
+		message: &model.Message{ID: leafID, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Role: "assistant", Status: "success"},
 		path: []model.Message{
 			{
 				ID: rootID, ConversationID: 10, UserID: 7, PublicID: "msg_root",
@@ -143,7 +143,7 @@ func TestForkConversationFromMessageBuildsAtomicFork(t *testing.T) {
 
 func TestForkConversationFromMessageRejectsIncompleteHistory(t *testing.T) {
 	omittedParentID := uint(99)
-	message := &model.Message{ID: 102, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Status: "success"}
+	message := &model.Message{ID: 102, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Role: "assistant", Status: "success"}
 	repo := &forkConversationRepositoryStub{
 		conversation: &model.Conversation{ID: 10, UserID: 7, PublicID: "conv_source"},
 		message:      message,
@@ -167,7 +167,7 @@ func TestForkConversationFromMessageRejectsPendingTarget(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			repo := &forkConversationRepositoryStub{
 				conversation: &model.Conversation{ID: 10, UserID: 7, PublicID: "conv_source"},
-				message:      &model.Message{ID: 102, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Status: status},
+				message:      &model.Message{ID: 102, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Role: "assistant", Status: status},
 			}
 
 			_, err := newForkConversationService(repo).ForkConversationFromMessage(context.Background(), 7, "conv_source", "msg_leaf")
@@ -181,8 +181,29 @@ func TestForkConversationFromMessageRejectsPendingTarget(t *testing.T) {
 	}
 }
 
+func TestForkConversationFromMessageRejectsNonAssistantTarget(t *testing.T) {
+	for _, role := range []string{"user", "system", " User "} {
+		t.Run(role, func(t *testing.T) {
+			repo := &forkConversationRepositoryStub{
+				conversation: &model.Conversation{ID: 10, UserID: 7, PublicID: "conv_source"},
+				message: &model.Message{
+					ID: 101, ConversationID: 10, UserID: 7, PublicID: "msg_user", Role: role, Status: "success",
+				},
+			}
+
+			_, err := newForkConversationService(repo).ForkConversationFromMessage(context.Background(), 7, "conv_source", "msg_user")
+			if !errors.Is(err, ErrMessageForkTargetInvalid) {
+				t.Fatalf("ForkConversationFromMessage() error = %v, want ErrMessageForkTargetInvalid", err)
+			}
+			if repo.createCalls != 0 {
+				t.Fatalf("CreateForkedConversation() calls = %d, want 0", repo.createCalls)
+			}
+		})
+	}
+}
+
 func TestForkConversationFromMessageMapsConcurrentSourceRemoval(t *testing.T) {
-	message := &model.Message{ID: 102, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Status: "success"}
+	message := &model.Message{ID: 102, ConversationID: 10, UserID: 7, PublicID: "msg_leaf", Role: "assistant", Status: "success"}
 	repo := &forkConversationRepositoryStub{
 		conversation: &model.Conversation{ID: 10, UserID: 7, PublicID: "conv_source"},
 		message:      message,

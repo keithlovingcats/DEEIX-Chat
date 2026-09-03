@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-
-import { useTheme } from "@/shared/components/theme-provider";
 import { useMarkdownTheme } from "@/shared/components/markdown/markdown-theme-provider";
 import { resolveShikiThemePair } from "@/shared/components/markdown/markdown-themes";
+import { useTheme } from "@/shared/components/theme-provider";
 
 /**
  * Shiki 高亮代码视图：直渲 token（独立于 streamdown 管线），

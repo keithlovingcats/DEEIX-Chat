@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,9 +26,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination, TableToolbar, type TableToolbarFilter } from "@/components/ui/table-tools";
-import { IdentityProviderIcon } from "@/shared/components/identity-provider-icon";
-import type { UserIdentityProviderSummaryDTO } from "@/shared/api/auth.types";
 import { cn } from "@/lib/utils";
+import type { UserIdentityProviderSummaryDTO } from "@/shared/api/auth.types";
+import { IdentityProviderIcon } from "@/shared/components/identity-provider-icon";
 
 export type GroupAccessTableItem = {
   id: number;
@@ -419,7 +419,7 @@ function GroupAccessTable({
         )}
         viewportClassName={cn(
           tableViewportClassName,
-          "overflow-y-auto [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20",
+          "[&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20",
         )}
       >
         <TableHeader>

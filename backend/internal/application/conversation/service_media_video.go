@@ -14,9 +14,10 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	appcm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/contentmoderation"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
+	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/traceid"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -46,7 +47,9 @@ type MediaVideoInput struct {
 	ParentMessagePublicID string
 	SourceMessagePublicID string
 	BranchReason          string
-	OnEvent               func(eventType string, payload map[string]interface{}) error
+	// UsageAuthorization 是请求级计费授权；路由确定后据此把预算预留抬高到按时长预估成本。
+	UsageAuthorization *domainbilling.UsageAuthorization
+	OnEvent            func(eventType string, payload map[string]interface{}) error
 }
 
 // StreamMediaVideo 执行视频生成任务并把结果保存为文件对象。
@@ -108,7 +111,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		RequestID:         strings.TrimSpace(input.RequestID),
 	})
 	if err != nil {
-		return nil, ErrModelRouteNotConfigured
+		return nil, mapRouteResolutionError(err)
 	}
 	if !llm.IsVideoGenerationAdapter(route.Protocol) {
 		return nil, ErrMediaRouteProtocolMismatch
@@ -117,6 +120,12 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		return nil, ErrMediaRouteProtocolMismatch
 	}
 	videoEndpoint := llm.DefaultEndpointForAdapter(route.Protocol)
+	if err = s.ensureUsageBudgetCoversEstimate(ctx, input.UsageAuthorization, route, input.Options, usageBudgetEstimate{
+		CallCount:       1,
+		DurationSeconds: mediaDurationSecondsFromOptions(withDefaultMediaVideoDuration(input.Options, route.Protocol)),
+	}); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(conversation.Model) != strings.TrimSpace(route.PlatformModelName) {
 		conversation.Model = strings.TrimSpace(route.PlatformModelName)
 		conversation.Provider = inferProvider(conversation.Model)
@@ -204,7 +213,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	}()
 	cancelCtx, cancel := context.WithCancel(ctx)
 	ctx = cancelCtx
-	s.generationStreams.register(ctx, runID, input.UserID, cancel)
+	s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel)
 
 	assistantMessage = &model.Message{
 		ConversationID: input.ConversationID,
@@ -271,13 +280,14 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		}
 	}
 	moderationCoord = s.startModerationRun(ctx, SendMessageInput{
-		UserID:         input.UserID,
-		ConversationID: input.ConversationID,
-		RequestID:      input.RequestID,
-		Content:        strings.TrimSpace(input.Prompt),
-		FileIDs:        moderationFileIDs,
-		ClientRunID:    runID,
-		OnEvent:        input.OnEvent,
+		UserID:             input.UserID,
+		ConversationID:     input.ConversationID,
+		RequestID:          input.RequestID,
+		Content:            strings.TrimSpace(input.Prompt),
+		FileIDs:            moderationFileIDs,
+		ClientRunID:        runID,
+		OnEvent:            input.OnEvent,
+		UsageAuthorization: input.UsageAuthorization,
 	}, runID, userMessage, assistantMessage, run)
 	emitMediaEvent(input.OnEvent, "queued", "video task queued", "video")
 

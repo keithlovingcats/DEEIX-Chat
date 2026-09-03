@@ -2,7 +2,8 @@
 
 import * as React from "react";
 
-import { getUserSettings, type UserSettingsMap } from "@/shared/api/user-settings";
+import type { BundledTheme } from "streamdown";
+
 import { readAccessToken, SESSION_SNAPSHOT_CHANGED_EVENT } from "@/shared/auth/session";
 import {
   DEFAULT_MERMAID_THEME,
@@ -11,8 +12,11 @@ import {
   resolveShikiThemePair,
   type MermaidTheme,
 } from "@/shared/components/markdown/markdown-themes";
-import type { BundledTheme } from "streamdown";
-import { USER_SETTINGS_UPDATED_EVENT } from "@/features/settings/events/user-settings-events";
+import type { UserSettingsMap } from "@/shared/api/user-settings";
+import {
+  readUserSettingsSnapshot,
+  subscribeUserSettings,
+} from "@/shared/model/user-settings-store";
 
 export type MarkdownThemeValue = {
   shikiThemePair: [BundledTheme, BundledTheme];
@@ -26,7 +30,7 @@ const DEFAULT_MARKDOWN_THEME: MarkdownThemeValue = {
 
 const MarkdownThemeContext = React.createContext<MarkdownThemeValue>(DEFAULT_MARKDOWN_THEME);
 
-function markdownThemeFromSettings(settings: Record<string, string> | null | undefined): MarkdownThemeValue {
+function markdownThemeFromSettings(settings: UserSettingsMap | null | undefined): MarkdownThemeValue {
   if (!settings) {
     return DEFAULT_MARKDOWN_THEME;
   }
@@ -38,57 +42,49 @@ function markdownThemeFromSettings(settings: Record<string, string> | null | und
 
 /**
  * 提供全局 Markdown 代码高亮与 Mermaid 主题。
+ * 挂在 RootLayout（AuthSessionProvider 之外），因此走用户设置 store 的非 hook
+ * API：快照即时渲染 + 订阅刷新（设置页变更即时生效），不依赖会话 React 上下文；
  * 未登录或 Provider 之外的页面（如公开分享页）回落默认主题。
- * 挂载与会话 token 建立（含刷新页面后的异步 refresh）时拉取设置；
- * 登出（token 清空）回落默认主题。
+ * 静态导出时 render 阶段无副作用，安全 prerender。
  */
 export function MarkdownThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = React.useState<MarkdownThemeValue>(DEFAULT_MARKDOWN_THEME);
+  const [settings, setSettings] = React.useState<UserSettingsMap | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
 
-    const load = async (token: string) => {
+    const sync = (token: string | null) => {
+      unsubscribe?.();
+      unsubscribe = undefined;
       if (!token) {
-        setTheme(DEFAULT_MARKDOWN_THEME);
+        setSettings(null);
         return;
       }
-      try {
-        const settings = await getUserSettings(token);
-        if (!cancelled) {
-          setTheme(markdownThemeFromSettings(settings));
+      setSettings(readUserSettingsSnapshot(token).settings);
+      unsubscribe = subscribeUserSettings(token, () => {
+        if (cancelled) {
+          return;
         }
-      } catch {
-        // 加载失败保持当前主题；设置页变更后仍会通过事件同步。
-      }
+        setSettings(readUserSettingsSnapshot(token).settings);
+      });
     };
 
-    void load(readAccessToken());
-
+    sync(readAccessToken());
     const handleSessionChanged = () => {
-      void load(readAccessToken());
+      sync(readAccessToken());
     };
     window.addEventListener(SESSION_SNAPSHOT_CHANGED_EVENT, handleSessionChanged);
     return () => {
       cancelled = true;
+      unsubscribe?.();
       window.removeEventListener(SESSION_SNAPSHOT_CHANGED_EVENT, handleSessionChanged);
     };
   }, []);
 
-  React.useEffect(() => {
-    const handleSettingsUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<UserSettingsMap>).detail;
-      setTheme(markdownThemeFromSettings(detail));
-    };
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, handleSettingsUpdated as EventListener);
-    return () => {
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, handleSettingsUpdated as EventListener);
-    };
-  }, []);
+  const theme = React.useMemo(() => markdownThemeFromSettings(settings), [settings]);
 
-  const contextValue = React.useMemo(() => theme, [theme]);
-
-  return <MarkdownThemeContext.Provider value={contextValue}>{children}</MarkdownThemeContext.Provider>;
+  return <MarkdownThemeContext.Provider value={theme}>{children}</MarkdownThemeContext.Provider>;
 }
 
 export function useMarkdownTheme(): MarkdownThemeValue {

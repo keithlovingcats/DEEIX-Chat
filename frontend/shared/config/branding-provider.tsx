@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { getPublicBranding, type BrandingDTO } from "@/shared/api/branding";
+import { type BrandingDTO, getPublicBranding } from "@/shared/api/branding";
 import { resolveApiBaseURL } from "@/shared/api/http-client";
 import {
   DEFAULT_BRANDING,
@@ -70,7 +70,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(fallbackTimer);
       setReady(true);
       retryTimer = window.setTimeout(() => {
-        void requestBranding().then(applyBranding).catch(() => undefined);
+        void requestBranding().then(applyBranding).catch((): undefined => undefined);
       }, BRANDING_RETRY_DELAY_MS);
     };
 

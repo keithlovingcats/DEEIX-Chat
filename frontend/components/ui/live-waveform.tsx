@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, type HTMLAttributes } from "react"
+import { type HTMLAttributes, useEffect, useRef } from "react"
 
 import { cn } from "@/lib/utils"
 

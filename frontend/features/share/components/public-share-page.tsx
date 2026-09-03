@@ -1,40 +1,39 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { ChatMessageBot } from "@/features/chat/components/message/message-bot";
-import { ChatMessageUser } from "@/features/chat/components/message/message-user";
-import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { Button } from "@/components/ui/button";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   buildChildrenIndex,
   buildVisibleMessages,
+  type ChatAreaMessage,
+  ChatMessageBot,
+  ChatMessageUser,
   mapServerMessage,
   reconcileBranchSelections,
   toBranchKey,
-} from "@/features/chat/model/chat-thread";
-import type { ChatAreaMessage } from "@/features/chat/types/messages";
+} from "@/features/chat";
+import { useAppLocale } from "@/i18n/app-i18n-provider";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cloneSharedConversation, getSharedConversation } from "@/shared/api/conversation";
 import type {
   MessageDTO,
   PublicSharedConversationDTO,
   PublicSharedMessageDTO,
 } from "@/shared/api/conversation.types";
-import { fetchSharedFileContent, type FileContentResult } from "@/shared/api/file";
-import type { PreviewDialogFile } from "@/shared/components/file-preview/preview-dialog";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { AppLogo, DeeixLogo } from "@/shared/components/app-logo";
-import { useBranding } from "@/shared/config/branding-provider";
-import { CustomBrandAttribution } from "@/shared/components/powered-by-deeix";
+import { fetchSharedFileContent } from "@/shared/api/file";
 import { useOptionalAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { useAppLocale } from "@/i18n/app-i18n-provider";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { AppLogo, DeeixLogo } from "@/shared/components/app-logo";
+import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { CustomBrandAttribution } from "@/shared/components/powered-by-deeix";
+import { useBranding } from "@/shared/config/branding-provider";
 
 function formatSharedAt(value: string, locale: string): string {
   const date = new Date(value);
@@ -143,8 +142,8 @@ function mapPublicSharedMessage(
   };
 }
 
-const noop = () => undefined;
-const noopAsync = async () => undefined;
+const noop = (): undefined => undefined;
+const noopAsync = async (): Promise<undefined> => undefined;
 
 function branchSelectionsFromDefaultPath(
   messages: ChatAreaMessage[],
@@ -168,7 +167,7 @@ function PublicSharedMessage({
   onCycleBranch,
 }: {
   item: ChatAreaMessage;
-  loadContent: (file: PreviewDialogFile) => Promise<FileContentResult>;
+  loadContent: FileContentLoader;
   onCycleBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
 }) {
   if (item.role === "user") {
@@ -345,8 +344,8 @@ export function PublicSharePage() {
     [messages],
   );
 
-  const loadSharedContent = React.useCallback(
-    (file: PreviewDialogFile) => fetchSharedFileContent(shareID, file.fileID),
+  const loadSharedContent = React.useCallback<FileContentLoader>(
+    (file, signal) => fetchSharedFileContent(shareID, file.fileID, signal),
     [shareID],
   );
   const accessToken = authSession?.accessToken || resolvedAccessToken;

@@ -128,22 +128,28 @@ type nativeToolCatalogProvider interface {
 	ListNativeToolDefinitions(ctx context.Context) ([]nativetool.Definition, error)
 }
 
+// BilledReasonModerationBlockedUpstreamUsage 标注被内容审核拦截却仍要结算的账本：
+// 拦截只撤回内容，不撤回上游已产生的用量。
+const BilledReasonModerationBlockedUpstreamUsage = "moderation_blocked_upstream_usage"
+
 // UsagePricingInput 定义账单计算入参。
 type UsagePricingInput struct {
-	Authorization       *domainbilling.UsageAuthorization
-	UserID              uint
-	ConversationID      uint
-	PlatformModelName   string
-	RoutedBindingCode   string
-	ProviderProtocol    string
-	UpstreamName        string
-	UpstreamModelName   string
-	CacheTimeout        string
-	RequestSpeed        string
-	UsageSpeed          string
-	RequestServiceTier  string
-	UsageServiceTier    string
-	UsageSource         string
+	Authorization      *domainbilling.UsageAuthorization
+	UserID             uint
+	ConversationID     uint
+	PlatformModelName  string
+	RoutedBindingCode  string
+	ProviderProtocol   string
+	UpstreamName       string
+	UpstreamModelName  string
+	CacheTimeout       string
+	RequestSpeed       string
+	UsageSpeed         string
+	RequestServiceTier string
+	UsageServiceTier   string
+	UsageSource        string
+	// BilledReason 说明正常结算之外为何仍计费（如审核拦截后的上游用量），写入账单快照供用户与审计查看。
+	BilledReason        string
 	ServiceOnly         bool
 	InputTokens         int64
 	CacheReadTokens     int64
@@ -159,9 +165,11 @@ type UsagePricingInput struct {
 	InputImageCount     int64
 	LatencyMS           int64
 	ServerSideToolUsage map[string]int64
-	ServiceItems        []ServiceUsageInput
-	RawUsageJSON        string
-	BillingAt           time.Time
+	// MCPToolUsage 聚合应用侧工具循环内成功的 MCP 调用（价格为调用时的工具配置快照）。
+	MCPToolUsage []MCPToolUsageInput
+	ServiceItems []ServiceUsageInput
+	RawUsageJSON string
+	BillingAt    time.Time
 }
 
 func upstreamUsageSnapshot(input UsagePricingInput) interface{} {
@@ -189,6 +197,16 @@ type PlatformModelIdentity struct {
 	PlatformModelName string
 	ModelVendor       string
 	ModelIcon         string
+}
+
+// MCPToolUsageInput 定义一次运行内某个 MCP 工具的成功调用计量。
+// PriceNanousd 为调用时的工具配置快照，0 表示该工具不单独计费。
+type MCPToolUsageInput struct {
+	ServerID     uint
+	ServerName   string
+	ToolName     string
+	CallCount    int64
+	PriceNanousd int64
 }
 
 // ServiceUsageInput 定义基础服务计费入参。
@@ -303,7 +321,6 @@ type PlanUpdateInput struct {
 	Name                string
 	Description         string
 	PeriodCreditNanousd int64
-	DiscountPercent     int
 	Currency            string
 	AmountCents         int64
 	BillingInterval     string
@@ -538,7 +555,6 @@ func (s *Service) ListPlans(ctx context.Context) ([]BillingPlanView, error) {
 			Description:         item.Description,
 			FeatureJSON:         item.FeatureJSON,
 			PeriodCreditNanousd: item.PeriodCreditNanousd,
-			DiscountPercent:     item.DiscountPercent,
 			SortOrder:           item.SortOrder,
 			IsActive:            item.IsActive,
 			PermissionGroupID:   item.PermissionGroupID,
@@ -1002,7 +1018,6 @@ func (s *Service) UpdatePlan(ctx context.Context, planID uint, input PlanUpdateI
 		Description:         strings.TrimSpace(input.Description),
 		FeatureJSON:         current.FeatureJSON,
 		PeriodCreditNanousd: clampNonNegative(input.PeriodCreditNanousd),
-		DiscountPercent:     clampPercent(input.DiscountPercent),
 		SortOrder:           current.SortOrder,
 		IsActive:            true,
 		PermissionGroupID:   permissionGroupID,
@@ -1026,7 +1041,6 @@ func (s *Service) UpdatePlan(ctx context.Context, planID uint, input PlanUpdateI
 		Description:         plan.Description,
 		FeatureJSON:         plan.FeatureJSON,
 		PeriodCreditNanousd: plan.PeriodCreditNanousd,
-		DiscountPercent:     plan.DiscountPercent,
 		SortOrder:           plan.SortOrder,
 		IsActive:            plan.IsActive,
 		PermissionGroupID:   plan.PermissionGroupID,
@@ -1166,7 +1180,7 @@ func (s *Service) AuthorizeUsage(ctx context.Context, userID uint, platformModel
 		return nil, err
 	}
 	mode = strings.TrimSpace(mode)
-	authorization := &domainbilling.UsageAuthorization{Mode: mode}
+	authorization := &domainbilling.UsageAuthorization{Mode: mode, RefNo: strings.TrimSpace(refNo)}
 	if mode != "usage" && mode != "period" {
 		return authorization, nil
 	}
@@ -1198,7 +1212,7 @@ func (s *Service) AuthorizeUsage(ctx context.Context, userID uint, platformModel
 	}
 	request := domainbilling.UsageBalanceReservationRequest{
 		UserID:           userID,
-		RefNo:            strings.TrimSpace(refNo),
+		RefNo:            authorization.RefNo,
 		Mode:             mode,
 		RequestedNanousd: reservationNanousd,
 	}
@@ -1227,6 +1241,135 @@ func (s *Service) AuthorizeUsage(ctx context.Context, userID uint, platformModel
 	}
 	authorization.Reservation = reservation
 	return authorization, nil
+}
+
+// UsageEstimateInput 描述请求形状确定后可预估的成本要素。尚未发生的输入按非缓存单价估算
+// （缓存命中只会更便宜），已观测的缓存读写按各自单价计入；OutputTokens 是计费输出总量
+// （可见输出 + 思考），尚未发生的部分只计入请求明确限定的最大输出，未限定时为 0。
+type UsageEstimateInput struct {
+	PlatformModelName  string
+	ProviderProtocol   string
+	UpstreamModelName  string
+	CacheTimeout       string
+	RequestSpeed       string
+	RequestServiceTier string
+	InputTokens        int64
+	CacheReadTokens    int64
+	CacheWriteTokens   int64
+	OutputTokens       int64
+	CallCount          int64
+	DurationSeconds    int64
+}
+
+// usageEstimateTokenRates 是一次估算使用的基础单价（纳美元/百万 token），倍率在计算时统一套用。
+type usageEstimateTokenRates struct {
+	input      int64
+	cacheRead  int64
+	cacheWrite int64
+	output     int64
+}
+
+func calcEstimatedTokenNanousd(input UsageEstimateInput, rates usageEstimateTokenRates, multiplier billingRateMultiplier) int64 {
+	return calcNanousdByToken(clampNonNegative(input.InputTokens), applyRateMultiplier(rates.input, multiplier)) +
+		calcNanousdByToken(clampNonNegative(input.CacheReadTokens), applyRateMultiplier(rates.cacheRead, multiplier)) +
+		calcNanousdByToken(clampNonNegative(input.CacheWriteTokens), applyRateMultiplier(rates.cacheWrite, multiplier)) +
+		calcNanousdByToken(clampNonNegative(input.OutputTokens), applyRateMultiplier(rates.output, multiplier))
+}
+
+// EstimateUsageNanousd 按模型定价与用户费率估算一次调用的成本，用于在上游调用前校验预算。
+// 与账本使用同一套单价、阶梯、速度档位与权限组倍率；免费模型或未配置价格返回 0。
+func (s *Service) EstimateUsageNanousd(ctx context.Context, userID uint, input UsageEstimateInput) (int64, error) {
+	platformModelName := strings.TrimSpace(input.PlatformModelName)
+	identity, err := s.resolvePlatformModelIdentity(ctx, platformModelName)
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return 0, err
+	}
+	pricing, err := s.getResolvedModelPricing(ctx, platformModelName)
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return 0, err
+	}
+	if pricing == nil || pricing.IsFree {
+		return 0, nil
+	}
+	providerProtocol := strings.TrimSpace(input.ProviderProtocol)
+	requestSpeed := normalizeUsageSpeed(input.RequestSpeed)
+	requestServiceTier := normalizeOpenAIServiceTier(input.RequestServiceTier)
+	rateMultiplier := resolveUsageRateMultiplier(
+		providerProtocol,
+		platformModelName,
+		input.UpstreamModelName,
+		isAnthropicFastMode(providerProtocol, "", requestSpeed),
+		resolveBillingServiceTier(providerProtocol, requestServiceTier),
+	)
+	snap, err := s.GetCurrentSubscriptionSnapshot(ctx, userID, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	var subGroupID *uint
+	if snap != nil {
+		subGroupID = snap.PermissionGroupID
+	}
+	groupRatePercent, err := s.resolveGroupRatePercent(ctx, userID, identity.PlatformModelID, subGroupID)
+	if err != nil {
+		return 0, err
+	}
+	rateMultiplier = composeGroupRatePercent(rateMultiplier, groupRatePercent)
+
+	switch normalizePricingMode(pricing.PricingMode) {
+	case domainbilling.PricingModeCall:
+		callCount := input.CallCount
+		if callCount <= 0 {
+			callCount = 1
+		}
+		return callCount * applyRateMultiplier(pricing.CallNanousdPerCall, rateMultiplier), nil
+	case domainbilling.PricingModeDuration:
+		return clampNonNegative(input.DurationSeconds) * applyRateMultiplier(pricing.DurationNanousdPerSecond, rateMultiplier), nil
+	case domainbilling.PricingModeTiered:
+		tiers, err := parseTieredPricingTiers(pricing.TieredPricingJSON)
+		if err != nil {
+			return 0, err
+		}
+		// 阶梯与账本一致：按输入侧总量（非缓存 + 缓存读 + 缓存写）选档。
+		tier := resolveTieredPricingTier(tieredPricingInputTokens(input.InputTokens, input.CacheReadTokens, input.CacheWriteTokens), tiers).tier
+		return calcEstimatedTokenNanousd(input, usageEstimateTokenRates{
+			input:      tier.inputNanousdPerMTokens,
+			cacheRead:  tierCacheReadRate(tier),
+			cacheWrite: resolveCacheWriteNanousdPerMTokens(tierCacheWriteRate(tier), providerProtocol, input.CacheTimeout),
+			output:     tier.outputNanousdPerMTokens,
+		}, rateMultiplier), nil
+	default:
+		return calcEstimatedTokenNanousd(input, usageEstimateTokenRates{
+			input:      pricing.InputNanousdPerMTokens,
+			cacheRead:  pricing.CacheReadNanousdPerMTokens,
+			cacheWrite: resolveCacheWriteNanousdPerMTokens(pricing.CacheWriteNanousdPerMTokens, providerProtocol, input.CacheTimeout),
+			output:     pricing.OutputNanousdPerMTokens,
+		}, rateMultiplier), nil
+	}
+}
+
+// EnsureUsageAuthorizationBudget 在请求形状确定后把预算预留抬高到不低于 requiredNanousd。
+// 授权时的预留只是管理端配置的风险预算，这里用真实请求形状的预估成本补足，让余额不足的请求
+// 在产生任何上游费用之前被拒绝。没有预留（self 模式、免费模型）或预留已足够时无操作。
+// 结算按数据库中的预留行进行，授权快照只用于定位预留，因此这里不回写内存中的金额。
+func (s *Service) EnsureUsageAuthorizationBudget(ctx context.Context, authorization *domainbilling.UsageAuthorization, requiredNanousd int64) error {
+	if authorization == nil || authorization.Reservation == nil || requiredNanousd <= 0 {
+		return nil
+	}
+	reservation := authorization.Reservation
+	if requiredNanousd <= reservation.BalanceNanousd+reservation.PeriodCreditNanousd {
+		return nil
+	}
+	err := s.repo.RaiseUsageBalanceReservation(ctx, reservation.UserID, reservation.RefNo, requiredNanousd)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, repository.ErrInsufficientBalance):
+		return ErrUsageBalanceInsufficient
+	case errors.Is(err, repository.ErrConflict):
+		return ErrUsageReservationConflict
+	default:
+		return err
+	}
 }
 
 // ReleaseUsageAuthorization 在调用未产生可计费用量时释放预算。
@@ -1442,7 +1585,6 @@ func toBillingPlanView(plan domainbilling.Plan) BillingPlanView {
 		Description:         plan.Description,
 		FeatureJSON:         plan.FeatureJSON,
 		PeriodCreditNanousd: plan.PeriodCreditNanousd,
-		DiscountPercent:     plan.DiscountPercent,
 		SortOrder:           plan.SortOrder,
 		IsActive:            plan.IsActive,
 	}
@@ -1507,8 +1649,10 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 		input.CacheTimeout,
 	)
 	mode := ""
+	refNo := ""
 	if input.Authorization != nil {
 		mode = strings.TrimSpace(input.Authorization.Mode)
+		refNo = strings.TrimSpace(input.Authorization.RefNo)
 	}
 	if mode == "" {
 		mode, err = s.repo.GetBillingMode(ctx)
@@ -1712,8 +1856,16 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 		serviceItems = append(serviceItems, nativeToolItems...)
 		serviceBilledNanousd += nativeToolBilledNanousd
 	}
+	mcpToolItems, mcpToolBilledNanousd := buildMCPToolServiceItems(input, mode)
+	if len(mcpToolItems) > 0 {
+		serviceItems = append(serviceItems, mcpToolItems...)
+		serviceBilledNanousd += mcpToolBilledNanousd
+	}
 	billedNanousd := inputBilledNanousd + cacheReadBilledNanousd + cacheWriteBilledNanousd + outputBilledNanousd + callBilledNanousd + durationBilledNanousd + serviceBilledNanousd
 	cacheWriteNanousdPerMTokens = resolveSnapshotRateFromBilled(cacheWriteTokens, cacheWriteBilledNanousd, cacheWriteNanousdPerMTokens)
+	// 免费模型仅豁免模型本身费用；MCP 等服务项费用仍需结算。
+	// 结算层会对免费标记整单清零，因此只有整单为 0 才落免费标记。
+	ledgerIsFreeModel := isFreeModel && billedNanousd <= 0
 
 	snapshot := map[string]interface{}{
 		"platform_model_name":                      platformModelName,
@@ -1735,7 +1887,8 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 		"billing_mode":                             mode,
 		"pricing_mode":                             pricingMode,
 		"duration_billable":                        input.DurationBillable,
-		"is_free_model":                            isFreeModel,
+		"service_only":                             input.ServiceOnly,
+		"is_free_model":                            ledgerIsFreeModel,
 		"currency":                                 currency,
 		"input_nanousd_per_m_tokens":               inputNanousdPerMTokens,
 		"cache_read_nanousd_per_m_tokens":          cacheReadNanousdPerMTokens,
@@ -1771,6 +1924,8 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 		"native_tool_billing_enabled":              nativeToolBillingEnabled,
 		"native_tool_pricing_source":               nativeToolPricingSourceForSnapshot(nativeToolPricingJSON, nativeToolDefinitions),
 		"native_tool_billed_nanousd":               nativeToolBilledNanousd,
+		"mcp_tool_usage":                           mcpToolUsageSnapshots(input.MCPToolUsage),
+		"mcp_tool_billed_nanousd":                  mcpToolBilledNanousd,
 		"base_service_billed_nanousd":              serviceBilledNanousd,
 		"service_items":                            usageServiceItemSnapshots(serviceItems),
 	}
@@ -1784,6 +1939,9 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 	}
 	if usageSource := strings.TrimSpace(input.UsageSource); usageSource != "" {
 		snapshot["usage_source"] = usageSource
+	}
+	if billedReason := strings.TrimSpace(input.BilledReason); billedReason != "" {
+		snapshot["billed_reason"] = billedReason
 	}
 	snapshotJSON := "{}"
 	if raw, marshalErr := json.Marshal(snapshot); marshalErr == nil {
@@ -1799,13 +1957,14 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 
 	ledger := &domainbilling.UsageLedger{
 		UserID:              input.UserID,
+		RefNo:               refNo,
 		ConversationID:      input.ConversationID,
 		ProviderProtocol:    providerProtocol,
 		UpstreamName:        strings.TrimSpace(input.UpstreamName),
 		PlatformModelName:   platformModelName,
 		RoutedBindingCode:   strings.TrimSpace(input.RoutedBindingCode),
 		UpstreamModelName:   strings.TrimSpace(input.UpstreamModelName),
-		IsFreeModel:         isFreeModel,
+		IsFreeModel:         ledgerIsFreeModel,
 		BillingAt:           billingAt,
 		UsageDate:           usageDate,
 		InputTokens:         input.InputTokens,
@@ -2639,6 +2798,12 @@ func (s *Service) GetBillingOverview(ctx context.Context, userID uint, now time.
 			return nil, accountErr
 		}
 		overview.Account = toBillingAccountView(account)
+		// 按量计费模式返回账户累计消费(不限时间的计费流水合计),供订阅页「累计花费」卡片展示。
+		totalSpentNanousd, totalErr := s.repo.SumTotalBilledNanousd(ctx, userID)
+		if totalErr != nil {
+			return nil, totalErr
+		}
+		overview.TotalSpentNanousd = totalSpentNanousd
 		return overview, nil
 	}
 	if mode != "period" {
@@ -2668,7 +2833,6 @@ func (s *Service) GetBillingOverview(ctx context.Context, userID uint, now time.
 		Description:         plan.Description,
 		FeatureJSON:         plan.FeatureJSON,
 		PeriodCreditNanousd: plan.PeriodCreditNanousd,
-		DiscountPercent:     plan.DiscountPercent,
 		SortOrder:           plan.SortOrder,
 		IsActive:            plan.IsActive,
 	}
@@ -3215,6 +3379,81 @@ func nativeToolServiceCode(provider string, toolName string) string {
 	return "native_tool." + provider + "." + tool
 }
 
+// buildMCPToolServiceItems 将应用侧 MCP 工具调用转换为账单服务项。
+// 仅 self 模式与价格为 0 时不计费；MCP 调用是独立于模型的外部上游成本，
+// 因此免费模型不豁免（与原生工具计费不同）。价格取调用时的工具配置快照。
+func buildMCPToolServiceItems(input UsagePricingInput, billingMode string) ([]domainbilling.UsageServiceItem, int64) {
+	if billingMode == "self" || len(input.MCPToolUsage) == 0 {
+		return []domainbilling.UsageServiceItem{}, 0
+	}
+	results := make([]domainbilling.UsageServiceItem, 0, len(input.MCPToolUsage))
+	var total int64
+	for _, usage := range input.MCPToolUsage {
+		if usage.CallCount <= 0 || usage.PriceNanousd <= 0 {
+			continue
+		}
+		billed := usage.CallCount * usage.PriceNanousd
+		results = append(results, domainbilling.UsageServiceItem{
+			ServiceCode:        mcpToolServiceCode(usage.ServerName, usage.ToolName),
+			ServiceName:        mcpToolServiceName(usage.ServerName, usage.ToolName),
+			PlatformModelName:  strings.TrimSpace(input.PlatformModelName),
+			ProviderProtocol:   strings.TrimSpace(input.ProviderProtocol),
+			RateMultiplier:     1,
+			PricingMode:        domainbilling.PricingModeCall,
+			CallCount:          usage.CallCount,
+			CallNanousdPerCall: usage.PriceNanousd,
+			CallBilledNanousd:  billed,
+			BilledNanousd:      billed,
+		})
+		total += billed
+	}
+	return results, total
+}
+
+// mcpToolServiceCode 生成 MCP 工具服务项编码，供账单明细和快照稳定引用。
+func mcpToolServiceCode(serverName string, toolName string) string {
+	server := strings.TrimSpace(serverName)
+	tool := strings.TrimSpace(toolName)
+	if server == "" {
+		server = "unknown"
+	}
+	if tool == "" {
+		tool = "unknown"
+	}
+	return "mcp_tool." + server + "." + tool
+}
+
+func mcpToolServiceName(serverName string, toolName string) string {
+	server := strings.TrimSpace(serverName)
+	tool := strings.TrimSpace(toolName)
+	switch {
+	case server == "":
+		return tool
+	case tool == "":
+		return server
+	default:
+		return server + " / " + tool
+	}
+}
+
+// mcpToolUsageSnapshots 无论是否计费都完整落快照，保证 self 模式下也有成本可见性。
+func mcpToolUsageSnapshots(items []MCPToolUsageInput) []map[string]interface{} {
+	results := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		if item.CallCount <= 0 {
+			continue
+		}
+		results = append(results, map[string]interface{}{
+			"server_id":     item.ServerID,
+			"server_name":   strings.TrimSpace(item.ServerName),
+			"tool_name":     strings.TrimSpace(item.ToolName),
+			"call_count":    item.CallCount,
+			"price_nanousd": item.PriceNanousd,
+		})
+	}
+	return results
+}
+
 func normalizeCurrency(value string) string {
 	normalized := strings.ToUpper(strings.TrimSpace(value))
 	if normalized == "" {
@@ -3294,16 +3533,6 @@ func normalizeUsageCountMap(items map[string]int64) map[string]int64 {
 		return map[string]int64{}
 	}
 	return result
-}
-
-func clampPercent(value int) int {
-	if value < 0 {
-		return 0
-	}
-	if value > 100 {
-		return 100
-	}
-	return value
 }
 
 func normalizeInterval(value string) string {

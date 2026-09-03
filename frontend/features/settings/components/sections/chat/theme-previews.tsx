@@ -1,16 +1,16 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import * as React from "react";
 import { useId } from "react";
-import { useTranslations } from "next-intl";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { useTheme } from "@/shared/components/theme-provider";
 import {
   HIGHLIGHT_THEMES,
-  resolveShikiThemePair,
   type MermaidTheme,
+  resolveShikiThemePair,
 } from "@/shared/components/markdown/markdown-themes";
+import { useTheme } from "@/shared/components/theme-provider";
 
 const HIGHLIGHT_THEME_TYPE_DARK = new Set(
   HIGHLIGHT_THEMES.filter((item) => item.type === "dark").map((item) => item.id),

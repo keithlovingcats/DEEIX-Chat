@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import {
   ArrowDownUp,
   Check,
@@ -12,6 +11,7 @@ import {
   Search,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {

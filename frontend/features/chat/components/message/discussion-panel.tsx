@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Check, ChevronDown, Copy, Loader2, MessageCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { ChevronDown as AnimatedChevronDown } from "@/components/animate-ui/icons/chevron-down";
 import {

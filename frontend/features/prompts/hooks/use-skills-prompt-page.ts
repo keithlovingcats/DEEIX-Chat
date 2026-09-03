@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
@@ -19,7 +19,7 @@ import type {
 } from "@/shared/api/prompt-presets.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useLoadMoreSentinel } from "@/shared/hooks/use-load-more-sentinel";
-import { PROMPT_PRESET_LIMITS, normalizePromptPresetName } from "@/shared/model/prompt-presets";
+import { normalizePromptPresetName, PROMPT_PRESET_LIMITS } from "@/shared/model/prompt-presets";
 
 const PROMPT_PRESET_PAGE_SIZE = 100;
 const PROMPT_PRESET_SEARCH_DEBOUNCE_MS = 250;
@@ -197,10 +197,10 @@ export function useSkillsPromptPage() {
       const [mine, visible] = await Promise.all([
         target.mine.hasMore
           ? listMyPromptPresets(token, { page: target.mine.nextPage, pageSize: PROMPT_PRESET_PAGE_SIZE, query: debouncedQuery })
-          : Promise.resolve(null),
+          : Promise.resolve<Awaited<ReturnType<typeof listMyPromptPresets>> | null>(null),
         target.visible.hasMore
           ? listVisiblePromptPresets(token, { page: target.visible.nextPage, pageSize: PROMPT_PRESET_PAGE_SIZE, query: debouncedQuery })
-          : Promise.resolve(null),
+          : Promise.resolve<Awaited<ReturnType<typeof listVisiblePromptPresets>> | null>(null),
       ]);
       const visibleBuiltin = visible?.results.filter((item) => item.scope === "builtin") ?? [];
       const nextItems = [...(mine?.results ?? []), ...visibleBuiltin];

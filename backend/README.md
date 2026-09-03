@@ -24,7 +24,9 @@ DEEIX Chat 后端是 Go API 服务，负责认证、用户、对话、模型渠�
 - 启动链路为 `cmd -> internal/cli -> internal/app`。
 - Handler 只负责 HTTP 入参、鉴权上下文、响应转换，不写业务逻辑。
 - Application 层承载用例编排，不直接依赖 Gorm、Redis、Docker 等基础设施实现。
-- Repository 接口位于 `internal/repository`，具体实现位于 `internal/infra/persistence`。
+- Repository 接口位于 `internal/repository`，具体实现位于 `internal/infra/persistence`。接口是消费方契约，只声明对应用例实际调用的方法；同一个实现可以同时满足多个接口，不把实现的方法集抄成接口。
+- 第三方集成的数据契约与错误值位于 `internal/ports/<域>`，接口由 `application` 消费方声明，`internal/infra/<域>` 以相同签名实现；出站端口不放进 `repository`。
+- 依赖全部在 `internal/app` 创建并注入；Application 构造函数不对 nil 依赖兜底创建子服务，同层 service 依赖默认使用具体类型。
 - 共享基础设施位于 `internal/infra`，通用响应、请求元数据等位于 `internal/shared`。
 - HTTP DTO 和 Swagger annotation 是传输契约唯一事实源；Handler 在 HTTP 边界把 DTO 转换为 Application Input，不向领域层或基础设施层泄漏 Gin DTO。
 - JSON、校验标签和指针类型必须准确表达必填、可选、可空以及显式 `0`/`false`；不要让前端修补错误的 Swagger 语义。
@@ -279,7 +281,7 @@ OCR 引擎配置由后台文件设置管理，当前支持 RapidOCR、Tesseract 
 
 模型与上游两级熔断默认关闭，可在后台模型管理页统一开启。旧版本的 `circuit_breaker.defaults` 设置没有 `enabled` 字段时同样按关闭处理，不需要逐个模型调整阈值。
 
-关闭后，路由不会读取熔断状态，也不会因上游失败累计并触发自动熔断；HTTP 429 的短期限流退避仍独立生效。重新开启前必须成功清理已有模型与上游熔断状态和失败计数；关闭后的清理由系统尽力执行。最近成功/失败健康元数据、API Key 轮询状态与限流状态不会被清理。
+关闭后，路由不会读取熔断状态，也不会因上游失败累计并触发自动熔断；HTTP 429 的路由级短期退避仍独立生效。退避优先采用上游 `Retry-After`，没有有效响应头时使用有上限的指数退避；同一上游的其他路由不会被连带暂停，成功请求会清除对应路由的累计退避。重新开启熔断前必须成功清理已有模型与上游熔断状态和失败计数；关闭后的清理由系统尽力执行。最近成功/失败健康元数据、API Key 轮询状态与限流状态不会被清理。
 
 ## 上游动态请求头
 

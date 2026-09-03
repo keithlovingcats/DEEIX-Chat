@@ -1,7 +1,7 @@
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import {
   createAdminPromptPreset,
   deleteAdminPromptPreset,
@@ -15,8 +15,7 @@ import type {
 } from "@/shared/api/prompt-presets.types";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { removeByID, replaceByID } from "@/shared/lib/optimistic-list";
-import { PROMPT_PRESET_LIMITS, normalizePromptPresetName } from "@/shared/model/prompt-presets";
-import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { normalizePromptPresetName, PROMPT_PRESET_LIMITS } from "@/shared/model/prompt-presets";
 
 export type AdminPromptPresetForm = {
   id?: number;
@@ -79,6 +78,13 @@ export function useAdminPromptPresets() {
   const [deleteTarget, setDeleteTarget] = React.useState<PromptPresetDTO | null>(null);
   const [, startTableTransition] = React.useTransition();
   const requestSeqRef = React.useRef(0);
+  const requestControllerRef = React.useRef<AbortController | null>(null);
+
+  React.useEffect(() => () => {
+    requestSeqRef.current += 1;
+    requestControllerRef.current?.abort();
+    requestControllerRef.current = null;
+  }, []);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -90,9 +96,16 @@ export function useAdminPromptPresets() {
   const load = React.useCallback(async () => {
     const requestSeq = requestSeqRef.current + 1;
     requestSeqRef.current = requestSeq;
+    requestControllerRef.current?.abort();
+    const requestController = new AbortController();
+    requestControllerRef.current = requestController;
     setLoading(true);
     try {
-      const data = await listAdminPromptPresets(accessToken, { page, pageSize, query: debouncedQuery });
+      const data = await listAdminPromptPresets(
+        accessToken,
+        { page, pageSize, query: debouncedQuery },
+        requestController.signal,
+      );
       if (requestSeq !== requestSeqRef.current) {
         return;
       }
@@ -101,9 +114,14 @@ export function useAdminPromptPresets() {
         setTotal(data.total);
       });
     } catch (error) {
-      toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error) });
+      if (!requestController.signal.aborted) {
+        toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error) });
+      }
     } finally {
-      if (requestSeq === requestSeqRef.current) {
+      if (requestControllerRef.current === requestController) {
+        requestControllerRef.current = null;
+      }
+      if (!requestController.signal.aborted && requestSeq === requestSeqRef.current) {
         setLoading(false);
       }
     }
@@ -190,13 +208,19 @@ export function useAdminPromptPresets() {
     try {
       await deleteAdminPromptPreset(accessToken, target.id);
       setItems((current) => removeByID(current, target.id, (item) => item.id));
-      setTotal((current) => Math.max(0, current - 1));
-      await load();
+      const nextTotal = Math.max(0, total - 1);
+      const nextPage = Math.min(page, Math.max(1, Math.ceil(nextTotal / pageSize)));
+      setTotal(nextTotal);
+      if (nextPage !== page) {
+        setPage(nextPage);
+      } else {
+        await load();
+      }
       toast.success(t("toast.deleted"));
     } catch (error) {
       toast.error(t("toast.deleteFailed"), { description: resolveAdminErrorMessage(error) });
     }
-  }, [accessToken, deleteTarget, load, t]);
+  }, [accessToken, deleteTarget, load, page, pageSize, t, total]);
 
   return {
     items,

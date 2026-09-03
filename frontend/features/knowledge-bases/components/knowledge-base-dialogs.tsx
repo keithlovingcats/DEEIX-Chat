@@ -27,10 +27,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner, SpinnerLabel } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import { DeleteFilesOption } from "@/shared/components/delete-files-option";
-import type { KnowledgeBaseDTO, KnowledgeBaseFileDTO } from "@/shared/api/knowledge-bases.types";
 import type { KnowledgeBaseDraft } from "@/features/knowledge-bases/types/knowledge-bases";
+import { cn } from "@/lib/utils";
+import type { KnowledgeBaseDTO, KnowledgeBaseFileDTO } from "@/shared/api/knowledge-bases.types";
+import { DeleteFilesOption } from "@/shared/components/delete-files-option";
 import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import { formatBytes, resolveFileIcon } from "@/shared/lib/file-display";
 import { resolveFileRetrievalBadge } from "@/shared/lib/file-processing";

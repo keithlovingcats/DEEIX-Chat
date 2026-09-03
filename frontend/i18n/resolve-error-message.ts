@@ -1,6 +1,6 @@
+import { type AppLocale, DEFAULT_LOCALE, LOCALE_COOKIE_NAME, normalizeAppLocale, resolveBrowserLocale } from "@/i18n/config";
 import enErrors from "@/i18n/messages/en-US/errors.json";
 import zhErrors from "@/i18n/messages/zh-CN/errors.json";
-import { DEFAULT_LOCALE, LOCALE_COOKIE_NAME, normalizeAppLocale, resolveBrowserLocale, type AppLocale } from "@/i18n/config";
 import { ApiError } from "@/shared/api/http-client";
 
 const ERROR_MESSAGES: Record<AppLocale, unknown> = {

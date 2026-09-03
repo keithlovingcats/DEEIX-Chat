@@ -4,9 +4,9 @@ import { motion, type Variants } from 'motion/react';
 
 import {
   getVariants,
-  useAnimateIconContext,
-  IconWrapper,
   type IconProps,
+  IconWrapper,
+  useAnimateIconContext,
 } from '@/components/animate-ui/icons/icon';
 
 type Disc3Props = IconProps<keyof typeof animations>;

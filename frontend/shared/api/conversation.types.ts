@@ -7,7 +7,6 @@ import type {
   CreateConversationShareRequest as ContractCreateConversationShareRequest,
   MediaVideoExtensionRequest as ContractMediaVideoExtensionRequest,
   MessageDiscussionMetaRequest as ContractMessageDiscussionMetaRequest,
-  MessageDiscussionMetaResponse,
   RenameConversationRequest as ContractRenameConversationRequest,
   ReorderConversationProjectsRequest as ContractReorderConversationProjectsRequest,
   RevokeConversationSharesRequest as ContractRevokeConversationSharesRequest,
@@ -16,6 +15,8 @@ import type {
   SetConversationProjectRequest as ContractSetConversationProjectRequest,
   SetConversationStarRequest as ContractSetConversationStarRequest,
   SetMessageFeedbackRequest as ContractSetMessageFeedbackRequest,
+  TemporaryChatHistoryMessage as ContractTemporaryChatHistoryMessage,
+  TemporaryChatMessageRequest as ContractTemporaryChatMessageRequest,
   UpdateConversationLabelsRequest as ContractUpdateConversationLabelsRequest,
   UpdateConversationProjectRequest as ContractUpdateConversationProjectRequest,
   UpdateMessageRequest as ContractUpdateMessageRequest,
@@ -25,10 +26,13 @@ import type {
   ConversationPreviewMessageResponse,
   ConversationProjectResponse,
   ConversationResponse,
+  ConversationRunStatusResponse,
   ConversationSearchPageResponse,
   ConversationSearchResultResponse,
   ConversationShareResponse,
+  ConversationToolCallDetailResponse,
   MessageBillingCostResponse,
+  MessageDiscussionMetaResponse,
   MessageFeedbackResponse,
   MessageProcessTraceResponse,
   MessagePromptTraceBlockResponse,
@@ -49,6 +53,15 @@ import type { UserStorageQuotaDTO } from "@/shared/api/file.types";
 export type ConversationDTO = ConversationResponse;
 
 export type ConversationSearchResultDTO = ConversationSearchResultResponse;
+
+export type ActiveConversationRunSnapshot = {
+  runID: string;
+  conversationPublicID: string;
+};
+
+export type ActiveConversationRunEvent =
+  | { type: "snapshot"; runs: ActiveConversationRunSnapshot[] }
+  | { type: "started" | "finished"; runID: string; conversationPublicID?: string };
 
 export type ConversationSearchPageDTO = Omit<ConversationSearchPageResponse, "results"> & {
   results: ConversationSearchResultDTO[];
@@ -103,6 +116,8 @@ export type MessageDTO = Omit<
 
 export type ConversationRunDTO = Omit<RunResponse, "taskType">;
 
+export type ConversationRunStatusDTO = ConversationRunStatusResponse;
+
 export type ConversationExportDTO = Omit<
   ConversationExportResponse,
   "compatibility" | "conversation" | "messages" | "runs"
@@ -124,6 +139,8 @@ export type PromptTraceBlockDTO = Omit<MessagePromptTraceBlockResponse, "sourceR
 export type PromptTraceSourceDTO = MessagePromptTraceSourceResponse;
 
 export type ContextArtifactDTO = ContextArtifactResponse;
+
+export type ConversationToolCallDetailDTO = ConversationToolCallDetailResponse;
 
 export type PromptTraceDTO = Omit<MessagePromptTraceResponse, "blocks"> & {
   blocks: PromptTraceBlockDTO[];
@@ -260,6 +277,16 @@ export type StreamMessageCreatedEvent = {
   };
 };
 
+export type TemporaryChatHistoryMessage = Omit<ContractTemporaryChatHistoryMessage, "content" | "role"> & {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type TemporaryChatMessageRequest = Omit<ContractTemporaryChatMessageRequest, "messages" | "options"> & {
+  options?: ConversationOptions;
+  messages: TemporaryChatHistoryMessage[];
+};
+
 export type StreamMessageEvent =
   | {
       type: "file_proc";
@@ -303,6 +330,8 @@ export type StreamMessageEvent =
       stage?: string;
       roundID?: string;
       eventID?: string;
+      startedAt?: string;
+      endedAt?: string;
       kind?: ReasoningDeltaDTO["kind"] | string;
       delta?: string;
       contentMarkdown?: string;
@@ -355,6 +384,8 @@ export type StreamMessageEvent =
       eventID?: string;
       direction?: "input" | "output" | string;
       categories?: string[];
+      /** 非空表示拦截后上游已产生的用量仍照常结算，取值与账本快照 `billed_reason` 一致。 */
+      billedReason?: string;
     }
   | {
       type: "compact_done";
@@ -367,6 +398,7 @@ export type StreamMessageEvent =
   | {
       type: "error";
       seq?: number;
+      status?: number;
       message: string;
       errorCode?: string;
       debug?: UpstreamDebugInfo;

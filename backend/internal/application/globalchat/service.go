@@ -12,8 +12,8 @@ import (
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainglobalchat "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/globalchat"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/objectstore"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/conv"
+	portsobjectstore "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/objectstore"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
@@ -225,7 +225,7 @@ func (s *Service) OpenImageContent(ctx context.Context, fileID string) (*appuplo
 	}
 	reader, info, err := store.Open(ctx, file.StoragePath)
 	if err != nil {
-		if errors.Is(err, objectstore.ErrNotFound) {
+		if errors.Is(err, portsobjectstore.ErrNotFound) {
 			return nil, ErrImageFileNotFound
 		}
 		return nil, err

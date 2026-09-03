@@ -1,20 +1,19 @@
 "use client"
 
+import { useControllableState } from "@radix-ui/react-use-controllable-state"
+import { cva, type VariantProps } from "class-variance-authority"
 import type * as React from "react"
 import {
   Children,
   createContext,
+  type PropsWithChildren,
   useCallback,
   useContext,
   useId,
   useMemo,
-  type PropsWithChildren,
 } from "react"
-import { useControllableState } from "@radix-ui/react-use-controllable-state"
-import { cva, type VariantProps } from "class-variance-authority"
-
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 const stepIndicatorVariants = cva("flex items-center justify-center gap-2", {
   variants: {

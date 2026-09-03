@@ -7,7 +7,6 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,11 +14,12 @@ import {
   DropdownMenuItemIcon,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { KnowledgeBaseSidebarHeader } from "@/features/knowledge-bases/components/knowledge-base-sidebar-header";
 import type {
-  KnowledgeBaseMode,
   KnowledgeBaseMobileView,
+  KnowledgeBaseMode,
   KnowledgeBaseSortKey,
 } from "@/features/knowledge-bases/types/knowledge-bases";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,8 @@ type KnowledgeBaseSidebarProps = {
   mode: KnowledgeBaseMode;
   items: KnowledgeBaseDTO[];
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   mobileView: KnowledgeBaseMobileView;
   collapsed: boolean;
   showCollapseButton: boolean;
@@ -39,6 +41,7 @@ type KnowledgeBaseSidebarProps = {
   searchOpen: boolean;
   bulkDeleting: boolean;
   onToggleCollapsed: () => void;
+  onLoadMore: () => void;
   onToggleSearch: () => void;
   onQueryChange: (value: string) => void;
   onCreate: () => void;
@@ -56,6 +59,8 @@ export function KnowledgeBaseSidebar({
   mode,
   items,
   loading,
+  loadingMore,
+  hasMore,
   mobileView,
   collapsed,
   showCollapseButton,
@@ -66,6 +71,7 @@ export function KnowledgeBaseSidebar({
   searchOpen,
   bulkDeleting,
   onToggleCollapsed,
+  onLoadMore,
   onToggleSearch,
   onQueryChange,
   onCreate,
@@ -121,7 +127,7 @@ export function KnowledgeBaseSidebar({
           onBulkDelete={onBulkDelete}
         />
 
-        {!collapsed && loading ? (
+        {!collapsed && loading && items.length === 0 ? (
           <div className="flex min-h-0 flex-1 items-center justify-center pr-2 text-muted-foreground">
             <Spinner className="size-4" />
           </div>
@@ -141,6 +147,18 @@ export function KnowledgeBaseSidebar({
                   onDelete={onDelete}
                 />
               ))}
+              {hasMore ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-full text-[11px] text-muted-foreground"
+                  disabled={loadingMore}
+                  onClick={onLoadMore}
+                >
+                  {loadingMore ? <Spinner className="size-3" /> : t("loadMore")}
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : !collapsed ? (

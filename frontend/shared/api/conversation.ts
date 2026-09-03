@@ -7,6 +7,7 @@ import type {
 import { authedFetch, authedRequest } from "@/shared/api/authed-client";
 import type { PagePayload } from "@/shared/api/common.types";
 import type {
+  ActiveConversationRunEvent,
   BatchSetConversationProjectRequest,
   BatchSetConversationProjectResult,
   ContextArtifactDTO,
@@ -18,11 +19,13 @@ import type {
   ConversationProjectFilter,
   ConversationProjectStatusFilter,
   ConversationRunDTO,
+  ConversationRunStatusDTO,
   ConversationSearchPageDTO,
   ConversationShareDTO,
   ConversationShareFilter,
   ConversationStarredFilter,
   ConversationStatusFilter,
+  ConversationToolCallDetailDTO,
   CreateConversationProjectRequest,
   CreateConversationRequest,
   CreateConversationShareRequest,
@@ -45,6 +48,7 @@ import type {
   SetConversationStarRequest,
   SetMessageFeedbackRequest,
   StreamMessageEvent,
+  TemporaryChatMessageRequest,
   TraceBlockDTO,
   UpdateConversationLabelsRequest,
   UpdateConversationProjectRequest,
@@ -53,6 +57,15 @@ import type {
 import { ApiError, apiRequest, pathParam } from "@/shared/api/http-client";
 
 type RawTraceBlock = MessageTraceBlockResponse;
+
+export const TEMPORARY_CHAT_MAX_ATTACHMENTS = 20;
+export const TEMPORARY_CHAT_MAX_IMAGE_ATTACHMENTS = 10;
+
+export type TemporaryChatRequestAttachment = {
+  file: File;
+  messageIndex: number;
+  kind: "file" | "image";
+};
 
 type RawProcessTrace = Omit<
   MessageProcessTraceResponse,
@@ -80,6 +93,7 @@ function normalizeTraceBlock(block: unknown): TraceBlockDTO | undefined {
     stage: raw.stage,
     roundID: raw.roundID,
     parentEventID: raw.parentEventID,
+    startedAt: raw.startedAt,
     updatedAt: raw.updatedAt ?? "",
     payloadJSON: raw.payloadJSON,
   };
@@ -303,21 +317,26 @@ function handleStreamEvent(event: StreamMessageEvent, options: ConversationStrea
   }
 
   if (event.type === "moderation_blocked") {
+    options.onTerminal?.(event);
     options.onModerationBlocked?.(event);
     // Terminal event for blocked rounds; synthetic result is optional.
     return null;
   }
 
   if (event.type === "completed") {
+    options.onTerminal?.(event);
     return event.data;
   }
 
-  if (event.type === "error" && event.data) {
-    options.onInterrupted?.(event);
-    return event.data;
+  if (event.type === "error") {
+    options.onTerminal?.(event);
+    if (event.data) {
+      options.onInterrupted?.(event);
+      return event.data;
+    }
   }
 
-  throw new ApiError(event.message || "stream failed", responseStatus, event.debug, event.errorCode);
+  throw new ApiError(event.message || "stream failed", event.status ?? responseStatus, event.debug, event.errorCode);
 }
 
 type ListConversationsOptions = {
@@ -819,6 +838,91 @@ export async function listConversationRuns(
   };
 }
 
+export async function getConversationRunStatuses(
+  accessToken: string,
+  runIDs: string[],
+  signal?: AbortSignal,
+): Promise<ConversationRunStatusDTO[]> {
+  const normalizedRunIDs = Array.from(new Set(runIDs.map((runID) => runID.trim()).filter(Boolean)));
+  if (normalizedRunIDs.length === 0) {
+    return [];
+  }
+  const requests: Promise<ConversationRunStatusDTO[]>[] = [];
+  for (let index = 0; index < normalizedRunIDs.length; index += 100) {
+    requests.push(authedRequest<ConversationRunStatusDTO[]>(
+      "/api/v1/conversation-runs/statuses",
+      {
+        method: "POST",
+        accessToken,
+        body: { runIDs: normalizedRunIDs.slice(index, index + 100) },
+        signal,
+      },
+      true,
+    ));
+  }
+  return (await Promise.all(requests)).flat();
+}
+
+export async function streamActiveConversationRuns(
+  accessToken: string,
+  options: {
+    signal?: AbortSignal;
+    onEvent: (event: ActiveConversationRunEvent) => void;
+  },
+): Promise<void> {
+  const response = await authedFetch(
+    "/api/v1/conversation-runs/stream",
+    {
+      accessToken,
+      headers: { Accept: "text/event-stream" },
+      signal: options.signal,
+    },
+    true,
+  );
+  if (!response.body) {
+    throw new ApiError("active conversation run stream is unavailable", response.status);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const consumeFrames = (flush: boolean) => {
+    buffer += flush ? decoder.decode() : "";
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = flush ? "" : (frames.pop() ?? "");
+    for (const frame of frames) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n")
+        .trim();
+      if (!data) {
+        continue;
+      }
+      try {
+        options.onEvent(JSON.parse(data) as ActiveConversationRunEvent);
+      } catch {
+        // Ignore malformed events and keep the long-lived connection healthy.
+      }
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        consumeFrames(true);
+        return;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      consumeFrames(false);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function getContextArtifact(
   accessToken: string,
   artifactID: number,
@@ -827,6 +931,22 @@ export async function getContextArtifact(
     `/api/v1/context-artifacts/${pathParam(artifactID)}`,
     {
       accessToken,
+    },
+    true,
+  );
+}
+
+export async function getConversationToolCallDetail(
+  accessToken: string,
+  runID: string,
+  toolCallID: string,
+  signal?: AbortSignal,
+): Promise<ConversationToolCallDetailDTO> {
+  return authedRequest<ConversationToolCallDetailDTO>(
+    `/api/v1/conversation-runs/${pathParam(runID)}/tool-calls/${pathParam(toolCallID)}`,
+    {
+      accessToken,
+      signal,
     },
     true,
   );
@@ -1027,6 +1147,7 @@ export type ConversationStreamOptions = {
   onUpstreamThinkDelta?: (event: Extract<StreamMessageEvent, { type: "upstream_think_delta" }>) => void;
   onUsage?: (event: Extract<StreamMessageEvent, { type: "usage" }>) => void;
   onInterrupted?: (event: Extract<StreamMessageEvent, { type: "error" }>) => void;
+  onTerminal?: (event: Extract<StreamMessageEvent, { type: "completed" | "error" | "moderation_blocked" }>) => void;
   onModerationChecking?: (event: Extract<StreamMessageEvent, { type: "moderation_checking" }>) => void;
   onModerationBlocked?: (event: Extract<StreamMessageEvent, { type: "moderation_blocked" }>) => void;
   onMessageCreated?: (event: Extract<StreamMessageEvent, { type: "message_created" }>) => void;
@@ -1097,26 +1218,37 @@ async function readConversationStream(
   return { completed, moderationBlocked };
 }
 
-async function postConversationStream<TPayload>(
+async function postMessageStream<TPayload>(
   accessToken: string,
-  conversationPublicID: string,
-  endpointSuffix: string,
+  endpoint: string,
   payload: TPayload,
   options: ConversationStreamOptions,
+  cache?: RequestCache,
 ): Promise<SendMessageResult> {
-  const response = await authedFetch(
-    `/api/v1/conversations/${pathParam(conversationPublicID)}${endpointSuffix}`,
-    {
-      method: "POST",
-      accessToken,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: options.signal,
+  return postMessageStreamRequest(accessToken, endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
-    true,
-  );
+    body: JSON.stringify(payload),
+    signal: options.signal,
+  }, options, cache);
+}
+
+async function postMessageStreamRequest(
+  accessToken: string,
+  endpoint: string,
+  request: RequestInit,
+  options: ConversationStreamOptions,
+  cache?: RequestCache,
+): Promise<SendMessageResult> {
+  const { signal, ...requestWithoutSignal } = request;
+  const response = await authedFetch(endpoint, {
+    ...requestWithoutSignal,
+    accessToken,
+    signal: signal ?? undefined,
+    cache,
+  }, true);
 
   if (!response.body) {
     throw new ApiError("stream body is empty", response.status);
@@ -1141,6 +1273,21 @@ async function postConversationStream<TPayload>(
   throw new ApiError("stream completed without final payload", response.status);
 }
 
+async function postConversationStream<TPayload>(
+  accessToken: string,
+  conversationPublicID: string,
+  endpointSuffix: string,
+  payload: TPayload,
+  options: ConversationStreamOptions,
+): Promise<SendMessageResult> {
+  return postMessageStream(
+    accessToken,
+    `/api/v1/conversations/${pathParam(conversationPublicID)}${endpointSuffix}`,
+    payload,
+    options,
+  );
+}
+
 export async function streamMessage(
   accessToken: string,
   conversationPublicID: string,
@@ -1148,6 +1295,42 @@ export async function streamMessage(
   options: ConversationStreamOptions = {},
 ): Promise<SendMessageResult> {
   return postConversationStream(accessToken, conversationPublicID, "/messages/stream", payload, options);
+}
+
+export async function streamTemporaryChatMessage(
+  accessToken: string,
+  payload: TemporaryChatMessageRequest,
+  options: ConversationStreamOptions = {},
+  attachments: TemporaryChatRequestAttachment[] = [],
+): Promise<SendMessageResult> {
+  if (attachments.length > TEMPORARY_CHAT_MAX_ATTACHMENTS) {
+    throw new ApiError(`temporary chat supports at most ${TEMPORARY_CHAT_MAX_ATTACHMENTS} attachments`, 400);
+  }
+  if (attachments.filter((item) => item.kind === "image").length > TEMPORARY_CHAT_MAX_IMAGE_ATTACHMENTS) {
+    throw new ApiError(`temporary chat supports at most ${TEMPORARY_CHAT_MAX_IMAGE_ATTACHMENTS} image attachments`, 400);
+  }
+  if (attachments.length > 0) {
+    const body = new FormData();
+    body.append("payload", JSON.stringify(payload));
+    body.append("attachmentMessageIndexes", JSON.stringify(attachments.map((item) => item.messageIndex)));
+    for (const attachment of attachments) {
+      body.append("attachments", attachment.file, attachment.file.name);
+    }
+    return postMessageStreamRequest(
+      accessToken,
+      "/api/v1/temporary-chat/messages/stream",
+      { method: "POST", body, signal: options.signal },
+      options,
+      "no-store",
+    );
+  }
+  return postMessageStream(
+    accessToken,
+    "/api/v1/temporary-chat/messages/stream",
+    payload,
+    options,
+    "no-store",
+  );
 }
 
 export async function streamImageGeneration(

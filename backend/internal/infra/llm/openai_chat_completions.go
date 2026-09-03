@@ -246,6 +246,7 @@ func applyChatStreamEvent(
 	adapter string,
 	parsed map[string]interface{},
 	result *GenerateOutput,
+	visibleTextBuffer *string,
 	onEvent func(GenerateStreamEvent) error,
 	allowTextEncodedToolCalls bool,
 ) error {
@@ -256,7 +257,7 @@ func applyChatStreamEvent(
 	delta := extractChatStreamDelta(parsed)
 	if delta != "" {
 		if allowTextEncodedToolCalls {
-			if err := bufferChatVisibleDelta(result, delta, onEvent); err != nil {
+			if err := bufferChatVisibleDelta(result, visibleTextBuffer, delta, onEvent); err != nil {
 				return err
 			}
 		} else if err := emitChatVisibleDelta(result, delta, onEvent); err != nil {
@@ -305,10 +306,7 @@ func mergeChatStreamToolCalls(parsed map[string]interface{}, result *GenerateOut
 	}
 	for fallbackIndex, raw := range items {
 		payload := asMap(raw)
-		index := int(toInt64(payload["index"]))
-		if index < 0 {
-			index = fallbackIndex
-		}
+		index := streamToolCallIndex(payload["index"], fallbackIndex)
 		for len(result.ToolCalls) <= index {
 			result.ToolCalls = append(result.ToolCalls, ToolCall{Status: "requested"})
 		}
@@ -447,35 +445,35 @@ func extractChatVisibleContentText(raw interface{}) string {
 	}
 }
 
-func bufferChatVisibleDelta(result *GenerateOutput, delta string, onEvent func(GenerateStreamEvent) error) error {
-	if result == nil || delta == "" {
+func bufferChatVisibleDelta(result *GenerateOutput, buffer *string, delta string, onEvent func(GenerateStreamEvent) error) error {
+	if result == nil || buffer == nil || delta == "" {
 		return nil
 	}
-	result.chatTextBuffer += delta
-	return flushChatVisibleBuffer(result, onEvent, false)
+	*buffer += delta
+	return flushChatVisibleBuffer(result, buffer, onEvent, false)
 }
 
 // flushChatVisibleBuffer 在 DeepSeek DSML 模式下延迟释放可见文本，确保完整工具调用不会作为普通文本输出。
-func flushChatVisibleBuffer(result *GenerateOutput, onEvent func(GenerateStreamEvent) error, final bool) error {
-	if result == nil || result.chatTextBuffer == "" {
+func flushChatVisibleBuffer(result *GenerateOutput, buffer *string, onEvent func(GenerateStreamEvent) error, final bool) error {
+	if result == nil || buffer == nil || *buffer == "" {
 		return nil
 	}
-	if cleanText, toolCalls, ok := parseDSMLToolCalls(result.chatTextBuffer); ok {
-		result.chatTextBuffer = ""
+	if cleanText, toolCalls, ok := parseDSMLToolCalls(*buffer); ok {
+		*buffer = ""
 		result.ToolCalls = append(result.ToolCalls, toolCalls...)
 		if cleanText == "" {
 			return nil
 		}
 		return emitChatVisibleDelta(result, cleanText, onEvent)
 	}
-	if !final && maybeDSMLToolCallsPrefix(result.chatTextBuffer) {
+	if !final && maybeDSMLToolCallsPrefix(*buffer) {
 		return nil
 	}
-	if final && maybeDSMLToolCallsPrefix(result.chatTextBuffer) {
+	if final && maybeDSMLToolCallsPrefix(*buffer) {
 		return errDeepSeekDSMLToolCallsIncomplete
 	}
-	text := result.chatTextBuffer
-	result.chatTextBuffer = ""
+	text := *buffer
+	*buffer = ""
 	return emitChatVisibleDelta(result, text, onEvent)
 }
 
@@ -578,27 +576,33 @@ func parseOpenAICompatibleUsageForAdapter(adapter string, parsed map[string]inte
 		getInt64FromPath(parsed, "usage", "cache_read_input_tokens"),
 		getInt64FromPath(parsed, "usage", "cache_read_tokens"),
 	)
+	cacheWriteTokens := firstNonZero(
+		getInt64FromPath(parsed, "usage", "input_tokens_details", "cache_write_tokens"),
+		getInt64FromPath(parsed, "usage", "prompt_tokens_details", "cache_write_tokens"),
+		getInt64FromPath(parsed, "usage", "input_tokens_details", "cache_creation_tokens"),
+		getInt64FromPath(parsed, "usage", "prompt_tokens_details", "cache_creation_tokens"),
+		getInt64FromPath(parsed, "usage", "input_tokens_details", "cached_creation_tokens"),
+		getInt64FromPath(parsed, "usage", "prompt_tokens_details", "cached_creation_tokens"),
+		getInt64FromPath(parsed, "usage", "input_tokens_details", "cache_creation_input_tokens"),
+		getInt64FromPath(parsed, "usage", "prompt_tokens_details", "cache_creation_input_tokens"),
+		getInt64FromPath(parsed, "usage", "cache_write_input_tokens"),
+		getInt64FromPath(parsed, "usage", "cache_write_tokens"),
+		getInt64FromPath(parsed, "usage", "cache_creation_input_tokens"),
+		getInt64FromPath(parsed, "usage", "cache_creation", "input_tokens"),
+		getInt64FromPath(parsed, "usage", "cache_creation", "ephemeral_1h_input_tokens")+
+			getInt64FromPath(parsed, "usage", "cache_creation", "ephemeral_5m_input_tokens"),
+	)
+	// OpenAI 兼容 usage 的 prompt_tokens/input_tokens 是提示词侧总量，缓存读取与缓存写入都是它的子集
+	// （OpenAI 原生、new-api、OpenRouter 均如此）。非缓存输入必须同时扣除两者，否则缓存写入的 token
+	// 会先按输入价、再按写入价重复计费。
 	return Usage{
-		InputTokens:     nonCachedInputTokens(totalInputTokens, cacheReadTokens),
-		OutputTokens:    visibleTokens,
-		CacheReadTokens: cacheReadTokens,
-		CacheWriteTokens: firstNonZero(
-			getInt64FromPath(parsed, "usage", "input_tokens_details", "cache_write_tokens"),
-			getInt64FromPath(parsed, "usage", "prompt_tokens_details", "cache_write_tokens"),
-			getInt64FromPath(parsed, "usage", "input_tokens_details", "cache_creation_tokens"),
-			getInt64FromPath(parsed, "usage", "prompt_tokens_details", "cache_creation_tokens"),
-			getInt64FromPath(parsed, "usage", "input_tokens_details", "cache_creation_input_tokens"),
-			getInt64FromPath(parsed, "usage", "prompt_tokens_details", "cache_creation_input_tokens"),
-			getInt64FromPath(parsed, "usage", "cache_write_input_tokens"),
-			getInt64FromPath(parsed, "usage", "cache_write_tokens"),
-			getInt64FromPath(parsed, "usage", "cache_creation_input_tokens"),
-			getInt64FromPath(parsed, "usage", "cache_creation", "input_tokens"),
-			getInt64FromPath(parsed, "usage", "cache_creation", "ephemeral_1h_input_tokens")+
-				getInt64FromPath(parsed, "usage", "cache_creation", "ephemeral_5m_input_tokens"),
-		),
-		ReasoningTokens: reasoningTokens,
-		ServiceTier:     strings.TrimSpace(getString(parsed["service_tier"])),
-		RawUsageJSON:    rawUsageJSONFromPath(parsed, "usage"),
+		InputTokens:      nonCachedInputTokens(totalInputTokens, cacheReadTokens+cacheWriteTokens),
+		OutputTokens:     visibleTokens,
+		CacheReadTokens:  cacheReadTokens,
+		CacheWriteTokens: cacheWriteTokens,
+		ReasoningTokens:  reasoningTokens,
+		ServiceTier:      strings.TrimSpace(getString(parsed["service_tier"])),
+		RawUsageJSON:     rawUsageJSONFromPath(parsed, "usage"),
 	}
 }
 

@@ -1,12 +1,19 @@
 "use client";
 
 import * as React from "react";
-
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { readAccessToken } from "@/shared/auth/session";
-import { dispatchFileLibraryInvalidated } from "@/shared/events/file-library-events";
-import { runBulkActionInChunks } from "@/shared/lib/bulk-action";
-import { resolveConversationDefaultModel } from "@/shared/model/conversation-default-model";
+import {
+  mergeUniqueByPublicID,
+  removeByPublicID,
+  sortByStarredAtDesc,
+  sortByUpdatedAtDesc,
+  upsertByPublicID,
+} from "@/entities/conversation/model/conversation-list";
+import type {
+  DeleteConversationOptions,
+  DeleteConversationProjectOptions,
+  SidebarConversationChange,
+  SidebarConversationsControllerValue,
+} from "@/entities/conversation/types/sidebar-conversations";
 import {
   batchSetConversationProject,
   createConversation,
@@ -18,8 +25,8 @@ import {
   regenerateConversationTitle,
   renameConversation,
   reorderConversationProjects,
-  setConversationProject,
   setConversationArchive,
+  setConversationProject,
   setConversationStar,
   updateConversationLabels,
   updateConversationProject,
@@ -30,20 +37,11 @@ import type {
   CreateConversationProjectRequest,
   UpdateConversationProjectRequest,
 } from "@/shared/api/conversation.types";
-
-import type {
-  DeleteConversationOptions,
-  DeleteConversationProjectOptions,
-  SidebarConversationChange,
-  SidebarConversationsControllerValue,
-} from "@/entities/conversation/types/sidebar-conversations";
-import {
-  mergeUniqueByPublicID,
-  removeByPublicID,
-  sortByStarredAtDesc,
-  sortByUpdatedAtDesc,
-  upsertByPublicID,
-} from "@/entities/conversation/model/conversation-list";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { readAccessToken } from "@/shared/auth/session";
+import { dispatchFileLibraryInvalidated } from "@/shared/events/file-library-events";
+import { runBulkActionInChunks } from "@/shared/lib/bulk-action";
+import { resolveConversationDefaultModel } from "@/shared/model/conversation-default-model";
 
 const RECENT_PAGE_SIZE = 50;
 const STARRED_VISIBLE_LIMIT = 5;
@@ -239,6 +237,7 @@ export function useSidebarConversationsController({
   const [projects, setProjects] = React.useState<ConversationProjectDTO[]>(() => initialCache?.projects ?? []);
   const [starredTotal, setStarredTotal] = React.useState(() => initialCache?.starredTotal ?? 0);
   const [loadingInitial, setLoadingInitial] = React.useState(() => !initialCache);
+  const [projectsLoading, setProjectsLoading] = React.useState(true);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(() => initialCache?.hasMore ?? true);
   const [loadMoreFailed, setLoadMoreFailed] = React.useState(false);
@@ -369,6 +368,7 @@ export function useSidebarConversationsController({
       recentItemsRef.current.length === 0 &&
       starredItemsRef.current.length === 0;
     setLoadingInitial(shouldShowInitialSkeleton);
+    setProjectsLoading(true);
     setLoadMoreFailed(false);
     loadMoreFailedRef.current = false;
     pageRef.current = 1;
@@ -385,6 +385,7 @@ export function useSidebarConversationsController({
       setHasMore(false);
       hasHydratedInitialRef.current = true;
       setLoadingInitial(false);
+      setProjectsLoading(false);
       return;
     }
 
@@ -413,6 +414,7 @@ export function useSidebarConversationsController({
       if (requestVersion === initialRequestVersionRef.current) {
         hasHydratedInitialRef.current = true;
         setLoadingInitial(false);
+        setProjectsLoading(false);
       }
     }
   }, [setProjectList]);
@@ -880,6 +882,7 @@ export function useSidebarConversationsController({
       projects,
       starredTotal,
       loadingInitial,
+      projectsLoading,
       loadingMore,
       hasMore,
       loadMoreFailed,
@@ -920,6 +923,7 @@ export function useSidebarConversationsController({
       loadMoreFailed,
       prependNewConversation,
       projects,
+      projectsLoading,
       regenerateTitleByPublicID,
       updateLabelsByPublicID,
       upsertConversation,

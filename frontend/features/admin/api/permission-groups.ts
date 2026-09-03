@@ -1,5 +1,6 @@
 import type {
   CreatePermissionGroupRequest as ContractCreatePermissionGroupRequest,
+  UpdatePermissionGroupRequest as ContractUpdatePermissionGroupRequest,
   DeletePermissionGroupResponse,
   GroupModelsResponse,
   GroupUsersResponse,
@@ -9,7 +10,6 @@ import type {
   PermissionGroupListResponse,
   PermissionGroupModelRuleResponse,
   PermissionGroupResponse,
-  UpdatePermissionGroupRequest as ContractUpdatePermissionGroupRequest,
 } from "@deeix/api-contract";
 import { authedRequest } from "@/shared/api/authed-client";
 import { pathParam } from "@/shared/api/http-client";
@@ -44,10 +44,10 @@ export type DeletePermissionGroupResult = Omit<DeletePermissionGroupResponse, "s
   summary: PermissionGroupDeleteSummaryResponse;
 };
 
-export async function listPermissionGroups(accessToken: string): Promise<PermissionGroup[]> {
+export async function listPermissionGroups(accessToken: string, signal?: AbortSignal): Promise<PermissionGroup[]> {
   const data = await authedRequest<PermissionGroupListData>(
     "/api/v1/admin/permission-groups",
-    { accessToken },
+    { accessToken, signal },
     true,
   );
   return data.results ?? [];

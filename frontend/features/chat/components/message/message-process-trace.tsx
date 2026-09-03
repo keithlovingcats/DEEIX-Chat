@@ -10,14 +10,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Marker, MarkerContent } from "@/components/ui/marker";
-import type { ChatMessageProcessTrace } from "@/features/chat/types/messages";
-import { useProcessTraceLabels } from "@/features/chat/hooks/use-process-trace-labels";
-import { cn } from "@/lib/utils";
 import {
   RAGCitationList,
   TRACE_ROOT_CLASS,
   TraceContent,
 } from "@/features/chat/components/shared/message-process-trace-shared";
+import { useChatTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
 import {
   filterProcessTraceStages,
   isRAGTraceStage,
@@ -28,8 +26,10 @@ import {
   parseStructuredTraceStages,
   parseTraceStages,
 } from "@/features/chat/model/message-process-trace";
+import type { ChatMessageProcessTrace } from "@/features/chat/types/messages";
+import { cn } from "@/lib/utils";
 
-export { MessageTraceEventBlocks, MessageUpstreamThink } from "@/features/chat/components/message/message-thinking-trace";
+export { MessageAgentTrace } from "@/features/chat/components/message/message-agent-trace";
 
 function buildProcessSummary(trace: ChatMessageProcessTrace): string {
   if (trace.process?.summary) {
@@ -47,7 +47,7 @@ export function MessageProcessTrace({
   active?: boolean;
   autoCollapseReady?: boolean;
 }) {
-  const labels = useProcessTraceLabels();
+  const labels = useChatTraceLabels();
   const processStreaming = Boolean(active && trace?.process?.status === "streaming");
   const [accordionValue, setAccordionValue] = React.useState(() => (processStreaming ? "message-process-trace" : ""));
 
@@ -101,7 +101,7 @@ export function MessageProcessTrace({
                     !processStreaming && "text-muted-foreground group-hover/trace:text-foreground",
                   )}
                 >
-                  <MarkerContent className={cn("min-w-0", processStreaming && "shimmer")}>
+                  <MarkerContent className="min-w-0">
                     {processStreaming ? labels.process.titleActive : labels.process.titleDone}
                   </MarkerContent>
                 </Marker>

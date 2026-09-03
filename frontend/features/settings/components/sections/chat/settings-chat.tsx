@@ -1,22 +1,10 @@
 "use client";
 
-import * as React from "react";
+
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { Pencil, Trash2, Plus } from "lucide-react";
-
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,10 +15,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import type { ChatContentWidth } from "@/shared/model/chat-content-width";
-import { useAppearancePreferencesPersistence } from "@/features/settings/hooks/use-appearance-preferences-persistence";
+import { useSettingsAppearancePersistence } from "@/features/settings/hooks/use-settings-appearance-persistence";
 import { useSettingsChat } from "@/features/settings/hooks/use-settings-chat";
+import type { SendShortcut } from "@/features/settings/types/settings";
 import {
   type ChatFontOption,
   type ChatFontWeightOption,
@@ -40,10 +39,10 @@ import {
   writeChatFontWeightPreference,
 } from "@/features/settings/utils/chat-font";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
-import { listUserMemories, upsertUserMemory, deleteUserMemory } from "@/shared/api/memory";
+import { deleteUserMemory, listUserMemories, upsertUserMemory } from "@/shared/api/memory";
 import type { UserMemoryDTO } from "@/shared/api/memory.types";
-import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { HIGHLIGHT_THEMES, MERMAID_THEMES } from "@/shared/components/markdown/markdown-themes";
 import { ModelSelect, type ModelSelectOption } from "@/shared/components/model-select";
 import {
   SettingsFieldList,
@@ -52,12 +51,12 @@ import {
   SettingsSection,
   SettingsSectionSeparator,
 } from "@/shared/components/settings-layout";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import { resolveModelOptionIconUrl, resolveModelOptionLabel } from "@/shared/lib/model-option-display";
-import { parseKindsJSON } from "@/shared/model/llm-schema";
 import { platformModifierLabel, platformSendShortcut } from "@/shared/lib/platform-shortcuts";
-import type { SendShortcut } from "@/features/settings/types/settings";
+import type { ChatContentWidth } from "@/shared/model/chat-content-width";
+import { parseKindsJSON } from "@/shared/model/llm-schema";
 import { ChatDisplayAppearance } from "./chat-display-appearance";
-import { HIGHLIGHT_THEMES, MERMAID_THEMES } from "@/shared/components/markdown/markdown-themes";
 import { CodeThemePreview, MermaidThemePreview } from "./theme-previews";
 
 
@@ -439,7 +438,7 @@ export function SettingsChat() {
   const billingEnabled = billingMode !== "self";
   const chatFont = useChatFontPreference();
   const chatFontWeight = useChatFontWeightPreference();
-  const persistAppearancePreferences = useAppearancePreferencesPersistence();
+  const persistAppearancePreferences = useSettingsAppearancePersistence();
   const [modifierLabel, setModifierLabel] = React.useState<"Command" | "Ctrl">("Ctrl");
   const [modifierShortcut, setModifierShortcut] = React.useState<Exclude<SendShortcut, "enter">>("ctrl_enter");
   const modelOptions = React.useMemo<ModelOption[]>(
@@ -480,7 +479,7 @@ export function SettingsChat() {
   }, [persistAppearancePreferences]);
 
   const handleContentWidthChange = React.useCallback((value: ChatContentWidth) => {
-    handleEnum("chat.content_width", "contentWidth")(value);
+    handleEnum("chat.content_width")(value);
   }, [handleEnum]);
 
   return (
@@ -511,7 +510,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.autoGenerateTitle}
-                onCheckedChange={handleBool("chat.auto_generate_title", "autoGenerateTitle")}
+                onCheckedChange={handleBool("chat.auto_generate_title")}
                 disabled={loading}
                 aria-label={t("defaultModel.autoTitle")}
               />
@@ -522,7 +521,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.autoGenerateLabels}
-                onCheckedChange={handleBool("chat.auto_generate_labels", "autoGenerateLabels")}
+                onCheckedChange={handleBool("chat.auto_generate_labels")}
                 disabled={loading}
                 aria-label={t("defaultModel.autoLabels")}
               />
@@ -541,7 +540,7 @@ export function SettingsChat() {
           >
             <Select
               value={settings.sendShortcut === "enter" ? "enter" : modifierShortcut}
-              onValueChange={handleEnum("chat.send_on_enter", "sendShortcut")}
+              onValueChange={handleEnum("chat.send_on_enter")}
               disabled={loading}
             >
               <SelectTrigger size="sm" className="text-left md:text-right *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-start md:*:data-[slot=select-value]:justify-end">
@@ -560,7 +559,7 @@ export function SettingsChat() {
             >
               <Select
                 value={settings.inputHeight}
-                onValueChange={handleEnum("chat.input_height", "inputHeight")}
+                onValueChange={handleEnum("chat.input_height")}
                 disabled={loading}
               >
                 <SelectTrigger size="sm" className="text-left md:text-right *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-start md:*:data-[slot=select-value]:justify-end">
@@ -581,7 +580,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.restoreDraftOnFailure}
-                onCheckedChange={handleBool("chat.restore_draft_on_failure", "restoreDraftOnFailure")}
+                onCheckedChange={handleBool("chat.restore_draft_on_failure")}
                 disabled={loading}
                 aria-label={t("input.restoreDraftTitle")}
               />
@@ -594,7 +593,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.preserveConversationDrafts}
-                onCheckedChange={handleBool("chat.preserve_conversation_drafts", "preserveConversationDrafts")}
+                onCheckedChange={handleBool("chat.preserve_conversation_drafts")}
                 disabled={loading}
                 aria-label={t("input.preserveDraftTitle")}
               />
@@ -607,7 +606,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.reuseModelOptions}
-                onCheckedChange={handleBool("chat.reuse_model_options", "reuseModelOptions")}
+                onCheckedChange={handleBool("chat.reuse_model_options")}
                 disabled={loading}
                 aria-label={t("input.reuseModelOptionsTitle")}
               />
@@ -620,7 +619,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.deleteFilesByDefault}
-                onCheckedChange={handleBool("chat.delete_conversation_files_by_default", "deleteFilesByDefault")}
+                onCheckedChange={handleBool("chat.delete_conversation_files_by_default")}
                 disabled={loading}
                 aria-label={t("input.deleteFilesDefaultTitle")}
               />
@@ -640,9 +639,37 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.markdownRender}
-                onCheckedChange={handleBool("chat.markdown_render", "markdownRender")}
+                onCheckedChange={handleBool("chat.markdown_render")}
                 disabled={loading}
                 aria-label={t("display.markdownTitle")}
+              />
+            </SettingsFieldRow>
+          </div>
+
+          <div className="pt-4">
+            <SettingsFieldRow
+              title={t("display.autoExpandThinkingTitle")}
+              description={t("display.autoExpandThinkingDescription")}
+            >
+              <Switch
+                checked={settings.autoExpandThinking}
+                onCheckedChange={handleBool("chat.auto_expand_thinking")}
+                disabled={loading}
+                aria-label={t("display.autoExpandThinkingTitle")}
+              />
+            </SettingsFieldRow>
+          </div>
+
+          <div className="pt-4">
+            <SettingsFieldRow
+              title={t("display.autoExpandToolCallsTitle")}
+              description={t("display.autoExpandToolCallsDescription")}
+            >
+              <Switch
+                checked={settings.autoExpandToolCalls}
+                onCheckedChange={handleBool("chat.auto_expand_tool_calls")}
+                disabled={loading}
+                aria-label={t("display.autoExpandToolCallsTitle")}
               />
             </SettingsFieldRow>
           </div>
@@ -654,7 +681,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.showModelInfo}
-                onCheckedChange={handleBool("chat.show_model_info", "showModelInfo")}
+                onCheckedChange={handleBool("chat.show_model_info")}
                 disabled={loading}
                 aria-label={t("display.modelTitle")}
               />
@@ -668,7 +695,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.showTokenUsage}
-                onCheckedChange={handleBool("chat.show_token_usage", "showTokenUsage")}
+                onCheckedChange={handleBool("chat.show_token_usage")}
                 disabled={loading}
                 aria-label={t("display.tokenTitle")}
               />
@@ -682,7 +709,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.showLatency}
-                onCheckedChange={handleBool("chat.show_latency", "showLatency")}
+                onCheckedChange={handleBool("chat.show_latency")}
                 disabled={loading}
                 aria-label={t("display.latencyTitle")}
               />
@@ -696,7 +723,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={billingEnabled && settings.showBillingCost}
-                onCheckedChange={handleBool("chat.show_billing_cost", "showBillingCost")}
+                onCheckedChange={handleBool("chat.show_billing_cost")}
                 disabled={loading || !billingEnabled}
                 aria-label={t("display.costTitle")}
               />
@@ -722,7 +749,7 @@ export function SettingsChat() {
               <Select
                 value={settings.codeHighlightTheme || "__auto__"}
                 onValueChange={(value) =>
-                  handleEnum("chat.code_highlight_theme", "codeHighlightTheme")(value === "__auto__" ? "" : value)
+                  handleEnum("chat.code_highlight_theme")(value === "__auto__" ? "" : value)
                 }
                 disabled={loading}
               >
@@ -759,7 +786,7 @@ export function SettingsChat() {
             >
               <Select
                 value={settings.mermaidTheme}
-                onValueChange={handleEnum("chat.mermaid_theme", "mermaidTheme")}
+                onValueChange={handleEnum("chat.mermaid_theme")}
                 disabled={loading}
               >
                 <SelectTrigger size="sm" className="text-left md:text-right *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-start md:*:data-[slot=select-value]:justify-end">
@@ -790,7 +817,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.contextCompactAuto}
-                onCheckedChange={handleBool("chat.context_compact_auto", "contextCompactAuto")}
+                onCheckedChange={handleBool("chat.context_compact_auto")}
                 disabled={loading}
                 aria-label={t("context.autoCompactTitle")}
               />
@@ -803,7 +830,7 @@ export function SettingsChat() {
             >
               <Switch
                 checked={settings.reasoningContentPassback}
-                onCheckedChange={handleBool("chat.reasoning_content_passback", "reasoningContentPassback")}
+                onCheckedChange={handleBool("chat.reasoning_content_passback")}
                 disabled={loading}
                 aria-label={t("context.reasoningPassbackTitle")}
               />
@@ -828,7 +855,7 @@ export function SettingsChat() {
           >
             <Select
               value={settings.fileMode}
-              onValueChange={handleEnum("chat.file_mode", "fileMode")}
+              onValueChange={handleEnum("chat.file_mode")}
               disabled={loading}
             >
               <SelectTrigger size="sm" className="text-left md:text-right *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-start md:*:data-[slot=select-value]:justify-end">

@@ -4,9 +4,9 @@ import { motion, type Variants } from 'motion/react';
 
 import {
   getVariants,
-  useAnimateIconContext,
-  IconWrapper,
   type IconProps,
+  IconWrapper,
+  useAnimateIconContext,
 } from '@/components/animate-ui/icons/icon';
 
 type MessageCircleProps = IconProps<keyof typeof animations>;

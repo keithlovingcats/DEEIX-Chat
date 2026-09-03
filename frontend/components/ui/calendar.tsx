@@ -1,20 +1,19 @@
 "use client"
 
-import * as React from "react"
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
 } from "lucide-react"
+import * as React from "react"
 import {
+  type CustomComponents,
+  type DayButton,
   DayPicker,
   getDefaultClassNames,
-  type DayButton,
-  type CustomComponents,
 } from "react-day-picker"
-
-import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 const CalendarRoot: CustomComponents["Root"] = ({
   className,

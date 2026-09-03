@@ -11,6 +11,7 @@ import (
 	"time"
 
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
+	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
@@ -72,6 +73,24 @@ func (r *Repo) usageWeekKeyExpression() string {
 		return "date(usage_date, '-' || ((CAST(strftime('%w', usage_date) AS INTEGER) + 6) % 7) || ' days')"
 	}
 	return "TO_CHAR(date_trunc('week', usage_date), 'YYYY-MM-DD')"
+}
+
+// serviceOnlyUsageExpression 识别标题、标签与上下文压缩等内部模型调用。
+// 新账本写入显式 service_only 快照；旧账本按既有服务编码兼容，避免全表回填审计流水。
+func (r *Repo) serviceOnlyUsageExpression() string {
+	if r.sqliteDialect() {
+		return `COALESCE(
+			CAST(json_extract(NULLIF(pricing_snapshot_json, ''), '$.service_only') AS INTEGER),
+			CASE WHEN json_extract(NULLIF(pricing_snapshot_json, ''), '$.service_items[0].service_code')
+				IN ('title', 'labels', 'compact') THEN 1 ELSE 0 END
+		)`
+	}
+	return `COALESCE(
+		(NULLIF(pricing_snapshot_json, '')::jsonb ->> 'service_only')::boolean,
+		(NULLIF(pricing_snapshot_json, '')::jsonb #>> '{service_items,0,service_code}')
+			IN ('title', 'labels', 'compact'),
+		FALSE
+	)`
 }
 
 // ListActivePlans 查询启用套餐。
@@ -192,7 +211,6 @@ func (r *Repo) UpdatePlanWithDefaultPrice(ctx context.Context, plan *domainbilli
 			"name":                  strings.TrimSpace(plan.Name),
 			"description":           strings.TrimSpace(plan.Description),
 			"period_credit_nanousd": clampNonNegative(plan.PeriodCreditNanousd),
-			"discount_percent":      clampPercent(plan.DiscountPercent),
 			"is_active":             true,
 			"permission_group_id":   plan.PermissionGroupID,
 		}
@@ -248,50 +266,6 @@ func (r *Repo) CountPlansWithPermissionGroup(ctx context.Context, groupID uint) 
 		return 0, translateError(err)
 	}
 	return count, nil
-}
-
-// ListCurrentSubscriptionsByUserIDs 查询一批用户当前有效的活跃订阅。
-func (r *Repo) ListCurrentSubscriptionsByUserIDs(
-	ctx context.Context,
-	userIDs []uint,
-	now time.Time,
-) ([]domainbilling.Subscription, error) {
-	items := make([]model.Subscription, 0)
-	if len(userIDs) == 0 {
-		return []domainbilling.Subscription{}, nil
-	}
-
-	if err := r.db.WithContext(ctx).
-		Where(
-			"user_id IN ? AND status = ? AND current_period_start_at <= ? AND (current_period_end_at IS NULL OR current_period_end_at > ?)",
-			userIDs,
-			"active",
-			now,
-			now,
-		).
-		Order("user_id ASC, current_period_start_at ASC, current_period_end_at ASC NULLS LAST, id ASC").
-		Find(&items).Error; err != nil {
-		return nil, translateError(err)
-	}
-	results := make([]domainbilling.Subscription, 0, len(items))
-	for _, item := range items {
-		results = append(results, domainbilling.Subscription{
-			ID:                   item.ID,
-			UserID:               item.UserID,
-			PlanID:               item.PlanID,
-			PriceID:              item.PriceID,
-			Status:               item.Status,
-			StartAt:              item.StartAt,
-			CurrentPeriodStartAt: item.CurrentPeriodStartAt,
-			CurrentPeriodEndAt:   item.CurrentPeriodEndAt,
-			CancelAtPeriodEnd:    item.CancelAtPeriodEnd,
-			CanceledAt:           item.CanceledAt,
-			AutoRenew:            item.AutoRenew,
-			CreatedAt:            item.CreatedAt,
-			UpdatedAt:            item.UpdatedAt,
-		})
-	}
-	return results, nil
 }
 
 // ListSubscriptionEntitlementsByUserIDs 查询一批用户从 now 起仍有效的当前与未来订阅权益。
@@ -509,13 +483,38 @@ func (r *Repo) MarkPaymentOrderPaidAndGrantSubscription(
 	return &result, activated, nil
 }
 
-// AddUsage 写入账本。
+// AddUsage 写入账本。带运行级幂等键的重试回读首次提交的账本，不重复入账。
 func (r *Repo) AddUsage(ctx context.Context, usage *domainbilling.UsageLedger) error {
 	if usage == nil {
 		return nil
 	}
-	record := toModelUsageLedger(usage)
-	return r.db.WithContext(ctx).Create(&record).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		restored, err := restoreUsageLedgerByRefNo(tx, usage)
+		if err != nil || restored {
+			return err
+		}
+		record := toModelUsageLedger(usage)
+		return translateError(tx.Create(&record).Error)
+	})
+}
+
+// restoreUsageLedgerByRefNo 按运行级幂等键回读已提交的账本：命中时用首次入账的权威内容覆盖
+// usage 并返回 true。没有幂等键的账本不参与幂等，直接返回 false。
+func restoreUsageLedgerByRefNo(tx *gorm.DB, usage *domainbilling.UsageLedger) (bool, error) {
+	refNo := strings.TrimSpace(usage.RefNo)
+	if usage.UserID == 0 || refNo == "" {
+		return false, nil
+	}
+	var existing model.UsageLedger
+	err := tx.Where("user_id = ? AND ref_no = ?", usage.UserID, refNo).First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, translateError(err)
+	}
+	*usage = toDomainUsageLedger(existing)
+	return true, nil
 }
 
 // AddUsageAndSettleBalance 写入真实用量，并消费对应的预算预留。
@@ -543,6 +542,12 @@ func (r *Repo) AddUsageAndSettleBalance(ctx context.Context, usage *domainbillin
 		if alreadySettled {
 			return restoreSettledUsageLedger(tx, reservationRow.UsageLedgerID, usage)
 		}
+		// 无预留的结算（免费模型）没有预留状态机可依赖，靠账本幂等键识别重试；账户行锁已串行化同一用户的写入。
+		if reservationRow == nil {
+			if restored, err := restoreUsageLedgerByRefNo(tx, usage); err != nil || restored {
+				return err
+			}
+		}
 
 		nextBalance := account.BalanceNanousd - chargeNanousd
 		record.BalanceAfterNanousd = &nextBalance
@@ -550,9 +555,8 @@ func (r *Repo) AddUsageAndSettleBalance(ctx context.Context, usage *domainbillin
 			return translateError(err)
 		}
 		if chargeNanousd > 0 {
-			// 上游已产生真实用量时必须完整入账；余额可以转负，后续调用由原子预算预留拦截。
 			if err := tx.Model(account).Updates(map[string]interface{}{
-				"balance_nanousd": nextBalance,
+				"balance_nanousd": gorm.Expr("balance_nanousd - ?", chargeNanousd),
 				"currency":        "USD",
 				"status":          "active",
 			}).Error; err != nil {
@@ -613,6 +617,16 @@ func (r *Repo) AddPeriodUsageAndSettleOverage(
 			settledSnapshotJSON = usage.PricingSnapshotJSON
 			return nil
 		}
+		if reservationRow == nil {
+			restored, restoreErr := restoreUsageLedgerByRefNo(tx, usage)
+			if restoreErr != nil {
+				return restoreErr
+			}
+			if restored {
+				settledSnapshotJSON = usage.PricingSnapshotJSON
+				return nil
+			}
+		}
 
 		var usedBeforeNanousd int64
 		if err = tx.Model(&model.UsageLedger{}).
@@ -672,8 +686,9 @@ func (r *Repo) AddPeriodUsageAndSettleOverage(
 		}
 		if overageNanousd > 0 {
 			// 超出周期额度的真实用量必须完整入账；预留仅限制并发风险，不改变最终扣费金额。
+			// 扣减使用表达式更新而非内存值写回，避免任何绕开行锁的并发写导致覆盖。
 			if err := tx.Model(account).Updates(map[string]interface{}{
-				"balance_nanousd": nextBalance,
+				"balance_nanousd": gorm.Expr("balance_nanousd - ?", overageNanousd),
 				"currency":        "USD",
 				"status":          "active",
 			}).Error; err != nil {
@@ -968,6 +983,112 @@ func (r *Repo) ListRedemptionCodes(ctx context.Context, filter repository.Redemp
 	results := make([]domainbilling.RedemptionCode, 0, len(items))
 	for _, item := range items {
 		results = append(results, toDomainRedemptionCode(item))
+	}
+	return results, total, nil
+}
+
+// redemptionRecordRow 承载兑换记录与联表出的兑换码、套餐、余额流水上下文。
+type redemptionRecordRow struct {
+	ID                   uint
+	CodeID               uint
+	UserID               uint
+	Mode                 string
+	RewardType           string
+	CreditNanousd        int64
+	PlanID               uint
+	SubscriptionID       uint
+	BalanceTransactionID uint
+	RefNo                string
+	SnapshotJSON         string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	CodeHint             string
+	CodeDescription      string
+	CodeStatus           string
+	PlanName             string
+	BalanceAmountNanousd *int64
+	BalanceAfterNanousd  *int64
+}
+
+// ListRedemptions 分页查询兑换记录，联表补齐兑换码、套餐与余额流水上下文。
+// 兑换码为状态软删，已删除码的历史兑换仍可查询。
+func (r *Repo) ListRedemptions(ctx context.Context, filter repository.RedemptionListFilter, offset int, limit int) ([]repository.RedemptionRecord, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	query := r.db.WithContext(ctx).Model(&model.Redemption{}).
+		Joins("LEFT JOIN billing_redemption_codes AS rc ON rc.id = billing_redemptions.code_id").
+		Joins("LEFT JOIN billing_plans AS rp ON rp.id = billing_redemptions.plan_id AND billing_redemptions.plan_id > 0").
+		Joins("LEFT JOIN billing_balance_transactions AS rt ON rt.id = billing_redemptions.balance_transaction_id AND billing_redemptions.balance_transaction_id > 0")
+	if filter.CodeID > 0 {
+		query = query.Where("billing_redemptions.code_id = ?", filter.CodeID)
+	}
+	if filter.UserID > 0 {
+		query = query.Where("billing_redemptions.user_id = ?", filter.UserID)
+	}
+	if rewardType := strings.TrimSpace(filter.RewardType); rewardType != "" {
+		query = query.Where("billing_redemptions.reward_type = ?", rewardType)
+	}
+	if keyword := strings.TrimSpace(filter.Query); keyword != "" {
+		like := "%" + strings.ToLower(keyword) + "%"
+		query = query.Where(
+			"LOWER(billing_redemptions.ref_no) LIKE ? OR LOWER(rc.code_hint) LIKE ? OR LOWER(rc.description) LIKE ?",
+			like,
+			like,
+			like,
+		)
+	}
+	if filter.CreatedFrom != nil {
+		query = query.Where("billing_redemptions.created_at >= ?", *filter.CreatedFrom)
+	}
+	if filter.CreatedTo != nil {
+		query = query.Where("billing_redemptions.created_at <= ?", *filter.CreatedTo)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	order := "billing_redemptions.created_at DESC, billing_redemptions.id DESC"
+	if strings.TrimSpace(filter.Sort) == "created_asc" {
+		order = "billing_redemptions.created_at ASC, billing_redemptions.id ASC"
+	}
+	rows := make([]redemptionRecordRow, 0)
+	if err := query.
+		Select("billing_redemptions.*, rc.code_hint AS code_hint, rc.description AS code_description, rc.status AS code_status, rp.name AS plan_name, rt.amount_nanousd AS balance_amount_nanousd, rt.balance_after_nanousd AS balance_after_nanousd").
+		Order(order).
+		Offset(offset).
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	results := make([]repository.RedemptionRecord, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, repository.RedemptionRecord{
+			Redemption: domainbilling.Redemption{
+				ID:                   row.ID,
+				CodeID:               row.CodeID,
+				UserID:               row.UserID,
+				Mode:                 row.Mode,
+				RewardType:           row.RewardType,
+				CreditNanousd:        row.CreditNanousd,
+				PlanID:               row.PlanID,
+				SubscriptionID:       row.SubscriptionID,
+				BalanceTransactionID: row.BalanceTransactionID,
+				RefNo:                row.RefNo,
+				SnapshotJSON:         row.SnapshotJSON,
+				CreatedAt:            row.CreatedAt,
+				UpdatedAt:            row.UpdatedAt,
+			},
+			CodeHint:             row.CodeHint,
+			CodeDescription:      row.CodeDescription,
+			CodeStatus:           row.CodeStatus,
+			PlanName:             row.PlanName,
+			BalanceAmountNanousd: row.BalanceAmountNanousd,
+			BalanceAfterNanousd:  row.BalanceAfterNanousd,
+		})
 	}
 	return results, total, nil
 }
@@ -1916,6 +2037,41 @@ func (r *Repo) GetUserCreatedAt(ctx context.Context, userID uint) (time.Time, er
 	return item.CreatedAt, nil
 }
 
+// GetDailyActivityByUser 基于不可变用量流水聚合用户主动发起的模型请求。
+// 现有 (user_id, usage_date) 索引先限定用户与日期范围，再判断内部调用；
+// 查询成本随单个用户窗口内的实际用量增长，不扫描全局消息表。
+func (r *Repo) GetDailyActivityByUser(ctx context.Context, userID uint, startDate time.Time, endDate time.Time) ([]domainuser.DailyActivity, error) {
+	type dailyActivityRow struct {
+		UsageDate    time.Time `gorm:"column:usage_date"`
+		RequestCount int64     `gorm:"column:request_count"`
+		TokenUsage   int64     `gorm:"column:token_usage"`
+	}
+
+	rows := make([]dailyActivityRow, 0)
+	if err := r.db.WithContext(ctx).
+		Model(&model.UsageLedger{}).
+		Select(`usage_date,
+			COUNT(*) AS request_count,
+			COALESCE(SUM(input_tokens + cache_read_tokens + cache_write_tokens + output_tokens + reasoning_tokens), 0) AS token_usage`).
+		Where("user_id = ? AND usage_date >= ? AND usage_date < ?", userID, startDate, endDate).
+		Where("NOT (" + r.serviceOnlyUsageExpression() + ")").
+		Group("usage_date").
+		Order("usage_date ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, translateError(err)
+	}
+
+	results := make([]domainuser.DailyActivity, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, domainuser.DailyActivity{
+			Date:         row.UsageDate.Format("2006-01-02"),
+			RequestCount: row.RequestCount,
+			TokenUsage:   row.TokenUsage,
+		})
+	}
+	return results, nil
+}
+
 // ListDailyUsageByUser 按日期聚合用户用量。
 func (r *Repo) ListDailyUsageByUser(ctx context.Context, userID uint, startDate time.Time, endDate time.Time) ([]domainbilling.UsageDailySummary, error) {
 	type dailyModelUsageRow struct {
@@ -2035,6 +2191,20 @@ func (r *Repo) SumBillableNanousd(ctx context.Context, userID uint, startAt time
 	return total, nil
 }
 
+// SumTotalBilledNanousd 统计用户不限时间的累计计费金额(仅付费模型流水,不含充值与兑换入账)。
+func (r *Repo) SumTotalBilledNanousd(ctx context.Context, userID uint) (int64, error) {
+	var total int64
+	err := r.db.WithContext(ctx).
+		Model(&model.UsageLedger{}).
+		Select("COALESCE(SUM(billed_nanousd), 0)").
+		Where("user_id = ? AND is_free_model = ?", userID, false).
+		Scan(&total).Error
+	if err != nil {
+		return 0, translateError(err)
+	}
+	return total, nil
+}
+
 func toDomainModelPricing(item model.ModelPricing) domainbilling.ModelPricing {
 	return domainbilling.ModelPricing{
 		ID:                          item.ID,
@@ -2086,6 +2256,7 @@ func toDomainPaymentOrder(item model.PaymentOrder) domainbilling.PaymentOrder {
 func toModelUsageLedger(usage *domainbilling.UsageLedger) model.UsageLedger {
 	return model.UsageLedger{
 		UserID:              usage.UserID,
+		RefNo:               strings.TrimSpace(usage.RefNo),
 		ConversationID:      usage.ConversationID,
 		ProviderProtocol:    usage.ProviderProtocol,
 		UpstreamName:        usage.UpstreamName,
@@ -2118,6 +2289,7 @@ func toDomainUsageLedger(item model.UsageLedger) domainbilling.UsageLedger {
 	return domainbilling.UsageLedger{
 		ID:                  item.ID,
 		UserID:              item.UserID,
+		RefNo:               item.RefNo,
 		ConversationID:      item.ConversationID,
 		ProviderProtocol:    item.ProviderProtocol,
 		UpstreamName:        item.UpstreamName,
@@ -2928,16 +3100,6 @@ func minInt64(a int64, b int64) int64 {
 	return b
 }
 
-func clampPercent(value int) int {
-	if value < 0 {
-		return 0
-	}
-	if value > 100 {
-		return 100
-	}
-	return value
-}
-
 func normalizeInterval(value string) string {
 	switch strings.TrimSpace(value) {
 	case domainbilling.IntervalYear:
@@ -2966,7 +3128,6 @@ func toPlanDomain(item model.BillingPlan) domainbilling.Plan {
 		Description:         item.Description,
 		FeatureJSON:         item.FeatureJSON,
 		PeriodCreditNanousd: item.PeriodCreditNanousd,
-		DiscountPercent:     item.DiscountPercent,
 		SortOrder:           item.SortOrder,
 		IsActive:            item.IsActive,
 		PermissionGroupID:   item.PermissionGroupID,

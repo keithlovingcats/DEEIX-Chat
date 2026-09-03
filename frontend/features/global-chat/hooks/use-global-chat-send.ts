@@ -10,8 +10,8 @@ import {
   uploadGlobalChatImage,
 } from "@/shared/api/global-chat";
 import { readDeviceId } from "@/shared/auth/device-id";
-import { readSessionSnapshot } from "@/shared/auth/session";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { readSessionSnapshot } from "@/shared/auth/session";
 
 // 发送者信息由调用方（会话层）注入，用于乐观更新展示。
 export type GlobalChatSender = {

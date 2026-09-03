@@ -14,9 +14,10 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	appcm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/contentmoderation"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
+	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/traceid"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -55,7 +56,9 @@ type MediaImageInput struct {
 	ParentMessagePublicID string
 	SourceMessagePublicID string
 	BranchReason          string
-	OnEvent               func(eventType string, payload map[string]interface{}) error
+	// UsageAuthorization 是请求级计费授权；路由确定后据此把预算预留抬高到按次预估成本。
+	UsageAuthorization *domainbilling.UsageAuthorization
+	OnEvent            func(eventType string, payload map[string]interface{}) error
 }
 
 // StreamMediaImage 执行图片生成任务并把结果保存为文件对象。
@@ -129,13 +132,16 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		RequestID:         strings.TrimSpace(input.RequestID),
 	})
 	if err != nil {
-		return nil, ErrModelRouteNotConfigured
+		return nil, mapRouteResolutionError(err)
 	}
 	if input.TaskType == MediaImageTaskGeneration && !llm.IsImageGenerationAdapter(route.Protocol) {
 		return nil, ErrMediaRouteProtocolMismatch
 	}
 	if input.TaskType == MediaImageTaskEdit && !llm.IsImageEditAdapter(route.Protocol) {
 		return nil, ErrMediaRouteProtocolMismatch
+	}
+	if err = s.ensureUsageBudgetCoversEstimate(ctx, input.UsageAuthorization, route, input.Options, usageBudgetEstimate{CallCount: 1}); err != nil {
+		return nil, err
 	}
 	// 图片任务会把会话当前模型更新为实际执行的图片模型；标题、标签等内部文本任务会单独回退到聊天模型。
 	if strings.TrimSpace(conversation.Model) != strings.TrimSpace(route.PlatformModelName) {
@@ -230,7 +236,7 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	}()
 	cancelCtx, cancel := context.WithCancel(ctx)
 	ctx = cancelCtx
-	s.generationStreams.register(ctx, runID, input.UserID, cancel)
+	s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel)
 
 	assistantMessage = &model.Message{
 		ConversationID: input.ConversationID,
@@ -319,13 +325,14 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		}
 	}
 	moderationCoord = s.startModerationRun(ctx, SendMessageInput{
-		UserID:         input.UserID,
-		ConversationID: input.ConversationID,
-		RequestID:      input.RequestID,
-		Content:        strings.TrimSpace(input.Prompt),
-		FileIDs:        moderationFileIDs,
-		ClientRunID:    runID,
-		OnEvent:        input.OnEvent,
+		UserID:             input.UserID,
+		ConversationID:     input.ConversationID,
+		RequestID:          input.RequestID,
+		Content:            strings.TrimSpace(input.Prompt),
+		FileIDs:            moderationFileIDs,
+		ClientRunID:        runID,
+		OnEvent:            input.OnEvent,
+		UsageAuthorization: input.UsageAuthorization,
 	}, runID, userMessage, assistantMessage, run)
 	emitMediaEvent(input.OnEvent, "queued", "image task queued")
 

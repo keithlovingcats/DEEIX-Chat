@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { LoaderCircle, ShieldCheck, UsersRound } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -18,10 +18,10 @@ import {
 } from "@/components/ui/combobox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listAdminUsers, type PermissionGroup } from "@/features/admin/api";
+import type { AdminUserDTO } from "@/features/admin/api/admin.types";
 import type { AdminStatisticsSubject } from "@/features/admin/hooks/use-admin-statistics";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
-import type { AdminUserDTO } from "@/features/admin/api/admin.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
 
@@ -144,7 +144,7 @@ export function AdminStatisticsSubjectFilter({
       : ALL_SUBJECT_OPTION;
 
   return (
-    <Combobox
+    <Combobox<SubjectFilterOption>
       items={options}
       value={selectedOption}
       inputValue={query}

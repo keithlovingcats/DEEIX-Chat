@@ -1,47 +1,48 @@
-import { authedRequest } from "@/shared/api/authed-client";
-import { pathParam } from "@/shared/api/http-client";
-import type { PagePayload } from "@/shared/api/common.types";
 import type {
   AdminBatchDeleteData,
   AdminBatchDeleteRequest,
-  AdminLLMSetting,
   AdminLLMModelData,
-  AdminLLMModelDTO,
   AdminLLMModelDisplayGroupData,
   AdminLLMModelDisplayGroupDTO,
+  AdminLLMModelDTO,
   AdminLLMModelIconAsset,
   AdminLLMModelIconAssetListItem,
-  AdminLLMModelVendorData,
-  AdminLLMModelVendorDTO,
   AdminLLMModelProbeBatchData,
   AdminLLMModelProbeData,
   AdminLLMModelUpstreamSourceData,
   AdminLLMModelUpstreamSourceDTO,
+  AdminLLMModelVendorData,
+  AdminLLMModelVendorDTO,
+  AdminLLMSetting,
   AdminLLMUpstreamData,
   AdminLLMUpstreamModelData,
   AdminLLMUpstreamModelDTO,
   AdminLLMUpstreamView,
   BindAdminLLMModelUpstreamSourceRequest,
-  CreateAdminLLMModelRequest,
   CreateAdminLLMModelDisplayGroupRequest,
+  CreateAdminLLMModelRequest,
   CreateAdminLLMModelVendorRequest,
   CreateAdminLLMUpstreamRequest,
   ImportAdminLLMUpstreamModelsData,
   ImportAdminLLMUpstreamModelsRequest,
   ListAdminLLMRemoteModelsData,
   ReorderAdminLLMModelsRequest,
+  ResetAdminLLMCircuitData,
   SetAdminLLMModelProtocolsRequest,
   SetAdminLLMModelsDisplayGroupRequest,
-  ResetAdminLLMCircuitData,
-  UpdateAdminLLMModelRequest,
+  SyncAdminLLMUpstreamModelsData,
   UpdateAdminLLMModelDisplayGroupRequest,
-  UpdateAdminLLMModelVendorRequest,
+  UpdateAdminLLMModelRequest,
   UpdateAdminLLMModelUpstreamSourceRequest,
+  UpdateAdminLLMModelVendorRequest,
   UpdateAdminLLMUpstreamRequest,
   UpsertAdminLLMUpstreamModelRequest,
 } from "@/features/admin/api/llm.types";
+import { authedRequest } from "@/shared/api/authed-client";
+import type { PagePayload } from "@/shared/api/common.types";
+import { pathParam } from "@/shared/api/http-client";
 
-import { normalizeAdminPagePayload, resolveAdminPage, type AdminListQueryOptions, type AdminPageOptions } from "./shared";
+import { type AdminListQueryOptions, type AdminPageOptions, normalizeAdminPagePayload, resolveAdminPage } from "./shared";
 
 type ListAdminLLMUpstreamsOptions = AdminListQueryOptions & {
   compatible?: string;
@@ -291,10 +292,31 @@ export async function resetAdminLLMUpstreamModelCircuit(
 export async function listAdminLLMRemoteModels(
   accessToken: string,
   upstreamID: number,
+  signal?: AbortSignal,
 ): Promise<ListAdminLLMRemoteModelsData> {
   return authedRequest<ListAdminLLMRemoteModelsData>(
     `/api/v1/admin/llm/upstreams/${upstreamID}/models/remote`,
-    { accessToken },
+    { accessToken, signal },
+    true,
+  );
+}
+
+export async function syncAdminLLMUpstreamModels(
+  accessToken: string,
+  upstreamID: number,
+  options: { allowEmpty?: boolean; expectedSnapshot?: string; signal?: AbortSignal } = {},
+): Promise<SyncAdminLLMUpstreamModelsData> {
+  const params = new URLSearchParams();
+  if (options.allowEmpty) {
+    params.set("allow_empty", "true");
+  }
+  if (options.expectedSnapshot) {
+    params.set("expected_snapshot", options.expectedSnapshot);
+  }
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+  return authedRequest<SyncAdminLLMUpstreamModelsData>(
+    `/api/v1/admin/llm/upstreams/${upstreamID}/models/sync${query}`,
+    { method: "POST", accessToken, signal: options.signal },
     true,
   );
 }
@@ -303,10 +325,11 @@ export async function importAdminLLMUpstreamModels(
   accessToken: string,
   upstreamID: number,
   payload: ImportAdminLLMUpstreamModelsRequest,
+  signal?: AbortSignal,
 ): Promise<ImportAdminLLMUpstreamModelsData> {
   return authedRequest<ImportAdminLLMUpstreamModelsData>(
     `/api/v1/admin/llm/upstreams/${upstreamID}/models/import`,
-    { method: "POST", accessToken, body: payload },
+    { method: "POST", accessToken, body: payload, signal },
     true,
   );
 }

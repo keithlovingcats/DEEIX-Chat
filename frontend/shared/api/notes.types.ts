@@ -1,10 +1,10 @@
 import type {
   CreateNoteRequest as ContractCreateNoteRequest,
+  PatchNoteRequest as ContractPatchNoteRequest,
   NoteDataResponse,
   NoteDeleteDataResponse,
   NotePageResponseDoc,
   NoteResponse,
-  PatchNoteRequest as ContractPatchNoteRequest,
 } from "@deeix/api-contract";
 
 export type NoteDTO = NoteResponse;

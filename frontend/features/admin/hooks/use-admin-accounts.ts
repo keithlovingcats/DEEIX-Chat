@@ -1,11 +1,10 @@
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { listAdminUsers } from "@/features/admin/api";
 import type { AdminUserDTO } from "@/features/admin/api/admin.types";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 
 const USERS_PAGE_SIZE_DEFAULT = 25;
 

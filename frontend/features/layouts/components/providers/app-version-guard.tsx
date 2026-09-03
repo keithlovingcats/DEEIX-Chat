@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { getAppVersion, resolveAppBuildID } from "@/shared/api/app-version";
@@ -11,7 +11,7 @@ const APP_VERSION_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 type CheckReason = "initial" | "interval" | "focus" | "visible";
 
-export function AppVersionGuard() {
+export function AppVersionGuard(): null {
   const t = useTranslations("common.appVersion");
   const tActions = useTranslations("common.actions");
   const checkingRef = React.useRef(false);

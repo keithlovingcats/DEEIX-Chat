@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"testing"
+	"time"
 
 	appcompact "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/compact"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
@@ -64,6 +65,22 @@ func (r *rejectedMessageRepositoryStub) UpdateMessageProcessTrace(_ context.Cont
 
 func (r *rejectedMessageRepositoryStub) ListMessagesByRunID(context.Context, uint, string) ([]model.Message, error) {
 	return nil, nil
+}
+
+func (r *rejectedMessageRepositoryStub) CreateContextSnapshot(_ context.Context, _ *model.ContextSnapshot) error {
+	return nil
+}
+
+func (r *rejectedMessageRepositoryStub) GetContextSnapshotByRunID(_ context.Context, _ string) (*model.ContextSnapshot, error) {
+	return nil, nil
+}
+
+func (r *rejectedMessageRepositoryStub) GetLatestContextSnapshot(_ context.Context, _ uint) (*model.ContextSnapshot, error) {
+	return nil, nil
+}
+
+func (r *rejectedMessageRepositoryStub) UpdateConversationCompactedAt(_ context.Context, _ uint, _ time.Time) error {
+	return nil
 }
 
 // TestStreamMessageEmitsMessageCreatedBeforeUpstream 验证流式发送在消息对落库后立即

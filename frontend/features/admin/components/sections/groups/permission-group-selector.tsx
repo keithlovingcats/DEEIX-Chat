@@ -1,7 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { Check, ChevronDownIcon } from "lucide-react";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -9,8 +9,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import type { PermissionGroup } from "@/features/admin/api/permission-groups";
+import { cn } from "@/lib/utils";
 
 type PermissionGroupSelectorProps = {
   groups: PermissionGroup[];
@@ -18,6 +18,7 @@ type PermissionGroupSelectorProps = {
   matchedIDs?: number[];
   disabled?: boolean;
   loading?: boolean;
+  triggerPrefix?: string;
   placeholder: string;
   emptyLabel: string;
   autoBadgeLabel: string;
@@ -30,6 +31,7 @@ export function PermissionGroupSelector({
   matchedIDs = [],
   disabled,
   loading,
+  triggerPrefix,
   placeholder,
   emptyLabel,
   autoBadgeLabel,
@@ -68,6 +70,9 @@ export function PermissionGroupSelector({
             disabled={disabled || loading}
             className="h-8 w-full justify-between gap-2 border-input/40 bg-transparent px-3 py-1 text-xs font-normal hover:bg-transparent focus-visible:border-ring/60 focus-visible:ring-[1px] focus-visible:ring-ring/40 has-[>svg]:px-3"
           >
+            {triggerPrefix ? (
+              <span className="shrink-0 text-muted-foreground">{triggerPrefix}</span>
+            ) : null}
             <span className={cn("min-w-0 flex-1 truncate text-left", selectedLabel ? "text-foreground/75" : "text-muted-foreground")}>
               {triggerLabel}
             </span>

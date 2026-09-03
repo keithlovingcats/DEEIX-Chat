@@ -3,66 +3,77 @@
 import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
-import { useHiddenQueuedParentRuns } from "@/features/chat/hooks/use-hidden-queued-parent-runs";
-import type { ChatSubmitBlockReason } from "@/features/chat/model/chat-task";
 import {
-  MAX_DISCUSSION_MODELS,
   type DiscussionSendFn,
+  MAX_DISCUSSION_MODELS,
 } from "@/features/chat/hooks/use-chat-discussion";
+import { useChatExchangeSync } from "@/features/chat/hooks/use-chat-exchange-sync";
+import { useChatHiddenRuns } from "@/features/chat/hooks/use-chat-hidden-runs";
+import { useChatMessageActions } from "@/features/chat/hooks/use-chat-message-actions";
+import { useChatQueueDispatch } from "@/features/chat/hooks/use-chat-queue-dispatch";
+import { useChatRunStream } from "@/features/chat/hooks/use-chat-run-stream";
+import {
+      GENERATION_CANCEL_SETTLEMENT_TIMEOUT_MS,
+      useChatStopMessage,
+    } from "@/features/chat/hooks/use-chat-stop-message";
+import { useChatSubmissionQueue } from "@/features/chat/hooks/use-chat-submission-queue";
 import { resolveChatSubmitDecision } from "@/features/chat/model/chat-task";
 import {
-  branchUserHasActiveRun,
-  buildChildrenIndex,
-  parseAttachments,
   toBranchKey,
-  userPromptHasActiveRun,
 } from "@/features/chat/model/chat-thread";
-import { sanitizeConversationOptions } from "@/features/chat/model/conversation-options";
-import { buildMediaImagePreviewMarkdown } from "@/features/chat/model/media-image-preview";
 import {
-  resolveAssistantInputSideUsageValue,
+  conversationTitleFromFirstUserMessage,
+  isPlaceholderConversationTitle,
+  refreshGeneratedConversationMetadata,
+  shouldPollGeneratedConversationMetadata,
+} from "@/features/chat/model/conversation-metadata-refresh";
+import { sanitizeConversationOptions } from "@/features/chat/model/conversation-options";
+import {
   resolveDefaultSubmissionParentMessage,
   resolvePersistedPublicID,
-  toPendingAttachments,
-  toPendingProcessTrace,
 } from "@/features/chat/model/message-submit";
 import {
-  preserveRicherLiveUpstreamThinkTrace,
-  readLiveUpstreamThinkTrace,
-} from "@/features/chat/model/upstream-think-store";
+  type ActiveStream,
+  type BranchScope,
+  branchRunIsVisible,
+  branchScopeID,
+  branchScopeIsVisible,
+  branchScopesEqual,
+  buildBranchScopePath,
+  clearCancelSettlementTimer,
+  createClientRunID,
+  findLastVisibleActiveStream,
+  findVisibleActiveStreamByRunID,
+  MAX_CONCURRENT_RUNS,
+  type QueuedChatSubmission,
+  replaceCompletedBranchSelection,
+} from "@/features/chat/model/message-submit-branching";
+import {
+  abortPendingExchange,
+  createInitialPendingExchange,
+  failPendingExchange,
+} from "@/features/chat/model/message-submit-exchange";
+import { resolveSubmitBlockDescription } from "@/features/chat/model/message-submit-media";
+import { planChatSubmission } from "@/features/chat/model/message-submit-plan";
 import type {
   ChatModelOption,
   PendingAttachment,
   PendingExchange,
   PendingExchangeMap,
 } from "@/features/chat/types/chat-runtime";
-import type { ChatAreaMessage, ImageLoadingAspectRatio } from "@/features/chat/types/messages";
+import type { ChatAreaMessage } from "@/features/chat/types/messages";
 import {
   resolveErrorDetails,
   resolveErrorMessage,
   resolveErrorSummary,
 } from "@/features/chat/utils/chat-runtime";
-import {
-  type ConversationStreamOptions,
-  cancelMessageGeneration,
-  forkConversationFromMessage,
-  getConversation,
-  streamMessage as streamConversationMessage,
-  streamImageEdit,
-  streamImageGeneration,
-  streamVideoExtension,
-  streamVideoGeneration,
-  updateMessage,
-} from "@/shared/api/conversation";
+import type { ConversationStreamOptions } from "@/shared/api/conversation";
+import { cancelMessageGeneration, getConversation } from "@/shared/api/conversation";
 import type {
   ConversationDTO,
   ConversationOptions,
-  MediaImageRequest,
-  MediaVideoExtensionRequest,
-  MediaVideoRequest,
   MessageDiscussionMetaInput,
   MessageDTO,
-  SendMessageRequest,
   SendMessageResult,
   StreamMessageEvent,
 } from "@/shared/api/conversation.types";
@@ -70,399 +81,6 @@ import { ApiError } from "@/shared/api/http-client";
 import type { SkillSummaryDTO } from "@/shared/api/skills.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { notifyResponseCompletion } from "@/shared/lib/browser-notifications";
-
-const CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS = 45_000;
-const CONVERSATION_METADATA_REFRESH_INITIAL_DELAY_MS = 800;
-const CONVERSATION_METADATA_REFRESH_MAX_DELAY_MS = 5_000;
-const CONVERSATION_METADATA_REFRESH_BACKOFF = 1.5;
-const MAX_CONCURRENT_RUNS = 20;
-const GENERATION_CANCEL_SETTLEMENT_TIMEOUT_MS = 25_000;
-
-function resolveSubmitBlockDescription(
-  reason: ChatSubmitBlockReason,
-  t: (key: string) => string,
-): string {
-  return t(`mediaInputBlocked.${reason}`);
-}
-
-function resolveImageLoadingAspectRatio(options: ConversationOptions): ImageLoadingAspectRatio {
-  const rawSize = typeof options.size === "string" ? options.size.trim() : "";
-  const match = rawSize.match(/^(\d+)\s*x\s*(\d+)$/i);
-  if (!match) {
-    return "wide";
-  }
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return "wide";
-  }
-  if (width > height) {
-    return "wide";
-  }
-  if (height > width) {
-    return "portrait";
-  }
-  return "square";
-}
-
-function resolveVideoExtensionOptions(options: ConversationOptions): ConversationOptions {
-  const duration = Number(options.duration);
-  return {
-    duration: Number.isInteger(duration) && duration >= 2 && duration <= 10 ? duration : 6,
-  };
-}
-
-function streamEventErrorToApiError(
-  event: Extract<StreamMessageEvent, { type: "error" }>,
-  fallback: string,
-): ApiError {
-  return new ApiError(event.message || fallback, 502, event.debug, event.errorCode);
-}
-
-function resolveMediaStatusLabel(
-  status: string,
-  fallbackMessage: string,
-  contentType: string | undefined,
-  t: ReturnType<typeof useTranslations>,
-): string {
-  switch (status.trim()) {
-    case "queued":
-      if (contentType === "video") {
-        return t("mediaStatus.videoQueued");
-      }
-      return t("mediaStatus.queued");
-    case "running":
-      if (contentType === "video") {
-        return t("mediaStatus.videoRunning");
-      }
-      return t("mediaStatus.running");
-    case "saving_artifact":
-      if (contentType === "video") {
-        return t("mediaStatus.videoSavingArtifact");
-      }
-      return t("mediaStatus.savingArtifact");
-    default:
-      return fallbackMessage.trim() || status.trim();
-  }
-}
-
-type BranchScope = {
-  conversationScopeKey: string;
-  branchScopePath: string[];
-  branchScopeRunID: string;
-};
-
-type ActiveStream = BranchScope & {
-  controller: AbortController;
-  runID: string;
-  accessToken: string | null;
-  cancelRequested: boolean;
-  cancelSettlementTimer: number | null;
-};
-
-function clearCancelSettlementTimer(active: ActiveStream) {
-  if (active.cancelSettlementTimer === null) {
-    return;
-  }
-  window.clearTimeout(active.cancelSettlementTimer);
-  active.cancelSettlementTimer = null;
-}
-
-function replaceCompletedBranchSelection(
-  previous: Record<string, string>,
-  branch: Pick<
-    PendingExchange,
-    "parentPublicID" | "tempUserPublicID" | "tempAssistantPublicID" | "reuseUserMessage"
-  >,
-  userPublicID: string,
-  assistantPublicID: string,
-): Record<string, string> {
-  const next = { ...previous };
-  let changed = false;
-  const parentKey = toBranchKey(branch.parentPublicID);
-  const tempUserPublicID = branch.tempUserPublicID;
-  const tempAssistantPublicID = branch.tempAssistantPublicID;
-
-  if (!branch.reuseUserMessage && next[parentKey] === tempUserPublicID) {
-    next[parentKey] = userPublicID;
-    changed = true;
-  }
-  if (next[tempUserPublicID] === tempAssistantPublicID) {
-    delete next[tempUserPublicID];
-    if (!branch.reuseUserMessage && next[parentKey] === userPublicID) {
-      next[userPublicID] = assistantPublicID;
-    }
-    changed = true;
-  }
-  if (branch.reuseUserMessage && next[toBranchKey(userPublicID)] === tempAssistantPublicID) {
-    next[toBranchKey(userPublicID)] = assistantPublicID;
-    changed = true;
-  }
-  return changed ? next : previous;
-}
-
-type QueuedChatSubmission = BranchScope & {
-  id: string;
-  clientRunID: string;
-  parentRunID: string | null;
-  conversationPublicID: string | null;
-  conversation: ConversationDTO | null;
-  parentMessagePublicID: string | null;
-  content: string;
-  attachments: PendingAttachment[];
-  platformModelName: string;
-  // 入队时快照的附加并行模型列表，出队发送时与空闲路径走同一 fan-out。
-  parallelPlatformModelNames: string[];
-  options: ConversationOptions;
-  selectedToolIDs: number[];
-  selectedSkills: SkillSummaryDTO[];
-  selectedKnowledgeBaseIDs: string[];
-  htmlVisualPromptEnabled: boolean;
-};
-
-function buildBranchScopePath(messages: ChatAreaMessage[]): string[] {
-  return messages.map((message) => message.publicID.trim()).filter(Boolean);
-}
-
-function buildSubmissionBranchScopePath(
-  messages: ChatAreaMessage[],
-  parentMessagePublicID: string | null | undefined,
-): string[] {
-  const visiblePath = buildBranchScopePath(messages);
-  const parentPublicID = parentMessagePublicID?.trim() || "";
-  if (!parentPublicID) {
-    return [];
-  }
-  const parentIndex = visiblePath.indexOf(parentPublicID);
-  return parentIndex >= 0 ? visiblePath.slice(0, parentIndex + 1) : visiblePath;
-}
-
-function branchScopePathsEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((publicID, index) => publicID === right[index]);
-}
-
-/** 提交分支路径是否位于当前可见链上（是可见路径的前缀，含相等/根路径）。 */
-function branchScopePathPrefixes(prefix: readonly string[], path: readonly string[]): boolean {
-  return prefix.length <= path.length && prefix.every((publicID, index) => publicID === path[index]);
-}
-
-function branchScopesEqual(left: BranchScope, right: BranchScope): boolean {
-  return (
-    left.conversationScopeKey === right.conversationScopeKey &&
-    left.branchScopeRunID === right.branchScopeRunID &&
-    branchScopePathsEqual(left.branchScopePath, right.branchScopePath)
-  );
-}
-
-function branchScopeID(scope: BranchScope): string {
-  return JSON.stringify([
-    scope.conversationScopeKey,
-    scope.branchScopeRunID,
-    ...scope.branchScopePath,
-  ]);
-}
-
-function isSuccessfulBranchParentStatus(status: string | null | undefined): boolean {
-  const normalized = status?.trim().toLowerCase() || "";
-  return normalized === "success" || normalized === "interrupted";
-}
-
-function branchScopeIsVisible(
-  scope: BranchScope,
-  visibleConversationScopeKey: string,
-  visibleMessages: ChatAreaMessage[],
-): boolean {
-  return (
-    scope.conversationScopeKey === visibleConversationScopeKey &&
-    visibleMessages.some((message) => message.runID === scope.branchScopeRunID)
-  );
-}
-
-function findSuccessfulBranchParentMessage(
-  messages: ChatAreaMessage[],
-  runID: string | null | undefined,
-): ChatAreaMessage | undefined {
-  const normalizedRunID = runID?.trim() || "";
-  if (!normalizedRunID) {
-    return undefined;
-  }
-  return messages.find(
-    (message) =>
-      message.role === "assistant" &&
-      message.runID === normalizedRunID &&
-      Boolean(resolvePersistedPublicID(message.publicID)) &&
-      !message.isPending &&
-      !message.isStreaming &&
-      isSuccessfulBranchParentStatus(message.status),
-  );
-}
-
-function branchRunIsVisible(
-  scope: BranchScope,
-  runID: string | null | undefined,
-  visibleConversationScopeKey: string,
-  visibleBranchScopePath: readonly string[],
-  visibleMessages: ChatAreaMessage[],
-): boolean {
-  const normalizedRunID = runID?.trim() || "";
-  if (scope.conversationScopeKey !== visibleConversationScopeKey) {
-    return false;
-  }
-  if (normalizedRunID && visibleMessages.some((message) => message.runID === normalizedRunID)) {
-    return true;
-  }
-  return (
-    branchScopePathsEqual(scope.branchScopePath, visibleBranchScopePath) &&
-    (scope.branchScopeRunID === normalizedRunID ||
-      branchScopeIsVisible(scope, visibleConversationScopeKey, visibleMessages))
-  );
-}
-
-function rechainQueuedSubmissions(
-  submissions: QueuedChatSubmission[],
-  scope: BranchScope,
-  rootParentRunID: string | null,
-  rootParentMessagePublicID: string | null,
-): QueuedChatSubmission[] {
-  let parentRunID = rootParentRunID;
-  let firstSubmission = true;
-  return submissions.map((submission) => {
-    if (!branchScopesEqual(submission, scope)) {
-      return submission;
-    }
-    const parentMessagePublicID = firstSubmission
-      ? rootParentMessagePublicID
-      : submission.parentMessagePublicID;
-    const nextSubmission =
-      submission.parentRunID === parentRunID &&
-      submission.parentMessagePublicID === parentMessagePublicID
-        ? submission
-        : { ...submission, parentRunID, parentMessagePublicID };
-    parentRunID = submission.clientRunID;
-    firstSubmission = false;
-    return nextSubmission;
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function createClientRunID(): string {
-  const randomID =
-    typeof window.crypto?.randomUUID === "function"
-      ? window.crypto.randomUUID().replaceAll("-", "")
-      : Math.random().toString(36).slice(2) + Date.now().toString(36);
-  return `run_${randomID}`.slice(0, 64);
-}
-
-function buildContinueGenerationPrompt(t: ReturnType<typeof useTranslations>): string {
-  return t("continueGenerationPrompt");
-}
-
-function normalizeLabelsJSON(value: string | null | undefined): string {
-  const normalized = value?.trim();
-  return normalized && normalized !== "null" ? normalized : "[]";
-}
-
-function isPlaceholderConversationTitle(title: string): boolean {
-  const value = title.trim().toLowerCase();
-  return ["new chat", "新对话"].includes(value);
-}
-
-function isFallbackConversationTitle(title: string, fallbackTitle: string): boolean {
-  const normalizedFallback = fallbackTitle.trim();
-  return normalizedFallback !== "" && title.trim() === normalizedFallback;
-}
-
-function conversationTitleFromFirstUserMessage(content: string): string {
-  const value = content.trim().replace(/\s+/g, " ").replace(/^[\s"'`“”‘’]+|[\s"'`“”‘’]+$/g, "");
-  if (!value) {
-    return "";
-  }
-  return Array.from(value).slice(0, 16).join("").trim();
-}
-
-function hasPendingGeneratedConversationMetadata(
-  item: ConversationDTO | null,
-  autoGenerateLabels: boolean,
-  fallbackTitle = "",
-): boolean {
-  return (
-    !item ||
-    isPlaceholderConversationTitle(item.title) ||
-    isFallbackConversationTitle(item.title, fallbackTitle) ||
-    (autoGenerateLabels && normalizeLabelsJSON(item.labelsJSON) === "[]")
-  );
-}
-
-function hasGeneratedConversationMetadataChanged(
-  previous: ConversationDTO | null,
-  next: ConversationDTO,
-): boolean {
-  const previousTitle = previous?.title?.trim() ?? "";
-  const nextTitle = next.title.trim();
-  if (nextTitle && nextTitle !== previousTitle && !isPlaceholderConversationTitle(nextTitle)) {
-    return true;
-  }
-  return normalizeLabelsJSON(next.labelsJSON) !== normalizeLabelsJSON(previous?.labelsJSON);
-}
-
-function shouldPollGeneratedConversationMetadata(
-  item: ConversationDTO | null,
-  result: SendMessageResult | null | undefined,
-  autoGenerateLabels: boolean,
-  fallbackTitle = "",
-): boolean {
-  if (!hasPendingGeneratedConversationMetadata(item, autoGenerateLabels, fallbackTitle)) {
-    return false;
-  }
-  const hint = result?.metadataRefreshHint?.trim();
-  if (!hint) {
-    return true;
-  }
-  return hint === "pending";
-}
-
-async function refreshGeneratedConversationMetadata(
-  accessToken: string,
-  conversationPublicID: string,
-  previous: ConversationDTO | null,
-  autoGenerateLabels: boolean,
-  fallbackTitle: string,
-  touchByPublicID: (publicID: string, patch?: Partial<ConversationDTO>) => void,
-): Promise<void> {
-  let elapsedMS = 0;
-  let delayMS = CONVERSATION_METADATA_REFRESH_INITIAL_DELAY_MS;
-  let current = previous;
-
-  while (elapsedMS < CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS) {
-    const nextDelayMS = Math.min(delayMS, CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS - elapsedMS);
-    await sleep(nextDelayMS);
-    elapsedMS += nextDelayMS;
-
-    let latest: ConversationDTO;
-    try {
-      latest = await getConversation(accessToken, conversationPublicID);
-    } catch {
-      continue;
-    }
-    if (hasGeneratedConversationMetadataChanged(current, latest)) {
-      touchByPublicID(conversationPublicID, latest);
-      current = latest;
-      if (!hasPendingGeneratedConversationMetadata(latest, autoGenerateLabels, fallbackTitle)) {
-        return;
-      }
-    }
-
-    delayMS = Math.min(
-      Math.round(delayMS * CONVERSATION_METADATA_REFRESH_BACKOFF),
-      CONVERSATION_METADATA_REFRESH_MAX_DELAY_MS,
-    );
-  }
-}
 
 export function useChatMessageSubmit({
   conversationID,
@@ -491,6 +109,7 @@ export function useChatMessageSubmit({
   setDraft,
   setAttachments,
   releaseAttachments,
+  transferAttachments,
   getPendingExchanges,
   pendingExchanges,
   setPendingExchanges,
@@ -507,10 +126,14 @@ export function useChatMessageSubmit({
   flushStreamTextNow,
   flushUpstreamThinkNow,
   resetStreamBuffer,
+  setStreamTextSnapshot,
   startStream,
   activeGenerationRunsRef,
   activeGenerationRunsRevision,
   onActiveGenerationRunsChange,
+  onConversationRunDetached,
+  onConversationRunFinished,
+  onConversationRunStarted,
   resumeGenerationActive = false,
   multiModelDiscussion,
   sendWithDiscussionRef,
@@ -535,12 +158,13 @@ export function useChatMessageSubmit({
   prependNewConversation: (platformModelName: string) => Promise<ConversationDTO | null | undefined>;
   onConversationCreated?: (conversationPublicID: string) => void;
   onConversationForked?: (conversation: ConversationDTO) => Promise<void> | void;
-  touchByPublicID: (publicID: string, patch?: Partial<ConversationDTO>) => void;
+  touchByPublicID: (publicID: string, patch: Partial<ConversationDTO>) => void;
   reload: () => void;
   replaceMessage: (message: MessageDTO) => void;
   setDraft: React.Dispatch<React.SetStateAction<string>>;
   setAttachments: React.Dispatch<React.SetStateAction<PendingAttachment[]>>;
   releaseAttachments: (items: PendingAttachment[]) => void;
+  transferAttachments: (items: PendingAttachment[]) => void;
   getPendingExchanges: () => PendingExchangeMap;
   pendingExchanges: PendingExchangeMap;
   setPendingExchanges: React.Dispatch<React.SetStateAction<PendingExchangeMap>>;
@@ -557,10 +181,14 @@ export function useChatMessageSubmit({
   flushStreamTextNow: (exchangeKey: string) => void;
   flushUpstreamThinkNow: (exchangeKey: string) => void;
   resetStreamBuffer: (exchangeKey?: string) => void;
+  setStreamTextSnapshot: (exchangeKey: string, content: string) => void;
   startStream: (exchangeKey: string, runID?: string) => void;
   activeGenerationRunsRef?: React.RefObject<Set<string>>;
   activeGenerationRunsRevision: number;
   onActiveGenerationRunsChange?: () => void;
+  onConversationRunDetached?: (runID: string) => void;
+  onConversationRunFinished?: (runID: string) => void;
+  onConversationRunStarted?: (runID: string, conversationPublicID: string) => void;
   resumeGenerationActive?: boolean;
   /** 多模型讨论配置；启用且参与者足够时 onSendMessage 分流到讨论编排器。 */
   multiModelDiscussion?: { enabled: boolean; rounds: number };
@@ -575,10 +203,17 @@ export function useChatMessageSubmit({
   const nextModelRunSequenceRef = React.useRef(new Map<string, number>());
   const latestCompletedModelRunSequenceRef = React.useRef(new Map<string, number>());
   const optimisticMessageCountsRef = React.useRef(new Map<string, number>());
-  const sendQueuedAfterCurrentRef = React.useRef(new Set<string>());
-  const dispatchingQueuedSubmissionIDsRef = React.useRef(new Set<string>());
-  const [queuedSubmissions, setQueuedSubmissions] = React.useState<QueuedChatSubmission[]>([]);
-  const queuedSubmissionsRef = React.useRef<QueuedChatSubmission[]>([]);
+  const {
+    queuedSubmissions,
+    setQueuedSubmissions,
+    queuedSubmissionsRef,
+    sendQueuedAfterCurrentRef,
+    dispatchingQueuedSubmissionIDsRef,
+    settledQueuedSubmissionIDsRef,
+    onDeleteQueuedMessage,
+    onEditQueuedMessage,
+    onGuideQueuedMessage,
+  } = useChatSubmissionQueue({ releaseAttachments });
   // 多模型并行：以 ref 读取最新选择，避免 submitMessage 闭包过期。
   const parallelPlatformModelNamesRef = React.useRef<string[]>(parallelPlatformModelNames ?? []);
   React.useEffect(() => {
@@ -591,8 +226,7 @@ export function useChatMessageSubmit({
   const {
     getStatus: getHiddenParentRunStatus,
     revision: hiddenParentRunStatusRevision,
-  } = useHiddenQueuedParentRuns({
-    currentConversationScopeKey: conversationScopeKey,
+  } = useChatHiddenRuns({
     queuedParents: queuedSubmissions,
     getPendingExchanges,
     isRunActive,
@@ -649,110 +283,25 @@ export function useChatMessageSubmit({
     activeConversationRef.current = activeConversation;
   }, [activeConversation]);
 
-  React.useEffect(() => {
-    queuedSubmissionsRef.current = queuedSubmissions;
-  }, [queuedSubmissions]);
-
-  React.useEffect(() => {
-    setPendingExchanges((current) => {
-      const completedBackgroundKeys = Object.entries(current)
-        .filter(
-          ([, exchange]) =>
-            exchange.conversationScopeKey !== conversationScopeKey &&
-            Boolean(exchange.assistantPublicID) &&
-            !exchange.assistantPending &&
-            !exchange.assistantStreaming,
-        )
-        .map(([exchangeKey]) => exchangeKey);
-      if (completedBackgroundKeys.length === 0) {
-        return current;
-      }
-      const next = { ...current };
-      for (const exchangeKey of completedBackgroundKeys) {
-        delete next[exchangeKey];
-      }
-      return next;
-    });
-  }, [conversationScopeKey, setPendingExchanges]);
-
-  React.useEffect(() => {
-    const completedKeys: string[] = [];
-    const completedBranches: Array<{
-      exchange: PendingExchange;
-      userPublicID: string;
-      assistantPublicID: string;
-    }> = [];
-    for (const [exchangeKey, exchange] of Object.entries(pendingExchanges)) {
-      const userPublicID = exchange.userPublicID || exchange.tempUserPublicID;
-      const assistantPublicID = exchange.assistantPublicID || exchange.tempAssistantPublicID;
-      // 流式/等待中的 exchange 不清理：主请求的 user/assistant 真实 ID 在 message_created
-      // 即 remap，多模型并行时任一兄弟 error/completed 触发 reload 会让下方分支提前命中，
-      // 删掉仍在生成的主请求乐观态——后续流式 delta 与 error 终态将无处落地（流 buffer
-      // 与 catch 路径都写 exchange），主模型气泡会冻结/丢状态直到下次 reload。
-      if (exchange.assistantPending || exchange.assistantStreaming) {
-        continue;
-      }
-      if (serverMessagePublicIDs.has(userPublicID) && serverMessagePublicIDs.has(assistantPublicID)) {
-        completedKeys.push(exchangeKey);
-        continue;
-      }
-      if (exchange.assistantPending || !exchange.runID?.trim()) {
-        continue;
-      }
-      const serverAssistant = combinedMessages.find(
-        (item) =>
-          item.role === "assistant" &&
-          item.runID === exchange.runID &&
-          serverMessagePublicIDs.has(item.publicID) &&
-          !item.isPending &&
-          !item.isStreaming &&
-          item.status !== "pending",
-      );
-      if (!serverAssistant?.parentPublicID) {
-        continue;
-      }
-      completedKeys.push(exchangeKey);
-      completedBranches.push({
-        exchange,
-        userPublicID: serverAssistant.parentPublicID,
-        assistantPublicID: serverAssistant.publicID,
-      });
-    }
-    if (completedBranches.length > 0) {
-      setBranchSelections((current) =>
-        completedBranches.reduce(
-          (next, completed) =>
-            replaceCompletedBranchSelection(
-              next,
-              {
-                parentPublicID: completed.exchange.parentPublicID,
-                tempUserPublicID: completed.exchange.tempUserPublicID,
-                tempAssistantPublicID: completed.exchange.tempAssistantPublicID,
-                reuseUserMessage: completed.exchange.reuseUserMessage,
-              },
-              completed.userPublicID,
-              completed.assistantPublicID,
-            ),
-          current,
-        ),
-      );
-    }
-    if (completedKeys.length > 0) {
-      setPendingExchanges((current) => {
-        const next = { ...current };
-        for (const key of completedKeys) {
-          delete next[key];
-        }
-        return next;
-      });
-    }
-  }, [
-    combinedMessages,
+  useChatExchangeSync({
+    conversationScopeKey,
     pendingExchanges,
-    serverMessagePublicIDs,
-    setBranchSelections,
     setPendingExchanges,
-  ]);
+    serverMessagePublicIDs,
+    combinedMessages,
+    setBranchSelections,
+  });
+
+  const { runStream } = useChatRunStream({
+    updatePendingExchange,
+    enqueueUpstreamThinkDelta,
+    enqueueStreamText,
+    flushStreamTextNow,
+    flushUpstreamThinkNow,
+    resetStreamBuffer,
+    setStreamTextSnapshot,
+    onConversationRunFinished,
+  });
 
   const submitMessage = React.useCallback(
     async ({
@@ -793,117 +342,78 @@ export function useChatMessageSubmit({
       /** 覆盖随 default 分支持久化到会话的并行组合（讨论首条传完整参与者列表）。 */
       persistParallelModels?: string[];
     }) => {
-      const payloadContent = content || t("attachmentOnlyContent");
-      const requestPlatformModelName = (
-        queuedSubmission?.platformModelName ??
-        overridePlatformModelName ??
-        selectedPlatformModelName
-      ).trim();
-      const requestOptions = queuedSubmission?.options ?? options;
-      const requestSelectedToolIDs = queuedSubmission?.selectedToolIDs ?? selectedToolIDs;
-      const requestSelectedSkills = queuedSubmission?.selectedSkills ?? selectedSkills;
-      const requestSelectedKnowledgeBaseIDs = queuedSubmission?.selectedKnowledgeBaseIDs ?? selectedKnowledgeBaseIDs;
-      const requestHTMLVisualPromptEnabled = queuedSubmission?.htmlVisualPromptEnabled ?? htmlVisualPromptEnabled;
-      let targetConversationScopeKey = queuedSubmission?.conversationScopeKey ?? conversationScopeKeyRef.current;
-      const resolvedParentPublicID = resolvePersistedPublicID(parentMessagePublicID);
-      const targetBranchScopePath = queuedSubmission?.branchScopePath.slice() ??
-        buildSubmissionBranchScopePath(visibleMessagesRef.current, resolvedParentPublicID);
-      const clientRunID = queuedSubmission?.clientRunID ?? createClientRunID();
-      let targetBranchScope: BranchScope = {
-        conversationScopeKey: targetConversationScopeKey,
-        branchScopePath: targetBranchScopePath,
-        branchScopeRunID: queuedSubmission?.branchScopeRunID ?? clientRunID,
-      };
-      const resolvedBranchReason = branchReason ?? "default";
-      const concurrentBranchRun = resolvedBranchReason === "retry" || resolvedBranchReason === "edit";
-      const shouldFollowSubmittedBranch =
-        !queuedSubmission &&
-        !programmaticFanOut && (
-          branchRunIsVisible(
-            targetBranchScope,
-            clientRunID,
-            conversationScopeKeyRef.current,
-            visibleBranchScopePathRef.current,
-            visibleMessagesRef.current,
-          ) ||
-          // 重试/编辑的目标挂在当前可见链上时也跟随切换到新分支：
-          // 否则新回复分支不显示，界面只制出分支切换器，
-          // 用户看不到正在生成，易误以为未响应而连续点击。
-          (concurrentBranchRun &&
-            branchScopePathPrefixes(targetBranchScopePath, visibleBranchScopePathRef.current))
-        );
-      const selectedModel = modelOptions.find((item) => item.platformModelName === requestPlatformModelName) ?? null;
-      const targetConversationHasActiveStream = Array.from(activeStreamsRef.current.values()).some(
-        (active) =>
-          queuedSubmission
-            ? branchScopesEqual(active, targetBranchScope)
-            : active.conversationScopeKey === targetConversationScopeKey &&
-              branchScopePathsEqual(active.branchScopePath, targetBranchScopePath),
-      );
-      if (
-        (!content && currentAttachments.length === 0) ||
-        (!programmaticFanOut && !queuedSubmission && uploading) ||
-        (!concurrentBranchRun && !programmaticFanOut && targetConversationHasActiveStream)
-      ) {
-        return false;
-      }
-      if (activeStreamsRef.current.size >= MAX_CONCURRENT_RUNS) {
-        toast.error(t("concurrentGenerationLimit", { count: MAX_CONCURRENT_RUNS }));
-        return false;
-      }
-      if (concurrentBranchRun) {
-        const activeRunIDs = new Set(activeStreamsRef.current.keys());
-        for (const message of combinedMessages) {
-          const runID = message.runID?.trim() || "";
-          if (
-            message.role === "assistant" &&
-            runID &&
-            (message.isPending || message.isStreaming || message.status?.trim().toLowerCase() === "pending")
-          ) {
-            activeRunIDs.add(runID);
-          }
-        }
-        if (activeRunIDs.size >= MAX_CONCURRENT_RUNS) {
-          toast.error(t("concurrentGenerationLimit", { count: MAX_CONCURRENT_RUNS }));
-          return false;
-        }
-      }
-      const effectiveAttachments =
-        maxFilesPerMessage > 0 && currentAttachments.length > maxFilesPerMessage
-          ? currentAttachments.slice(0, maxFilesPerMessage)
-          : currentAttachments;
-      if (effectiveAttachments.length < currentAttachments.length) {
+      const planResult = planChatSubmission({
+        content,
+        currentAttachments,
+        parentMessagePublicID,
+        sourceMessagePublicID,
+        branchReason,
+        queuedSubmission,
+        attachmentFallbackContent: t("attachmentOnlyContent"),
+        uploading,
+        maxFilesPerMessage,
+        modelOptions,
+        selectedPlatformModelName,
+        options,
+        selectedToolIDs,
+        selectedSkills,
+        selectedKnowledgeBaseIDs,
+        htmlVisualPromptEnabled,
+        visibleConversationScopeKey: conversationScopeKeyRef.current,
+        visibleBranchScopePath: visibleBranchScopePathRef.current,
+        visibleMessages: visibleMessagesRef.current,
+        combinedMessages,
+        activeStreams: Array.from(activeStreamsRef.current.values()),
+        programmaticFanOut,
+      });
+      if (planResult.attachmentsTruncated) {
         toast(t("attachmentsTruncated"), {
           description: t("attachmentsTruncatedDescription", { count: maxFilesPerMessage }),
         });
       }
-      const sanitizedOptions = sanitizeConversationOptions(requestOptions);
-      const submitDecision = resolveChatSubmitDecision(selectedModel, effectiveAttachments, sanitizedOptions);
-      if (submitDecision.blockedReason) {
-        toast.error(t("mediaInputUnsupported"), {
-          description: resolveSubmitBlockDescription(submitDecision.blockedReason, t),
-        });
+      if (!planResult.ok) {
+        const { block } = planResult;
+        if (block.kind === "concurrent_limit") {
+          toast.error(t("concurrentGenerationLimit", { count: MAX_CONCURRENT_RUNS }));
+        } else if (block.kind === "media_unsupported") {
+          toast.error(t("mediaInputUnsupported"), {
+            description: resolveSubmitBlockDescription(block.reason, t),
+          });
+        } else if (block.kind === "no_model") {
+          toast.error(t("noModel"), { description: t("selectModelFirst") });
+        }
         return false;
       }
-      const submitTask = submitDecision.task;
-      if (!requestPlatformModelName) {
-        toast.error(t("noModel"), { description: t("selectModelFirst") });
-        return false;
-      }
-
+      const { plan } = planResult;
+      const {
+        payloadContent,
+        platformModelName,
+        clientRunID,
+        exchangeKey,
+        shouldFollowSubmittedBranch,
+        effectiveAttachments,
+        resolvedParentPublicID,
+        assistantOnlyBranch,
+        tempUserPublicID,
+        tempAssistantPublicID,
+        pendingUserPublicID,
+      } = plan;
+      let targetConversationScopeKey = plan.targetConversationScopeKey;
+      let targetBranchScope = plan.targetBranchScope;
+      const wasConversationMode = showConversationLayout || visibleMessageCount > 0;
       // 多模型并行：仅主请求（default 分支）且全部选中模型都是 chat task 时 fan-out；
       // 图片/视频生成或混合任务退化为单模型。
       // 队列路径从入队快照取并行列表，出队发送与空闲路径走同一 fan-out。
       let pendingFanOutModels: string[] = [];
       if (
-        resolvedBranchReason === "default" &&
-        submitTask === "chat" &&
+        plan.branchReason === "default" &&
+        plan.submitTask === "chat" &&
         (fanOutModels ?? queuedSubmission?.parallelPlatformModelNames ?? []).length > 0
       ) {
         const fanOutModelNames = fanOutModels ?? queuedSubmission?.parallelPlatformModelNames ?? [];
         const chatModels = fanOutModelNames.filter((name) => {
           const candidate = modelOptions.find((item) => item.platformModelName === name);
-          const decision = resolveChatSubmitDecision(candidate ?? null, effectiveAttachments, sanitizedOptions);
+          const decision = resolveChatSubmitDecision(candidate ?? null, plan.effectiveAttachments, plan.sanitizedOptions);
           return !decision.blockedReason && decision.task === "chat";
         });
         if (chatModels.length < fanOutModelNames.length) {
@@ -911,30 +421,8 @@ export function useChatMessageSubmit({
         }
         pendingFanOutModels = chatModels;
       }
-
-      const wasConversationMode = showConversationLayout || visibleMessageCount > 0;
-      const exchangeKey = `local-exchange-${clientRunID}`;
-      const resolvedSourcePublicID = resolvePersistedPublicID(sourceMessagePublicID);
-      const assistantOnlyBranch =
-        resolvedBranchReason === "retry" &&
-        Boolean(resolvedParentPublicID && resolvedSourcePublicID) &&
-        // programmaticFanOut 由 message_created 事件提供真实 parent/source，跳过本地树校验
-        // （fan-out 调用发生时闭包里的 combinedMessages 还不含刚创建的消息）。
-        (programmaticFanOut ||
-          combinedMessages.some((item) => item.publicID === resolvedSourcePublicID && item.role === "assistant"));
-      const reusedUserMessage = assistantOnlyBranch
-        ? combinedMessages.find(
-            (item) => item.publicID === resolvedParentPublicID && item.role === "user",
-          ) ?? null
-        : null;
-      const pendingParentPublicID = assistantOnlyBranch
-        ? reusedUserMessage?.parentPublicID ?? null
-        : resolvedParentPublicID;
-      const tempUserPublicID = `${exchangeKey}-user`;
-      const tempAssistantPublicID = `${exchangeKey}-assistant`;
-      const pendingUserPublicID = assistantOnlyBranch && resolvedParentPublicID ? resolvedParentPublicID : tempUserPublicID;
       const createdAt = new Date().toISOString();
-      let sentSuccessfully = false;
+      let terminalResultReceived = false;
       let shouldKeepConversationLayout = false;
       // 讨论编排：流终态结果在 finally 统一回调，覆盖成功/失败/中止三条路径。
       // （声明须在 try 之外：catch/finally 与 try 是独立块作用域。）
@@ -945,12 +433,6 @@ export function useChatMessageSubmit({
         completed?: SendMessageResult;
       } | null = null;
       const streamAbortController = new AbortController();
-      const assistantImageAspectRatio =
-        submitTask === "image_generation" || submitTask === "image_edit"
-          ? resolveImageLoadingAspectRatio(sanitizedOptions)
-          : undefined;
-      const assistantContentType =
-        submitTask === "chat" ? "markdown" : submitTask === "video_generation" || submitTask === "video_extension" ? "video" : "image";
       let targetConversationID = queuedSubmission?.conversationPublicID ?? conversationIDRef.current;
       let targetConversation = queuedSubmission?.conversation ?? activeConversationRef.current;
       let metadataRefreshInFlight = false;
@@ -968,41 +450,23 @@ export function useChatMessageSubmit({
         cancelRequested: false,
         cancelSettlementTimer: null,
       });
+      if (targetConversationID) {
+        onConversationRunStarted?.(clientRunID, targetConversationID);
+      }
       syncActiveRuns();
       if (resetComposer) {
         setDraft("");
+        transferAttachments(currentAttachments);
         setAttachments([]);
       }
       startStream(exchangeKey, clientRunID);
       setPendingExchanges((current) => ({
         ...current,
         [exchangeKey]: {
-          key: exchangeKey,
-          ...targetBranchScope,
-          conversationPublicID: targetConversationID?.trim() || null,
-          userPublicID: assistantOnlyBranch ? pendingUserPublicID : undefined,
-          tempUserPublicID,
-          tempAssistantPublicID,
-          runID: clientRunID,
-          platformModelName: requestPlatformModelName,
-          parentPublicID: pendingParentPublicID,
-          sourcePublicID: resolvedSourcePublicID,
-          branchReason: resolvedBranchReason,
-          reuseUserMessage: assistantOnlyBranch,
-          discussionMeta,
-          userContent: payloadContent,
-          userAttachments: effectiveAttachments.length > 0 ? effectiveAttachments : undefined,
-          userCreatedAt: createdAt,
-          assistantText: "",
-          assistantPending: true,
-          assistantStreaming: true,
-          assistantContentType,
-          assistantImageAspectRatio,
-          assistantInlineAlert: undefined,
-          assistantCreatedAt: createdAt,
-          assistantProcessTrace: undefined,
-        },
-      }));
+          ...createInitialPendingExchange(plan, targetConversationID?.trim() || null, createdAt),
+          // 多模型讨论：讨论标记随乐观 exchange 落地，消息树刷新后据此重建讨论面板。
+          ...(discussionMeta ? { discussionMeta } : {}),
+        },      }));
       if (shouldFollowSubmittedBranch) {
         setBranchSelections((prev) => ({
           ...prev,
@@ -1055,7 +519,7 @@ export function useChatMessageSubmit({
         };
 
         if (!targetConversationID) {
-          const created = await prependNewConversation(requestPlatformModelName);
+          const created = await prependNewConversation(platformModelName);
           if (streamAbortController.signal.aborted) {
             throw new DOMException("Aborted", "AbortError");
           }
@@ -1071,6 +535,7 @@ export function useChatMessageSubmit({
           };
           targetConversationID = created.publicID;
           targetConversation = created;
+          onConversationRunStarted?.(clientRunID, created.publicID);
           const createdActiveStream = activeStreamsRef.current.get(clientRunID);
           if (createdActiveStream) {
             createdActiveStream.conversationScopeKey = targetConversationScopeKey;
@@ -1144,43 +609,124 @@ export function useChatMessageSubmit({
           }
           touchByPublicID(targetConversationID, { title: optimisticTitle });
         }
-        const effectiveOptions = submitTask === "video_extension"
-          ? resolveVideoExtensionOptions(sanitizedOptions)
-          : sanitizedOptions;
-        const commonStreamPayload = {
-          model: requestPlatformModelName,
-          // 多模型并行组合随主请求持久化到会话（服务端按会话存储，供后续轮次/刷新恢复）。
-          // 单模型也写回单元素组合，覆盖会话中放弃并行的旧组合。
-          // 队列出队发送同样回写，保证组合与实际发送行为一致。
-          // 在此快照：pendingFanOutModels 会在 onMessageCreated 中被置空，
-          // completed 后的列表 patch 需要请求时发送的组合。
-          parallelModels:
-            !programmaticFanOut && resolvedBranchReason === "default"
-              ? persistParallelModels ?? [requestPlatformModelName, ...pendingFanOutModels]
-              : undefined,
-          options: Object.keys(effectiveOptions).length > 0 ? effectiveOptions : undefined,
-          clientRunID: clientRunID,
-          fileIDs: effectiveAttachments.length > 0 ? effectiveAttachments.map((item) => item.fileID) : undefined,
-          parentMessagePublicID: resolvedParentPublicID || undefined,
-          sourceMessagePublicID: resolvedSourcePublicID || undefined,
-          branchReason: resolvedBranchReason,
-          discussionMeta,
-        };
-        let terminalStreamError: Extract<StreamMessageEvent, { type: "error" }> | null = null;
         // 服务端剔除不可用并行模型时记录，completed 后同步列表项用（与服务端实际持久化的组合对齐）。
         let serverFilteredParallelModels: string[] = [];
-        const streamOptions: ConversationStreamOptions = {
+        // 主请求并行组合快照：onMessageCreated fan-out 后 pendingFanOutModels 被置空，
+        // completed 后的会话 patch 需要请求时发送的组合。
+        const requestedParallelModels =
+          !programmaticFanOut && plan.branchReason === "default"
+            ? persistParallelModels ?? [platformModelName, ...pendingFanOutModels]
+            : undefined;
+        // 多模型并行/讨论的 message_created 编排：fan-out 兄弟请求、讨论锚点回调、乐观 ID remap。
+        const handleStreamMessageCreated: NonNullable<ConversationStreamOptions["onMessageCreated"]> = (event) => {
+          // 讨论编排：无论是否 programmaticFanOut，先把真实 publicID 锚点交给编排器。
+          if (onAssistantCreated) {
+            const createdUserPublicID0 = event.userMessage.publicID?.trim() || "";
+            const createdAssistantPublicID0 = event.assistantMessage.publicID?.trim() || "";
+            if (createdUserPublicID0 && createdAssistantPublicID0) {
+              onAssistantCreated({
+                userPublicID: createdUserPublicID0,
+                assistantPublicID: createdAssistantPublicID0,
+                runID: clientRunID,
+              });
+            }
+          }
+          if (programmaticFanOut) {
+            return;
+          }
+          const createdUserPublicID = event.userMessage.publicID?.trim() || "";
+          const createdAssistantPublicID = event.assistantMessage.publicID?.trim() || "";
+          if (!createdUserPublicID || !createdAssistantPublicID) {
+            return;
+          }
+          // 立即用服务端 publicID 替换临时 ID，fan-out 请求与分支树据此建立关系。
+          updatePendingExchange(exchangeKey, (current) => ({
+            ...current,
+            userPublicID: createdUserPublicID,
+            assistantPublicID: createdAssistantPublicID,
+          }));
+          // 同步 remap 分支选中态：fan-out 兄弟此时已挂真实 user publicID，
+          // 主支若仍指临时 ID 会与 ModelBranchTabs 短暂对不上，在此消除窗口期。
+          if (conversationScopeKeyRef.current === targetConversationScopeKey) {
+            setBranchSelections((current) =>
+              replaceCompletedBranchSelection(
+                current,
+                {
+                  parentPublicID: resolvedParentPublicID,
+                  tempUserPublicID,
+                  tempAssistantPublicID,
+                  reuseUserMessage: assistantOnlyBranch,
+                },
+                createdUserPublicID,
+                createdAssistantPublicID,
+              ),
+            );
+          }
+          if (pendingFanOutModels.length === 0) {
+            return;
+          }
+          const fanOutModelList = pendingFanOutModels;
+          pendingFanOutModels = [];
+          // fan-out 为 fire-and-forget；失败的模型无气泡反馈，需一次性提示避免静默丢模型。
+          const fanOutResults: Promise<boolean>[] = [];
+          for (const fanOutModelName of fanOutModelList) {
+            const submission = submitMessage({
+              content: payloadContent,
+              currentAttachments: effectiveAttachments,
+              resetComposer: false,
+              parentMessagePublicID: createdUserPublicID,
+              sourceMessagePublicID: createdAssistantPublicID,
+              branchReason: "retry",
+              programmaticFanOut: true,
+              overridePlatformModelName: fanOutModelName,
+            });
+            fanOutResults.push(
+              submission.catch(
+                () => false,
+              ),
+            );
+          }
+          if (fanOutResults.length > 0) {
+            void Promise.allSettled(fanOutResults).then((settled) => {
+              const failedCount = settled.filter(
+                (item) => item.status === "rejected" || item.value !== true,
+              ).length;
+              if (failedCount > 0) {
+                toast.warning(t("parallelFanOutPartialFailed"), {
+                  description: t("parallelFanOutPartialFailedDescription", { count: failedCount }),
+                });
+              }
+            });
+          }
+        };
+        modelRunSequence = (nextModelRunSequenceRef.current.get(targetConversationScopeKey) ?? 0) + 1;
+        nextModelRunSequenceRef.current.set(targetConversationScopeKey, modelRunSequence);
+        const completed = await runStream({
+          token,
+          conversationID: targetConversationID,
+          submitTask: plan.submitTask,
+          exchangeKey,
+          clientRunID,
+          content: payloadContent,
+          options: plan.sanitizedOptions,
+          effectiveAttachments,
+          platformModelName,
+          selectedToolIDs: plan.selectedToolIDs,
+          selectedSkills: plan.selectedSkills,
+          selectedKnowledgeBaseIDs: plan.selectedKnowledgeBaseIDs,
+          htmlVisualPromptEnabled: plan.htmlVisualPromptEnabled,
+          parentMessagePublicID: resolvedParentPublicID,
+          sourceMessagePublicID: plan.resolvedSourcePublicID,
+          branchReason: plan.branchReason,
+          assistantOnlyBranch,
           signal: streamAbortController.signal,
-          onInterrupted: (event) => {
-            terminalStreamError = event;
-          },
-          // 服务端持久化并行组合失败时提示用户：本次不受影响，刷新后组合会回退。
+          parallelModels: requestedParallelModels,
+          discussionMeta,
           onParallelModelsPersistFailed: () => {
             toast.warning(t("parallelModelsPersistFailed"), {
               description: t("parallelModelsPersistFailedDescription"),
             });
           },
-          // 服务端过滤掉不可用模型（不存在/无权限）时提示用户。
           onParallelModelsFiltered: (invalidModels) => {
             serverFilteredParallelModels = Array.isArray(invalidModels) ? invalidModels : [];
             if (invalidModels.length === 0) {
@@ -1190,340 +736,11 @@ export function useChatMessageSubmit({
               description: t("parallelModelsFilteredDescription", { count: invalidModels.length }),
             });
           },
-          onMessageCreated: (event) => {
-            // 讨论编排：无论是否 programmaticFanOut，先把真实 publicID 锚点交给编排器。
-            if (onAssistantCreated) {
-              const createdUserPublicID0 = event.userMessage.publicID?.trim() || "";
-              const createdAssistantPublicID0 = event.assistantMessage.publicID?.trim() || "";
-              if (createdUserPublicID0 && createdAssistantPublicID0) {
-                onAssistantCreated({
-                  userPublicID: createdUserPublicID0,
-                  assistantPublicID: createdAssistantPublicID0,
-                  runID: clientRunID,
-                });
-              }
-            }
-            if (programmaticFanOut) {
-              return;
-            }
-            const createdUserPublicID = event.userMessage.publicID?.trim() || "";
-            const createdAssistantPublicID = event.assistantMessage.publicID?.trim() || "";
-            if (!createdUserPublicID || !createdAssistantPublicID) {
-              return;
-            }
-            // 立即用服务端 publicID 替换临时 ID，fan-out 请求与分支树据此建立关系。
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              userPublicID: createdUserPublicID,
-              assistantPublicID: createdAssistantPublicID,
-            }));
-            // 同步 remap 分支选中态：fan-out 兄弟此时已挂真实 user publicID，
-            // 主支若仍指临时 ID 会与 ModelBranchTabs 短暂对不上，在此消除窗口期。
-            if (conversationScopeKeyRef.current === targetConversationScopeKey) {
-              setBranchSelections((current) =>
-                replaceCompletedBranchSelection(
-                  current,
-                  {
-                    parentPublicID: resolvedParentPublicID,
-                    tempUserPublicID,
-                    tempAssistantPublicID,
-                    reuseUserMessage: assistantOnlyBranch,
-                  },
-                  createdUserPublicID,
-                  createdAssistantPublicID,
-                ),
-              );
-            }
-            if (pendingFanOutModels.length === 0) {
-              return;
-            }
-            const fanOutModelList = pendingFanOutModels;
-            pendingFanOutModels = [];
-            // fan-out 为 fire-and-forget；失败的模型无气泡反馈，需一次性提示避免静默丢模型。
-            const fanOutResults: Promise<boolean>[] = [];
-            for (const fanOutModelName of fanOutModelList) {
-              const submission = submitMessage({
-                content: payloadContent,
-                currentAttachments: effectiveAttachments,
-                resetComposer: false,
-                parentMessagePublicID: createdUserPublicID,
-                sourceMessagePublicID: createdAssistantPublicID,
-                branchReason: "retry",
-                programmaticFanOut: true,
-                overridePlatformModelName: fanOutModelName,
-              });
-              fanOutResults.push(
-                submission.catch(
-                  () => false,
-                ),
-              );
-            }
-            if (fanOutResults.length > 0) {
-              void Promise.allSettled(fanOutResults).then((settled) => {
-                const failedCount = settled.filter(
-                  (item) => item.status === "rejected" || item.value !== true,
-                ).length;
-                if (failedCount > 0) {
-                  toast.warning(t("parallelFanOutPartialFailed"), {
-                    description: t("parallelFanOutPartialFailedDescription", { count: failedCount }),
-                  });
-                }
-              });
-            }
-          },
-          onFileProc: (message) => {
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantFileProc: true,
-              assistantActivityLabel: message.trim() || t("processingAttachments"),
-            }));
-          },
-          onRagSearch: (message) => {
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantFileProc: true,
-              assistantActivityLabel: message.trim() || t("retrievingContent"),
-            }));
-          },
-          onMediaStatus: (event) => {
-            const activityLabel = resolveMediaStatusLabel(event.status, event.message, event.content_type, t);
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantFileProc: true,
-              assistantActivityLabel: activityLabel,
-            }));
-          },
-          onMediaImageDelta: (event) => {
-            const previewMarkdown = buildMediaImagePreviewMarkdown(event, t("imagePreviewAlt"));
-            if (!previewMarkdown) {
-              return;
-            }
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantPending: false,
-              assistantStreaming: true,
-              assistantFileProc: false,
-              assistantActivityLabel: undefined,
-              assistantText: previewMarkdown,
-            }));
-          },
-          onCompactDone: (event) => {
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              compactDone: { method: event.method, freed_tokens: event.freed_tokens, summary_preview: event.summary_preview },
-            }));
-          },
-          onProcessUpdate: (event) => {
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantFileProc: false,
-              assistantActivityLabel: undefined,
-              assistantProcessTrace: event.trace ? toPendingProcessTrace(event.trace) : current.assistantProcessTrace,
-            }));
-          },
-          onUpstreamThinkDelta: (event) => {
-            enqueueUpstreamThinkDelta(exchangeKey, event);
-          },
-          onDelta: (delta) => {
-            // Always clear assistantFileProc so batched React updates cannot keep the file_proc spinner alive.
-            updatePendingExchange(exchangeKey, (current) =>
-              current.assistantFileProc
-                ? { ...current, assistantFileProc: false, assistantActivityLabel: undefined }
-                : current,
-            );
-            enqueueStreamText(exchangeKey, delta);
-          },
-          onUsage: (event) => {
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantInputTokens: event.input_tokens > 0 ? event.input_tokens : current.assistantInputTokens,
-              assistantOutputTokens: event.output_tokens > 0 ? event.output_tokens : current.assistantOutputTokens,
-              assistantCacheReadTokens:
-                event.cache_read_tokens > 0 ? event.cache_read_tokens : current.assistantCacheReadTokens,
-              assistantCacheWriteTokens:
-                event.cache_write_tokens > 0 ? event.cache_write_tokens : current.assistantCacheWriteTokens,
-              assistantReasoningTokens:
-                event.reasoning_tokens > 0 ? event.reasoning_tokens : current.assistantReasoningTokens,
-            }));
-          },
-          onModerationChecking: () => {
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantFileProc: true,
-              assistantActivityLabel: t("moderationChecking"),
-            }));
-          },
-          onModerationBlocked: (event) => {
-            const categories = Array.isArray(event.categories) ? event.categories : [];
-            updatePendingExchange(exchangeKey, (current) => ({
-              ...current,
-              assistantPending: false,
-              assistantStreaming: false,
-              assistantFileProc: false,
-              assistantActivityLabel: undefined,
-              assistantText: "",
-              assistantAttachments: [],
-              assistantProcessTrace: undefined,
-              assistantStatus: "blocked",
-              assistantErrorCode: "content_moderation.blocked",
-              assistantErrorMessage: t("moderationBlocked"),
-              assistantInlineAlert: {
-                title: t("moderationBlocked"),
-                message: [
-                  t("moderationBlockedDescription"),
-                  event.eventID ? t("moderationEventId", { id: event.eventID }) : "",
-                  categories.length > 0 ? t("moderationCategories", { categories: categories.join(", ") }) : "",
-                ]
-                  .filter(Boolean)
-                  .join("\n"),
-              },
-            }));
-            toast.error(t("moderationBlocked"), {
-              description: t("moderationBlockedDescription"),
-            });
-          },
-        };
-        modelRunSequence = (nextModelRunSequenceRef.current.get(targetConversationScopeKey) ?? 0) + 1;
-        nextModelRunSequenceRef.current.set(targetConversationScopeKey, modelRunSequence);
-        let completed: SendMessageResult;
-        if (submitTask === "chat") {
-          const chatPayload: SendMessageRequest = {
-            ...commonStreamPayload,
-            contentType: effectiveAttachments.length > 0 ? "mixed" : "text",
-            content: payloadContent,
-            selectedToolIDs: requestSelectedToolIDs.length > 0 ? requestSelectedToolIDs : undefined,
-            skillIDs: requestSelectedSkills.length > 0 ? requestSelectedSkills.map((skill) => skill.id) : undefined,
-            knowledgeBaseIDs: requestSelectedKnowledgeBaseIDs.length > 0 ? requestSelectedKnowledgeBaseIDs : undefined,
-            htmlVisualPrompt: requestHTMLVisualPromptEnabled || undefined,
-          };
-          completed = await streamConversationMessage(token, targetConversationID, chatPayload, streamOptions);
-        } else if (submitTask === "video_generation") {
-          const mediaPayload: MediaVideoRequest = {
-            ...commonStreamPayload,
-            prompt: payloadContent,
-          };
-          completed = await streamVideoGeneration(token, targetConversationID, mediaPayload, streamOptions);
-        } else if (submitTask === "video_extension") {
-          const sourceVideoFileID = effectiveAttachments[0]?.fileID;
-          if (!sourceVideoFileID) {
-            throw new Error("video extension source is missing");
-          }
-          const mediaPayload: MediaVideoExtensionRequest = {
-            model: commonStreamPayload.model,
-            options: commonStreamPayload.options,
-            clientRunID: commonStreamPayload.clientRunID,
-            parentMessagePublicID: commonStreamPayload.parentMessagePublicID,
-            sourceMessagePublicID: commonStreamPayload.sourceMessagePublicID,
-            branchReason: commonStreamPayload.branchReason,
-            prompt: payloadContent,
-            sourceVideoFileID,
-          };
-          completed = await streamVideoExtension(token, targetConversationID, mediaPayload, streamOptions);
-        } else {
-          const mediaPayload: MediaImageRequest = {
-            ...commonStreamPayload,
-            prompt: payloadContent,
-          };
-          completed =
-            submitTask === "image_generation"
-              ? await streamImageGeneration(token, targetConversationID, mediaPayload, streamOptions)
-              : await streamImageEdit(token, targetConversationID, mediaPayload, streamOptions);
-        }
-
-        sentSuccessfully = true;
-        flushStreamTextNow(exchangeKey);
-        flushUpstreamThinkNow(exchangeKey);
-        resetStreamBuffer(exchangeKey);
-        const assistantMessageStatus = completed.assistantMessage.status || "success";
-        const assistantMessageSucceeded = assistantMessageStatus === "success";
-        updatePendingExchange(exchangeKey, (current) => {
-          const streamedText = current.assistantText;
-          const assistantMessageBlocked =
-            assistantMessageStatus.trim().toLowerCase() === "blocked" ||
-            completed.assistantMessage.errorCode === "content_moderation.blocked";
-          const terminalErrorMessage = terminalStreamError
-            ? resolveErrorMessage(streamEventErrorToApiError(terminalStreamError, t("retryLater")), terminalStreamError.message || t("retryLater"))
-            : "";
-          const completedErrorMessage = completed.assistantMessage.errorCode
-            ? resolveErrorMessage(
-                new ApiError(
-                  completed.assistantMessage.errorMessage || t("retryLater"),
-                  502,
-                  terminalStreamError?.debug,
-                  completed.assistantMessage.errorCode,
-                ),
-                completed.assistantMessage.errorMessage || t("retryLater"),
-              )
-            : completed.assistantMessage.errorMessage;
-          return {
-            ...current,
-            userPublicID: completed.userMessage.publicID,
-            assistantPublicID: completed.assistantMessage.publicID,
-            platformModelName: completed.assistantMessage.platformModelName?.trim() || current.platformModelName,
-            userContent: completed.userMessage.content,
-            userServerMessageID: completed.userMessage.id,
-            userCreatedAt: completed.userMessage.createdAt,
-            assistantPending: false,
-            assistantStreaming: false,
-            assistantFileProc: false,
-            assistantActivityLabel: undefined,
-            assistantServerMessageID: completed.assistantMessage.id,
-            assistantCreatedAt: completed.assistantMessage.createdAt,
-            assistantUpdatedAt: completed.assistantMessage.updatedAt,
-            assistantContentType: completed.assistantMessage.contentType || current.assistantContentType,
-            assistantAttachments: parseAttachments(completed.assistantMessage.attachments),
-            assistantInputTokens: resolveAssistantInputSideUsageValue(
-              assistantOnlyBranch,
-              completed.assistantMessage.inputTokens,
-              completed.userMessage.inputTokens,
-              current.assistantInputTokens,
-            ),
-            assistantOutputTokens: completed.assistantMessage.outputTokens,
-            assistantCacheReadTokens: resolveAssistantInputSideUsageValue(
-              assistantOnlyBranch,
-              completed.assistantMessage.cacheReadTokens,
-              completed.userMessage.cacheReadTokens,
-              current.assistantCacheReadTokens,
-            ),
-            assistantCacheWriteTokens: resolveAssistantInputSideUsageValue(
-              assistantOnlyBranch,
-              completed.assistantMessage.cacheWriteTokens,
-              completed.userMessage.cacheWriteTokens,
-              current.assistantCacheWriteTokens,
-            ),
-            assistantReasoningTokens: completed.assistantMessage.reasoningTokens,
-            assistantLatencyMS: completed.assistantMessage.latencyMS,
-            assistantProcessTrace:
-              assistantMessageStatus === "interrupted"
-                ? preserveRicherLiveUpstreamThinkTrace(
-                    toPendingProcessTrace(completed.assistantMessage.processTrace),
-                    readLiveUpstreamThinkTrace(clientRunID),
-                  )
-                : toPendingProcessTrace(completed.assistantMessage.processTrace),
-            assistantStatus: assistantMessageStatus,
-            assistantErrorCode: completed.assistantMessage.errorCode,
-            assistantErrorMessage: completed.assistantMessage.errorMessage,
-            assistantInlineAlert:
-              assistantMessageBlocked
-                ? current.assistantInlineAlert ?? {
-                    title: t("moderationBlocked"),
-                    message: t("moderationBlockedDescription"),
-                  }
-                : completed.assistantMessage.status === "error" || completed.assistantMessage.status === "interrupted"
-                ? {
-                    title: t("generationInterrupted"),
-                    message: terminalErrorMessage || completedErrorMessage || t("retryLater"),
-                    details: terminalStreamError?.debug,
-                  }
-                : undefined,
-            assistantText:
-              assistantMessageBlocked
-                ? ""
-                : streamedText === completed.assistantMessage.content
-                ? current.assistantText
-                : completed.assistantMessage.content,
-          };
+          onMessageCreated: handleStreamMessageCreated,
         });
+
+        terminalResultReceived = true;
+        const assistantMessageSucceeded = (completed.assistantMessage.status || "success") === "success";
         const completedBranchScope: BranchScope = {
           conversationScopeKey: targetConversationScopeKey,
           branchScopePath: assistantOnlyBranch
@@ -1565,17 +782,16 @@ export function useChatMessageSubmit({
             optimisticMessageCountsRef.current.get(targetConversationScopeKey) ?? 0,
           ) + (assistantOnlyBranch ? 1 : 2);
         optimisticMessageCountsRef.current.set(targetConversationScopeKey, optimisticMessageCount);
-        const requestedParallelModels = commonStreamPayload.parallelModels;
         // 与服务端持久化行为对齐：仅 chat 发送会持久化组合（media 任务服务端不解析该字段，
         // 不能同步列表）；剔除被过滤模型后仍非空才写入。
         // 不同步的话，切回会话时恢复逻辑（use-chat-model-options）会读到陈旧组合
         // （旧值/null），静默清空并行选择，下一轮退化为单模型（丢失模型分支 tab）。
         const effectiveParallelModels =
-          submitTask === "chat"
+          plan.submitTask === "chat"
             ? requestedParallelModels?.filter((name) => !serverFilteredParallelModels.includes(name))
             : undefined;
         const conversationPatch: Partial<ConversationDTO> = {
-          ...(shouldUpdateConversationModel ? { model: requestPlatformModelName } : {}),
+          ...(shouldUpdateConversationModel ? { model: platformModelName } : {}),
           ...(effectiveParallelModels && effectiveParallelModels.length > 0
             ? { parallelModels: effectiveParallelModels }
             : {}),
@@ -1633,7 +849,7 @@ export function useChatMessageSubmit({
         if (assistantMessageSucceeded || completed.metadataRefreshHint?.trim() === "pending") {
           startMetadataRefresh(completed);
         }
-        releaseAttachments(effectiveAttachments);
+        releaseAttachments(currentAttachments);
         if (assistantMessageSucceeded) {
           notifyResponseCompletion({
             content: completed.assistantMessage.content,
@@ -1656,22 +872,14 @@ export function useChatMessageSubmit({
         resetStreamBuffer(exchangeKey);
         if (streamAbortController.signal.aborted) {
           shouldKeepConversationLayout = true;
-          releaseAttachments(effectiveAttachments);
-          updatePendingExchange(exchangeKey, (current) => ({
-            ...current,
-            assistantPending: false,
-            assistantStreaming: false,
-            assistantFileProc: false,
-            assistantActivityLabel: undefined,
-            assistantProcessTrace: readLiveUpstreamThinkTrace(clientRunID) ?? current.assistantProcessTrace,
-            assistantInlineAlert: undefined,
-          }));
+          releaseAttachments(currentAttachments);
+          updatePendingExchange(exchangeKey, (current) => abortPendingExchange(current, clientRunID));
           return false;
         }
         if (error instanceof ApiError && error.errorCode === "content_moderation.blocked") {
           // UI already updated via onModerationBlocked; settle as a soft block with retry.
           shouldKeepConversationLayout = true;
-          releaseAttachments(effectiveAttachments);
+          releaseAttachments(currentAttachments);
           if (conversationScopeKeyRef.current === targetConversationScopeKey) {
             reload();
           }
@@ -1681,7 +889,7 @@ export function useChatMessageSubmit({
         const errorDetails = resolveErrorDetails(error);
         const errorSummary = resolveErrorSummary(error, t("retryLater"));
         shouldKeepConversationLayout = true;
-        if (
+        const shouldRestoreAttachments =
           resetComposer &&
           restoreDraftOnFailure &&
           branchRunIsVisible(
@@ -1690,26 +898,21 @@ export function useChatMessageSubmit({
             conversationScopeKeyRef.current,
             visibleBranchScopePathRef.current,
             visibleMessagesRef.current,
-          )
-        ) {
+          );
+        if (shouldRestoreAttachments) {
           setDraft(content);
           setAttachments(currentAttachments);
+        } else {
+          releaseAttachments(currentAttachments);
         }
-        updatePendingExchange(exchangeKey, (current) => ({
-          ...current,
-          assistantPending: false,
-          assistantStreaming: false,
-          assistantFileProc: false,
-          assistantActivityLabel: undefined,
-          assistantProcessTrace: readLiveUpstreamThinkTrace(clientRunID) ?? current.assistantProcessTrace,
-          assistantStatus: "error",
-          assistantErrorMessage: errorMessage,
-          assistantInlineAlert: {
+        updatePendingExchange(exchangeKey, (current) =>
+          failPendingExchange(current, {
+            clientRunID,
             title: t("generationInterrupted"),
-            message: errorMessage,
-            details: errorDetails,
-          },
-        }));
+            errorMessage,
+            errorDetails,
+          }),
+        );
         toast.error(t("sendFailed"), { description: errorSummary });
         if (targetConversationID) {
           const failedConversationID = targetConversationID;
@@ -1740,6 +943,14 @@ export function useChatMessageSubmit({
           activeStreamsRef.current.delete(clientRunID);
         }
         activeGenerationRunsRef?.current.delete(clientRunID);
+        if (terminalResultReceived) {
+          // A resolved stream already has an authoritative terminal result.
+          // Settle locally as a fallback even if the final SSE callback was
+          // missed; only uncertain disconnects should remain detached.
+          onConversationRunFinished?.(clientRunID);
+        } else {
+          onConversationRunDetached?.(clientRunID);
+        }
         if (
           branchRunIsVisible(
             targetBranchScope,
@@ -1748,7 +959,7 @@ export function useChatMessageSubmit({
             visibleBranchScopePathRef.current,
             visibleMessagesRef.current,
           ) &&
-          !sentSuccessfully &&
+          !terminalResultReceived &&
           !wasConversationMode &&
           !shouldKeepConversationLayout
         ) {
@@ -1761,38 +972,44 @@ export function useChatMessageSubmit({
     [
       activeGenerationRunsRef,
       autoGenerateLabels,
-      enqueueUpstreamThinkDelta,
-      enqueueStreamText,
+      combinedMessages,
       flushStreamTextNow,
       flushUpstreamThinkNow,
-      options,
+      htmlVisualPromptEnabled,
+      maxFilesPerMessage,
+      modelOptions,
       onConversationCreated,
+      onConversationRunDetached,
+      onConversationRunFinished,
+      onConversationRunStarted,
+      options,
       prependNewConversation,
       releaseAttachments,
       reload,
       resetStreamBuffer,
       restoreDraftOnFailure,
-      modelOptions,
-      selectedToolIDs,
-      selectedSkills,
+      runStream,
       selectedKnowledgeBaseIDs,
-      htmlVisualPromptEnabled,
       selectedPlatformModelName,
+      selectedSkills,
+      selectedToolIDs,
+      sendQueuedAfterCurrentRef,
       setAttachments,
       setBranchSelections,
       setDraft,
       setPendingExchanges,
+      setQueuedSubmissions,
       setShowConversationLayout,
       showConversationLayout,
       startStream,
-      touchByPublicID,
-      uploading,
-      maxFilesPerMessage,
-      t,
       syncActiveRuns,
+      t,
+      touchByPublicID,
+      transferAttachments,
       updatePendingExchange,
+      uploading,
       visibleMessageCount,
-      combinedMessages,
+      queuedSubmissionsRef,
     ],
   );
 
@@ -1817,28 +1034,20 @@ export function useChatMessageSubmit({
           currentLeafMessage?.isStreaming ||
           currentLeafMessage?.status?.trim().toLowerCase() === "pending"),
     );
-    const visibleActiveCandidate = visibleRunID ? activeStreamsRef.current.get(visibleRunID) : undefined;
     const visibleActive =
-      visibleActiveCandidate &&
-      branchRunIsVisible(
-        visibleActiveCandidate,
-        visibleActiveCandidate.runID,
+      findVisibleActiveStreamByRunID(
+        activeStreamsRef.current,
+        visibleRunID,
         targetConversationScopeKey,
         currentBranchScopePath,
         visibleMessagesRef.current,
-      )
-        ? visibleActiveCandidate
-        : Array.from(activeStreamsRef.current.values())
-            .filter((item) =>
-              branchRunIsVisible(
-                item,
-                item.runID,
-                targetConversationScopeKey,
-                currentBranchScopePath,
-                visibleMessagesRef.current,
-              ),
-            )
-            .at(-1);
+      ) ??
+      findLastVisibleActiveStream(
+        activeStreamsRef.current,
+        targetConversationScopeKey,
+        currentBranchScopePath,
+        visibleMessagesRef.current,
+      );
     const targetBranchScopePath = visibleActive?.branchScopePath.slice() ?? currentBranchScopePath.slice();
     const targetBranchScopeRunID = visibleActive?.branchScopeRunID ?? visibleRunID;
     if (!targetBranchScopeRunID) {
@@ -1883,6 +1092,7 @@ export function useChatMessageSubmit({
       ];
     });
     setDraft("");
+    transferAttachments(currentAttachments);
     setAttachments([]);
     return true;
   }, [
@@ -1901,8 +1111,10 @@ export function useChatMessageSubmit({
     selectedToolIDs,
     setAttachments,
     setDraft,
+    transferAttachments,
     uploading,
     visibleMessages,
+    setQueuedSubmissions,
   ]);
 
   // 多模型讨论：按显式 runID 取消单个 run。讨论 turn 的 run 不是可见叶子
@@ -1951,29 +1163,10 @@ export function useChatMessageSubmit({
     [],
   );
 
-  const onStopMessage = React.useCallback(() => {
-    const visibleRunID = currentLeafMessage?.runID?.trim() || "";
-    const visibleRunPending = Boolean(
-      visibleRunID &&
-        (currentLeafMessage?.isPending ||
-          currentLeafMessage?.isStreaming ||
-          currentLeafMessage?.status?.trim().toLowerCase() === "pending"),
-    );
-    const visibleActiveCandidate = visibleRunID ? activeStreamsRef.current.get(visibleRunID) : undefined;
-    const visibleActive =
-      visibleActiveCandidate &&
-      branchRunIsVisible(
-        visibleActiveCandidate,
-        visibleActiveCandidate.runID,
-        conversationScopeKeyRef.current,
-        visibleBranchScopePathRef.current,
-        visibleMessagesRef.current,
-      )
-        ? visibleActiveCandidate
-        : undefined;
-    // 多模型并行：停止只作用于当前可见 run，其余 sibling 仍在运行时提示用户，
-    // 避免误以为全部已停而持续消耗余额。
-    const notifyParallelRunsRemaining = (stoppedRunID: string) => {
+  // 多模型并行：停止只作用于当前可见 run，其余 sibling 仍在运行时提示用户，
+  // 避免误以为全部已停而持续消耗余额。
+  const notifyParallelRunsRemaining = React.useCallback(
+    (stoppedRunID: string) => {
       const remainingCount = Array.from(activeStreamsRef.current.values()).filter(
         (item) =>
           item.runID !== stoppedRunID &&
@@ -1985,142 +1178,19 @@ export function useChatMessageSubmit({
           description: t("parallelStopPartialDescription", { count: remainingCount }),
         });
       }
-    };
+    },
+    [conversationScopeKeyRef, t],
+  );
 
-    if (!visibleActive && visibleRunPending) {
-      void resolveAccessToken().then(async (token) => {
-        if (!token) {
-          return;
-        }
-        await cancelMessageGeneration(token, visibleRunID).catch(() => undefined);
-        reload();
-      });
-      return true;
-    }
-    const active =
-      visibleActive ??
-      Array.from(activeStreamsRef.current.values())
-        .filter((item) =>
-          branchRunIsVisible(
-            item,
-            item.runID,
-            conversationScopeKeyRef.current,
-            visibleBranchScopePathRef.current,
-            visibleMessagesRef.current,
-          ),
-        )
-        .at(-1);
-    if (!active) {
-      return false;
-    }
-    if (active.cancelRequested) {
-      return true;
-    }
-    if (!active.accessToken) {
-      active.controller.abort();
-      notifyParallelRunsRemaining(active.runID);
-      return true;
-    }
-
-    active.cancelRequested = true;
-    notifyParallelRunsRemaining(active.runID);
-    active.cancelSettlementTimer = window.setTimeout(() => {
-      if (activeStreamsRef.current.get(active.runID) !== active) {
-        return;
-      }
-      active.controller.abort();
-      if (
-        branchRunIsVisible(
-          active,
-          active.runID,
-          conversationScopeKeyRef.current,
-          visibleBranchScopePathRef.current,
-          visibleMessagesRef.current,
-        )
-      ) {
-        reload();
-      }
-    }, GENERATION_CANCEL_SETTLEMENT_TIMEOUT_MS);
-
-    // Keep the stream connected so its terminal payload can replace optimistic IDs
-    // and retain the final partial content/usage produced during cancellation.
-    void cancelMessageGeneration(active.accessToken, active.runID).catch(() => {
-      if (activeStreamsRef.current.get(active.runID) !== active) {
-        return;
-      }
-      clearCancelSettlementTimer(active);
-      active.controller.abort();
-      if (
-        branchRunIsVisible(
-          active,
-          active.runID,
-          conversationScopeKeyRef.current,
-          visibleBranchScopePathRef.current,
-          visibleMessagesRef.current,
-        )
-      ) {
-        reload();
-      }
-    });
-    return true;
-  }, [
-    currentLeafMessage?.isPending,
-    currentLeafMessage?.isStreaming,
-    currentLeafMessage?.runID,
-    currentLeafMessage?.status,
+  const onStopMessage = useChatStopMessage({
+    activeStreamsRef,
+    currentLeafMessage,
+    conversationScopeKeyRef,
+    visibleBranchScopePathRef,
+    visibleMessagesRef,
     reload,
-    t,
-  ]);
-
-  const onDeleteQueuedMessage = React.useCallback((id: string) => {
-    const target = queuedSubmissionsRef.current.find((item) => item.id === id);
-    if (target) {
-      releaseAttachments(target.attachments);
-    }
-    setQueuedSubmissions((current) => {
-      const currentTarget = current.find((item) => item.id === id);
-      if (!currentTarget) {
-        return current;
-      }
-      const firstScopeSubmission = current.find(
-        (item) => branchScopesEqual(item, currentTarget),
-      );
-      return rechainQueuedSubmissions(
-        current.filter((item) => item.id !== id),
-        currentTarget,
-        firstScopeSubmission?.parentRunID ?? null,
-        firstScopeSubmission?.parentMessagePublicID ?? null,
-      );
-    });
-  }, [releaseAttachments]);
-
-  const onEditQueuedMessage = React.useCallback((id: string, content: string) => {
-    setQueuedSubmissions((current) =>
-      current.map((item) => (item.id === id ? { ...item, content: content.trim() } : item)),
-    );
-  }, []);
-
-  const onGuideQueuedMessage = React.useCallback((id: string) => {
-    setQueuedSubmissions((current) => {
-      const target = current.find((item) => item.id === id);
-      if (!target) {
-        return current;
-      }
-      sendQueuedAfterCurrentRef.current.add(branchScopeID(target));
-      const firstScopeIndex = current.findIndex(
-        (item) => branchScopesEqual(item, target),
-      );
-      const firstScopeSubmission = firstScopeIndex >= 0 ? current[firstScopeIndex] : undefined;
-      const reordered = current.filter((item) => item.id !== id);
-      reordered.splice(Math.max(firstScopeIndex, 0), 0, target);
-      return rechainQueuedSubmissions(
-        reordered,
-        target,
-        firstScopeSubmission?.parentRunID ?? null,
-        firstScopeSubmission?.parentMessagePublicID ?? null,
-      );
-    });
-  }, []);
+    onParallelRunsRemaining: notifyParallelRunsRemaining,
+  });
 
   const onSendMessage = React.useCallback(async () => {
     if (sending || resumeGenerationActive) {
@@ -2191,374 +1261,46 @@ export function useChatMessageSubmit({
     visibleMessages,
   ]);
 
-  React.useEffect(() => {
-    const currentBranchHasPendingServerGeneration = visibleMessages.some(
-      (message) =>
-        message.role === "assistant" &&
-        (message.isPending ||
-          message.isStreaming ||
-          message.status?.trim().toLowerCase() === "pending"),
-    );
-    if (queuedSubmissions.length === 0) {
-      return;
-    }
-    if (activeStreamsRef.current.size >= MAX_CONCURRENT_RUNS) {
-      return;
-    }
-    const allPendingExchanges = getPendingExchanges();
-    const queuedSubmission = queuedSubmissions.find((item) => {
-      if (dispatchingQueuedSubmissionIDsRef.current.has(item.id)) {
-        return false;
-      }
-      const hasActiveStream = Array.from(activeStreamsRef.current.values()).some(
-        (active) => branchScopesEqual(active, item),
-      );
-      if (hasActiveStream) {
-        return false;
-      }
-      const isCurrentBranch =
-        branchScopeIsVisible(item, conversationScopeKey, visibleMessages);
-      if (
-        isCurrentBranch &&
-        (resumeGenerationActive || currentBranchHasPendingServerGeneration)
-      ) {
-        return false;
-      }
-      const hasUnresolvedDefaultExchange = Object.values(allPendingExchanges).some(
-        (exchange) =>
-          branchScopesEqual(exchange, item) &&
-          exchange.branchReason === "default" &&
-          !exchange.assistantPublicID,
-      );
-      if (
-        hasUnresolvedDefaultExchange &&
-        !sendQueuedAfterCurrentRef.current.has(branchScopeID(item))
-      ) {
-        return false;
-      }
-      if (!item.parentRunID) {
-        return true;
-      }
-      const parentExchange = Object.values(allPendingExchanges).find(
-        (exchange) =>
-          exchange.runID === item.parentRunID &&
-          branchScopesEqual(exchange, item),
-      );
-      if (resolvePersistedPublicID(parentExchange?.assistantPublicID)) {
-        return true;
-      }
-      const serverParentMessage = findSuccessfulBranchParentMessage(combinedMessages, item.parentRunID);
-      if (serverParentMessage) {
-        return true;
-      }
-      if (isSuccessfulBranchParentStatus(getHiddenParentRunStatus(item.parentRunID))) {
-        return true;
-      }
-      return Boolean(
-        isCurrentBranch &&
-          currentLeafMessage?.runID === item.parentRunID &&
-          resolvePersistedPublicID(currentLeafMessage.publicID),
-      );
-    });
-    if (!queuedSubmission) {
-      return;
-    }
-    const dispatchedBranchScope: BranchScope = {
-      conversationScopeKey: queuedSubmission.conversationScopeKey,
-      branchScopePath: queuedSubmission.branchScopePath,
-      branchScopeRunID: queuedSubmission.clientRunID,
-    };
-    const dispatchedSubmission: QueuedChatSubmission = {
-      ...queuedSubmission,
-      ...dispatchedBranchScope,
-    };
-    dispatchingQueuedSubmissionIDsRef.current.add(queuedSubmission.id);
-    sendQueuedAfterCurrentRef.current.delete(branchScopeID(queuedSubmission));
-    setQueuedSubmissions((current) =>
-      current
-        .filter((item) => item.id !== queuedSubmission.id)
-        .map((item) =>
-          branchScopesEqual(item, queuedSubmission)
-            ? {
-                ...item,
-                ...dispatchedBranchScope,
-              }
-            : item,
-        ),
-    );
-    const parentExchange = queuedSubmission.parentRunID
-      ? Object.values(allPendingExchanges).find(
-          (exchange) =>
-            exchange.runID === queuedSubmission.parentRunID &&
-            branchScopesEqual(exchange, queuedSubmission),
-        )
-      : undefined;
-    const serverParentMessage = findSuccessfulBranchParentMessage(
-      combinedMessages,
-      queuedSubmission.parentRunID,
-    );
-    const parentMessagePublicID =
-      resolvePersistedPublicID(parentExchange?.assistantPublicID) ??
-      resolvePersistedPublicID(serverParentMessage?.publicID) ??
-      (branchScopeIsVisible(queuedSubmission, conversationScopeKey, visibleMessages) &&
-      currentLeafMessage?.runID === queuedSubmission.parentRunID
-        ? resolvePersistedPublicID(currentLeafMessage.publicID)
-        : null) ??
-      queuedSubmission.parentMessagePublicID;
-    // 多模型讨论：入队时开关开启的组合，出队后仍以讨论形式发出（快照含
-    // 入队时主模型 + 附加并行模型），避免讨论中补发的消息静默退化为并行 fan-out。
-    if (multiModelDiscussion?.enabled) {
-      const queuedParticipants = [
-        ...new Set(
-          [
-            queuedSubmission.platformModelName.trim(),
-            ...queuedSubmission.parallelPlatformModelNames,
-          ].filter(Boolean),
-        ),
-      ];
-      if (queuedParticipants.length >= 2) {
-        const send = sendWithDiscussionRef?.current;
-        if (send) {
-          void send({
-            content: queuedSubmission.content,
-            currentAttachments: queuedSubmission.attachments,
-            parentMessagePublicID,
-            participants: queuedParticipants.slice(0, MAX_DISCUSSION_MODELS),
-            rounds: multiModelDiscussion.rounds,
-          }).finally(() => {
-            dispatchingQueuedSubmissionIDsRef.current.delete(queuedSubmission.id);
-          });
-          return;
-        }
-      }
-    }
-    void submitMessage({
-      content: queuedSubmission.content,
-      currentAttachments: queuedSubmission.attachments,
-      resetComposer: false,
-      parentMessagePublicID,
-      branchReason: "default",
-      queuedSubmission: dispatchedSubmission,
-    })
-      .finally(() => {
-        dispatchingQueuedSubmissionIDsRef.current.delete(queuedSubmission.id);
-      });
-  }, [
-    activeGenerationRunsRevision,
-    combinedMessages,
-    conversationScopeKey,
-    currentLeafMessage?.publicID,
-    currentLeafMessage?.runID,
+  useChatQueueDispatch({
+    queuedSubmissions,
+    setQueuedSubmissions,
+    sendQueuedAfterCurrentRef,
+    dispatchingQueuedSubmissionIDsRef,
+    settledQueuedSubmissionIDsRef,
+    activeStreamsRef,
     getPendingExchanges,
+    pendingExchanges,
+    combinedMessages,
+    visibleMessages,
+    visibleBranchScopePath,
+    conversationScopeKey,
+    currentLeafMessage,
     getHiddenParentRunStatus,
     hiddenParentRunStatusRevision,
-    multiModelDiscussion,
-    pendingExchanges,
-    queuedSubmissions,
     resumeGenerationActive,
+    activeGenerationRunsRevision,
+    releaseAttachments,
+    multiModelDiscussion,
     sendWithDiscussionRef,
     submitMessage,
-    visibleBranchScopePath,
-    visibleMessages,
-  ]);
+  });
 
-  // 重试防并行：同一消息的重试在整个生成期间只允许一个 run（submitMessage 会 await
-  // 完整生成流才 resolve）。ref 覆盖乐观渲染前的双击窗口，活跃 run 检查覆盖切到
-  // 其他分支后再次点击的场景；两者命中时提示用户而不发起新任务。
-  const retryInFlightRef = React.useRef(new Set<string>());
-  // 用 ref 持有最新 combinedMessages：重试回调内部读 ref 即可拿到最新列表，
-  // 不必把 combinedMessages 放入 useCallback deps，避免每次流式 token 更新都重建回调。
-  const combinedMessagesRef = React.useRef(combinedMessages);
-  combinedMessagesRef.current = combinedMessages;
-
-  const onRetryUserMessage = React.useCallback(
-    async (message: ChatAreaMessage) => {
-      const sourceMessagePublicID = resolvePersistedPublicID(message.publicID);
-      if (!sourceMessagePublicID) {
-        toast.error(t("retryReplyFailed"), { description: t("continueReplyUnavailable") });
-        return;
-      }
-      if (
-        retryInFlightRef.current.has(sourceMessagePublicID) ||
-        userPromptHasActiveRun(combinedMessagesRef.current, message)
-      ) {
-        toast(t("retryInProgress"), { description: t("retryInProgressDescription") });
-        return;
-      }
-      retryInFlightRef.current.add(sourceMessagePublicID);
-      try {
-        await submitMessage({
-          content: message.content.trim(),
-          currentAttachments: toPendingAttachments(message),
-          resetComposer: false,
-          parentMessagePublicID: message.parentPublicID,
-          sourceMessagePublicID,
-          branchReason: "retry",
-        });
-      } finally {
-        retryInFlightRef.current.delete(sourceMessagePublicID);
-      }
-    },
-    [submitMessage, t],
-  );
-
-  const onRetryAssistantMessage = React.useCallback(
-    async (message: ChatAreaMessage) => {
-      const parentUser = combinedMessagesRef.current.find((item) => item.publicID === message.parentPublicID && item.role === "user");
-      if (!parentUser) {
-        toast.error(t("retryReplyFailed"), { description: t("retryReplyMissingUser") });
-        return;
-      }
-      const parentUserPublicID = resolvePersistedPublicID(parentUser.publicID);
-      const assistantSourceMessagePublicID = resolvePersistedPublicID(message.publicID);
-      if (!parentUserPublicID || !assistantSourceMessagePublicID) {
-        toast.error(t("retryReplyFailed"), { description: t("continueReplyUnavailable") });
-        return;
-      }
-      if (
-        retryInFlightRef.current.has(assistantSourceMessagePublicID) ||
-        branchUserHasActiveRun(
-          combinedMessagesRef.current,
-          parentUserPublicID,
-          message.platformModelName,
-        )
-      ) {
-        toast(t("retryInProgress"), { description: t("retryInProgressDescription") });
-        return;
-      }
-      retryInFlightRef.current.add(assistantSourceMessagePublicID);
-      try {
-        await submitMessage({
-          content: parentUser.content.trim(),
-          currentAttachments: toPendingAttachments(parentUser),
-          resetComposer: false,
-          parentMessagePublicID: parentUserPublicID,
-          sourceMessagePublicID: assistantSourceMessagePublicID,
-          branchReason: "retry",
-          // 重试沿用该回答原本的模型：多模型并行 tab 下不应被 composer 当前选中模型抢占。
-          overridePlatformModelName: message.platformModelName?.trim() || undefined,
-        });
-      } finally {
-        retryInFlightRef.current.delete(assistantSourceMessagePublicID);
-      }
-    },
-    [submitMessage, t],
-  );
-
-  const onContinueAssistantMessage = React.useCallback(
-    async (message: ChatAreaMessage) => {
-      const parentPublicID = resolvePersistedPublicID(message.publicID);
-      const status = message.status?.trim().toLowerCase();
-      if (!parentPublicID || message.role !== "assistant" || status !== "interrupted") {
-        toast.error(t("continueReplyFailed"), { description: t("continueReplyUnavailable") });
-        return;
-      }
-      await submitMessage({
-        content: buildContinueGenerationPrompt(t),
-        currentAttachments: [],
-        resetComposer: false,
-        parentMessagePublicID: parentPublicID,
-        branchReason: "default",
-      });
-    },
-    [submitMessage, t],
-  );
-
-  const onEditUserMessage = React.useCallback(
-    async (message: ChatAreaMessage, content: string) => {
-      const sourceMessagePublicID = resolvePersistedPublicID(message.publicID);
-      if (!sourceMessagePublicID) {
-        toast.error(t("retryReplyFailed"), { description: t("continueReplyUnavailable") });
-        return false;
-      }
-      const ok = await submitMessage({
-        content: content.trim(),
-        currentAttachments: toPendingAttachments(message),
-        resetComposer: false,
-        parentMessagePublicID: message.parentPublicID,
-        sourceMessagePublicID,
-        branchReason: "edit",
-      });
-      return ok;
-    },
-    [submitMessage, t],
-  );
-
-  const onEditAssistantMessage = React.useCallback(
-    async (message: ChatAreaMessage, content: string) => {
-      const messagePublicID = resolvePersistedPublicID(message.publicID);
-      const nextContent = content.trim();
-      if (!messagePublicID || !nextContent) {
-        toast.error(t("editReplyFailed"), { description: t("continueReplyUnavailable") });
-        return false;
-      }
-      const token = await resolveAccessToken();
-      if (!token) {
-        toast.error(t("editReplyFailed"), { description: t("signInRequired") });
-        return false;
-      }
-      try {
-        const updated = await updateMessage(token, messagePublicID, { content: nextContent });
-        replaceMessage(updated);
-        return true;
-      } catch {
-        toast.error(t("editReplyFailed"), { description: t("retryLater") });
-        return false;
-      }
-    },
-    [replaceMessage, t],
-  );
-
-  const onForkMessage = React.useCallback(
-    async (message: ChatAreaMessage) => {
-      const messagePublicID = resolvePersistedPublicID(message.publicID);
-      const conversationPublicID = conversationIDRef.current?.trim() || "";
-      if (!messagePublicID || !conversationPublicID) {
-        toast.error(t("forkFailed"), { description: t("continueReplyUnavailable") });
-        return;
-      }
-      const token = await resolveAccessToken();
-      if (!token) {
-        toast.error(t("forkFailed"), { description: t("signInRequired") });
-        return;
-      }
-      try {
-        const forked = await forkConversationFromMessage(token, conversationPublicID, messagePublicID);
-        await onConversationForked?.(forked);
-      } catch (error) {
-        toast.error(t("forkFailed"), {
-          description: resolveErrorMessage(error, t("retryLater")),
-        });
-      }
-    },
-    [onConversationForked, t],
-  );
-
-  const onCycleMessageBranch = React.useCallback(
-    (parentPublicID: string | null, direction: "previous" | "next") => {
-      const siblings = buildChildrenIndex(combinedMessages).get(toBranchKey(parentPublicID)) ?? [];
-      if (siblings.length <= 1) {
-        return;
-      }
-      setBranchSelections((prev) => {
-        const parentKey = toBranchKey(parentPublicID);
-        const selectedPublicID = prev[parentKey] || siblings[siblings.length - 1]?.publicID;
-        const currentIndex = siblings.findIndex((item) => item.publicID === selectedPublicID);
-        if (currentIndex < 0) {
-          return prev;
-        }
-        const nextIndex = direction === "previous" ? currentIndex - 1 : currentIndex + 1;
-        if (nextIndex < 0 || nextIndex >= siblings.length) {
-          return prev;
-        }
-        return {
-          ...prev,
-          [parentKey]: siblings[nextIndex].publicID,
-        };
-      });
-    },
-    [combinedMessages, setBranchSelections],
-  );
+  const {
+    onRetryUserMessage,
+    onRetryAssistantMessage,
+    onContinueAssistantMessage,
+    onEditUserMessage,
+    onEditAssistantMessage,
+    onForkMessage,
+    onCycleMessageBranch,
+  } = useChatMessageActions({
+    submitMessage,
+    combinedMessages,
+    replaceMessage,
+    onConversationForked,
+    conversationIDRef,
+    setBranchSelections,
+  });
 
   const onSelectMessageBranch = React.useCallback(
     (parentPublicID: string | null, childPublicID: string) => {

@@ -1,5 +1,5 @@
-import type { ChatAreaMessage, ChatMessageProcessTrace, MessageAttachment } from "@/features/chat/types/messages";
 import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
+import type { ChatAreaMessage, ChatMessageProcessTrace, MessageAttachment } from "@/features/chat/types/messages";
 import type {
   MessageProcessTraceDTO,
   TraceBlockDTO,
@@ -98,6 +98,7 @@ function toPendingTraceBlock(block: TraceBlockDTO | undefined) {
     stage: block.stage,
     roundID: block.roundID,
     parentEventID: block.parentEventID,
+    startedAt: block.startedAt,
     updatedAt: block.updatedAt,
     payloadJson: block.payloadJSON,
   };

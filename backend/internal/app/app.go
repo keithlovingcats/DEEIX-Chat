@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,12 +39,15 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	moderationclient "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/contentmoderation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/embedding"
+	extractengines "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/extract/engines"
+	extractprobe "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/extract/probe"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/geoip"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/identityprovider"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/mediaartifact"
 	openrouterpricing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/modelpricing/openrouter"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/objectstore"
 	platformlogger "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/observability/logger"
 	platformtracing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/observability/tracing"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/openwebui"
@@ -71,6 +73,7 @@ import (
 	userrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/user"
 	usersettingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/usersettings"
 	platformruntime "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/runtime"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/lifecycle"
 	platformhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http"
 	adminhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/admin"
 	announcementhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/announcement"
@@ -110,7 +113,8 @@ type App struct {
 	mediaArtifactClient    *mediaartifact.Client
 	moderationClient       *moderationclient.Client
 	backgroundCancel       context.CancelFunc
-	bootstrapSuperAdmin    *auth.BootstrapSuperAdmin
+	// shutdown 是进程关停排空信号：翻转就绪探针并断开订阅型长连接。
+	shutdown *lifecycle.Shutdown
 }
 
 type subscriptionGroupAdapter struct {
@@ -192,7 +196,7 @@ func NewApp() (*App, error) {
 	settingsRepo := settingsrepo.NewRepo(db)
 	settingsService := settings.NewService(settingsRepo, cfg.DataEncryptionKey)
 	settingsService.SetAuditWriter(auditService)
-	runtimeService := appruntime.NewService(runtimeCfg)
+	runtimeService := appruntime.NewService(runtimeCfg, extractprobe.Prober{})
 	runtimeService.SetDockerRunner(platformruntime.NewDockerRunner())
 	settingsCache := buildSettingsCache(cfg, redisClient, memoryCache)
 	runtimeSettings := settings.NewRuntimeSettings(settingsRepo, settingsCache, cfg.DataEncryptionKey)
@@ -229,13 +233,48 @@ func NewApp() (*App, error) {
 	paymentCheckoutService := billing.NewPaymentCheckoutService(stripepayment.New(cfg.StrictOutboundPolicy()), epaypayment.New())
 	billingHandler := billinghttp.NewHandler(billingService, settingsService, runtimeCfg, officialPricingService, paymentCheckoutService, log)
 	billingModule := billinghttp.NewModule(billingHandler)
-	objectStoreProvider := appstorage.NewRuntimeProvider(runtimeCfg, nil)
+	// 组合根绑定对象存储默认工厂；application 侧未显式注入工厂的 provider 均使用该实现。
+	appstorage.RegisterDefaultFactory(objectstore.New)
+	objectStoreProvider := appstorage.NewRuntimeProvider(runtimeCfg, objectstore.New)
+	// 组合根注册抽取引擎工厂；具体客户端构造为 nil 时必须返回 nil 接口，避免 typed-nil 绕过判空。
+	extraction.RegisterEngineFactories(extraction.EngineFactories{
+		NewTika: func(cfg config.Config) extraction.DocumentExtractor {
+			if client := extractengines.NewTika(cfg); client != nil {
+				return client
+			}
+			return nil
+		},
+		NewDocling: func(cfg config.Config) extraction.DocumentExtractor {
+			if client := extractengines.NewDocling(cfg); client != nil {
+				return client
+			}
+			return nil
+		},
+		NewMinerU: func(cfg config.Config) extraction.DocumentExtractor {
+			if client := extractengines.NewMinerU(cfg); client != nil {
+				return client
+			}
+			return nil
+		},
+		NewOCR: func(provider string, cfg config.Config) extraction.OCRExtractor {
+			if client := extractengines.NewOCR(provider, cfg); client != nil {
+				return client
+			}
+			return nil
+		},
+		Builtin: extractengines.Builtin{},
+	})
 	geoResolver := geoip.New(runtimeCfg.Snapshot())
+	// GeoIP 关闭时 geoip.New 返回 nil 指针，必须转成 nil 接口再注入，避免 typed-nil 绕过判空。
+	var authGeoResolver auth.GeoResolver
+	if geoResolver != nil {
+		authGeoResolver = geoResolver
+	}
 	identityProviderClient := identityprovider.New(cfg.StrictOutboundPolicy())
 	authService := auth.NewServiceWithRuntime(
 		runtimeCfg,
 		userRepo,
-		geoResolver,
+		authGeoResolver,
 		identityProviderClient,
 	)
 	authService.SetLogger(log)
@@ -300,8 +339,6 @@ func NewApp() (*App, error) {
 		llmClient,
 		mediaArtifactClient,
 		mcpClient,
-		embedClient,
-		nil,
 		compactService,
 		embeddingService,
 		processingService,
@@ -323,14 +360,17 @@ func NewApp() (*App, error) {
 	contentModerationModule := contentmoderationhttp.NewModule(contentModerationHandler)
 	userService.SetAvatarContentOpener(avatarContentOpener{conversationService: conversationService})
 	userService.SetAvatarFileValidator(conversationService)
+	userService.SetActivityStatsRepository(billingRepo)
 	authService.SetAvatarFileValidator(conversationService)
 	memoryService.SetCacheInvalidator(conversationService.InvalidateMemoryCache)
-	conversationHandler := conversationhttp.NewHandler(conversationService, runtimeCfg)
+	shutdownSignal := lifecycle.NewShutdown()
+	conversationHandler := conversationhttp.NewHandler(conversationService, runtimeCfg, shutdownSignal)
 	conversationModule := conversationhttp.NewModule(conversationHandler)
 	userHandler := userhttp.NewHandler(userService)
 	userModule := userhttp.NewModule(userHandler)
 	mcpService := appmcp.NewServiceWithRuntime(runtimeCfg, mcpRepo, mcpClient)
 	mcpService.SetSystemEventWriter(systemEventService)
+	mcpService.SetBillingModeProvider(billingService)
 	mcpHandler := mcphttp.NewHandler(mcpService)
 	mcpModule := mcphttp.NewModule(mcpHandler)
 	adminService := admin.NewService(userService, auditService)
@@ -385,6 +425,7 @@ func NewApp() (*App, error) {
 	knowledgeBaseService.SetFileCleaner(conversationService)
 	knowledgeBaseService.SetFileContentOpener(conversationService)
 	knowledgeBaseService.SetFileUploader(conversationService)
+	knowledgeBaseService.SetFileEmbeddingSubmitter(processingService)
 	knowledgeBaseService.SetLogger(log)
 	conversationService.SetKnowledgeBaseResolver(knowledgeBaseService)
 	knowledgeBaseHandler := knowledgebasehttp.NewHandler(knowledgeBaseService, runtimeCfg)
@@ -411,6 +452,17 @@ func NewApp() (*App, error) {
 		UserSettings:      userSettingsModule,
 		User:              userModule,
 		GlobalChat:        globalChatModule,
+		Shutdown:          shutdownSignal,
+		StartupLog: func(log *zap.Logger) {
+			if log == nil || bootstrapSuperAdmin == nil {
+				return
+			}
+			log.Info("bootstrap superadmin created",
+				zap.String("username", bootstrapSuperAdmin.Username),
+				zap.String("password", bootstrapSuperAdmin.Password),
+			)
+			fmt.Printf("\nDEEIX Chat 初始管理员已创建（仅此一次显示）\n  用户名: %s\n  密码:   %s\n\n", bootstrapSuperAdmin.Username, bootstrapSuperAdmin.Password)
+		},
 	}, hc, rateLimiter)
 	if err != nil {
 		return nil, err
@@ -439,7 +491,7 @@ func NewApp() (*App, error) {
 		mediaArtifactClient:    mediaArtifactClient,
 		moderationClient:       moderationClient,
 		backgroundCancel:       backgroundCancel,
-		bootstrapSuperAdmin:    bootstrapSuperAdmin,
+		shutdown:               shutdownSignal,
 	}, nil
 }
 
@@ -456,26 +508,9 @@ func (a *App) Run() error {
 	}
 
 	errCh := make(chan error, 1)
-	serveReady := make(chan struct{})
 	go func() {
 		a.logger.Info("server_starting", zap.String("port", a.cfg.HTTPPort))
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			errCh <- err
-			close(errCh)
-			return
-		}
-		// 端口绑定成功即视为 ready：bootstrap 凭据在全部 debug 日志之后独立打印，避免被淹没。
-		if a.bootstrapSuperAdmin != nil {
-			log := a.logger
-			log.Info("bootstrap superadmin created",
-				zap.String("username", a.bootstrapSuperAdmin.Username),
-				zap.String("password", a.bootstrapSuperAdmin.Password),
-			)
-			fmt.Printf("\nDEEIX Chat 初始管理员已创建（仅此一次显示）\n  用户名: %s\n  密码:   %s\n\n", a.bootstrapSuperAdmin.Username, a.bootstrapSuperAdmin.Password)
-		}
-		close(serveReady)
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 		close(errCh)
@@ -487,24 +522,33 @@ func (a *App) Run() error {
 	select {
 	case err := <-errCh:
 		return err
-	case <-serveReady:
-		// 监听成功；等待退出信号或 Serve 错误。
-	}
-	select {
-	case err := <-errCh:
-		return err
 	case sig := <-quit:
 		a.logger.Info("server_shutting_down", zap.String("signal", sig.String()))
 	}
 
-	if a.backgroundCancel != nil {
-		a.backgroundCancel()
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 阶段一：进入排空。就绪探针翻转为 503 引导负载均衡摘流，
+	// 订阅型 SSE（run 对账流、run 观看流）立即断开，客户端按既有逻辑重连。
+	a.shutdown.BeginDrain()
+
+	// 阶段二：排空 in-flight 请求。消息生成等有价值的流式请求在窗口内自然完成。
+	drainTimeout := httpTimeoutSeconds(a.cfg.HTTPShutdownTimeoutSeconds, 10)
+	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		a.logger.Error("server_shutdown_error", zap.Error(err))
-		return err
+		// 阶段三：排空超时，强断剩余连接。被打断的生成已有落盘与前端恢复兜底，
+		// 属预期内降级而非故障，进程仍以成功状态退出。
+		a.logger.Warn("server_drain_timeout_force_close",
+			zap.Duration("drain_timeout", drainTimeout),
+			zap.Error(err),
+		)
+		if closeErr := srv.Close(); closeErr != nil {
+			a.logger.Warn("server_force_close_error", zap.Error(closeErr))
+		}
+	}
+
+	// HTTP 排空完成后再停后台 worker；资源释放由 cli.Run 的 defer Close() 收尾。
+	if a.backgroundCancel != nil {
+		a.backgroundCancel()
 	}
 	a.logger.Info("server_stopped")
 	return nil

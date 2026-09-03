@@ -7,9 +7,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
 	appconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
+	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/lifecycle"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
@@ -19,6 +22,9 @@ import (
 type Handler struct {
 	service *appconversation.Service
 	cfg     *config.Runtime
+	// shutdown 触发时订阅型长连接（run 对账流、run 观看流）立即退出，
+	// 让优雅关停不被常驻 SSE 拖到超时；客户端依靠既有重连逻辑恢复。
+	shutdown *lifecycle.Shutdown
 }
 
 func normalizeStreamEventPayload(eventType string, payload map[string]interface{}) map[string]interface{} {
@@ -47,10 +53,11 @@ func normalizeStreamEventPayload(eventType string, payload map[string]interface{
 }
 
 // NewHandler 创建处理器。
-func NewHandler(service *appconversation.Service, cfg *config.Runtime) *Handler {
+func NewHandler(service *appconversation.Service, cfg *config.Runtime, shutdown *lifecycle.Shutdown) *Handler {
 	return &Handler{
-		service: service,
-		cfg:     cfg,
+		service:  service,
+		cfg:      cfg,
+		shutdown: shutdown,
 	}
 }
 
@@ -69,7 +76,7 @@ func (h *Handler) recordAudit(c *gin.Context, action string, resource string, re
 
 const (
 	defaultHTTPPageSize = 20
-	maxHTTPPageSize     = 100
+	maxHTTPPageSize     = 1000
 	maxMessagePageSize  = 1000
 )
 
@@ -171,6 +178,10 @@ func mapStreamError(err error) streamError {
 	case errors.Is(err, appconversation.ErrMessageGenerationCanceled):
 		status = http.StatusBadRequest
 		message = "message generation canceled"
+	case appconversation.IsUpstreamRateLimitError(err):
+		status = http.StatusTooManyRequests
+		code = appconversation.MessageErrorCodeUpstreamRateLimited
+		message = "upstream rate limited"
 	case errors.Is(err, appconversation.ErrMediaImagePromptRequired):
 		status = http.StatusBadRequest
 		message = "image prompt is required"
@@ -204,6 +215,9 @@ func mapStreamError(err error) streamError {
 	case errors.Is(err, appconversation.ErrDuplicateMessageGenerationRun):
 		status = http.StatusConflict
 		message = "message generation run already exists"
+	case errors.Is(err, billing.ErrUsageBalanceInsufficient):
+		status = http.StatusPaymentRequired
+		message = "usage balance is insufficient"
 	case errors.Is(err, appconversation.ErrUpstreamRequestFailed):
 		status = http.StatusBadGateway
 		code = appconversation.MessageErrorCode(err)
@@ -223,6 +237,7 @@ func streamErrorPayload(err error) map[string]interface{} {
 	mapped := mapStreamError(err)
 	payload := map[string]interface{}{
 		"type":      "error",
+		"status":    mapped.Status,
 		"message":   mapped.Message,
 		"errorCode": mapped.Code,
 	}
@@ -242,12 +257,16 @@ func streamErrorPayloadWithCode(code string, message string) map[string]interfac
 
 // moderationBlockedStreamPayload is retained for recovery/reconnect assembly only.
 // Live streams receive moderation_blocked via OnEvent after ApplyRunBlock commits.
-func moderationBlockedStreamPayload(result *appconversation.SendMessageResult) map[string]interface{} {
+// 此时运行已定稿，可直接按结算结论标注"拦截后上游用量照常计费"。
+func moderationBlockedStreamPayload(result *appconversation.SendMessageResult, authorization *domainbilling.UsageAuthorization) map[string]interface{} {
 	payload := map[string]interface{}{
 		"type": "moderation_blocked",
 	}
 	if result == nil {
 		return payload
+	}
+	if billedReason := appconversation.ModerationBlockedBilledReason(result, authorization); billedReason != "" {
+		payload["billedReason"] = billedReason
 	}
 	if result.Moderation != nil && result.Moderation.Blocked {
 		payload["eventID"] = result.Moderation.EventID
@@ -288,6 +307,9 @@ func mapClientErrorMessage(err error) string {
 	}
 	if errors.Is(err, appconversation.ErrGeneratedMediaArtifactUnavailable) {
 		return "generated media artifact is temporarily unavailable"
+	}
+	if appconversation.IsUpstreamRateLimitError(err) {
+		return "upstream rate limited"
 	}
 	if errors.Is(err, appconversation.ErrUpstreamRequestFailed) {
 		detail := appconversation.MessageErrorSummary(err)

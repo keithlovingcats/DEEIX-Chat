@@ -14,9 +14,9 @@ import (
 	apprag "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/rag"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainmemory "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/memory"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
 	platformtracing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/observability/tracing"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/traceid"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -234,7 +234,7 @@ func (s *Service) sendMessageInternal(
 	if input.Cancelable {
 		cancelCtx, cancel := context.WithCancel(ctx)
 		ctx = cancelCtx
-		s.generationStreams.register(ctx, runID, input.UserID, cancel)
+		s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel)
 	}
 
 	currentPlatformModelName := strings.TrimSpace(conversation.Model)
@@ -258,11 +258,13 @@ func (s *Service) sendMessageInternal(
 	var resolvedRoute *channel.ResolvedRoute
 	var filteredOptions map[string]interface{}
 	var totalServerSideToolUsage map[string]int64
+	var totalMCPToolUsage []MCPToolUsageItem
 	var responsesBackgroundRouteConfig llm.RouteConfig
 	var responsesBackgroundRecovery openAIResponsesBackgroundRecoveryState
 	responsesBackgroundUsageRecovered := false
 	usageAccumulator := &messageUsageAccumulator{}
 	upstreamCallStarted := false
+	completedLLMCallCount := 0
 	runState := newMessageSendRunState(s, input, conversation, startedAt, runID)
 	run := runState.run
 	runState.reuseUserMessage = reuseUserMessage
@@ -278,26 +280,31 @@ func (s *Service) sendMessageInternal(
 					}
 				}
 			}
+			estimatedOutputTokens, estimatedReasoningTokens := usageAccumulator.interruptedOutputTokens()
 			if retained := s.persistInterruptedMessageGeneration(ctx, persistInterruptedMessageGenerationInput{
-				SendInput:              input,
-				UserMessage:            userMessage,
-				AssistantMessage:       assistantMessage,
-				AssistantText:          streamedText.String(),
-				AssistantReasoningText: traceRecorder.upstreamThinkContent(),
-				EstimatedInputTokens:   usageAccumulator.interruptedInputTokens(),
-				UpstreamCallStarted:    upstreamCallStarted,
-				Usage:                  usageAccumulator.usage(),
-				UsageRecovered:         responsesBackgroundUsageRecovered,
-				AssistantLatency:       time.Since(startedAt).Milliseconds(),
-				Error:                  retErr,
-				ToolCallRows:           toolCallRows,
-				PersistedToolCallKeys:  persistedToolCallKeys,
-				TraceRecorder:          traceRecorder,
-				Route:                  resolvedRoute,
-				EffectiveOptions:       filteredOptions,
-				ServerSideToolUsage:    totalServerSideToolUsage,
-				StartedAt:              startedAt,
-				ReuseUserMessage:       reuseUserMessage,
+				SendInput:                input,
+				UserMessage:              userMessage,
+				AssistantMessage:         assistantMessage,
+				AssistantText:            streamedText.String(),
+				AssistantReasoningText:   traceRecorder.upstreamThinkContent(),
+				EstimatedInputTokens:     usageAccumulator.interruptedInputTokens(),
+				EstimatedOutputTokens:    estimatedOutputTokens,
+				EstimatedReasoningTokens: estimatedReasoningTokens,
+				UpstreamCallStarted:      upstreamCallStarted,
+				Usage:                    usageAccumulator.usage(),
+				UsageRecovered:           responsesBackgroundUsageRecovered,
+				LLMCallCount:             completedLLMCallCount,
+				AssistantLatency:         time.Since(startedAt).Milliseconds(),
+				Error:                    retErr,
+				ToolCallRows:             toolCallRows,
+				PersistedToolCallKeys:    persistedToolCallKeys,
+				TraceRecorder:            traceRecorder,
+				Route:                    resolvedRoute,
+				EffectiveOptions:         filteredOptions,
+				ServerSideToolUsage:      totalServerSideToolUsage,
+				MCPToolUsage:             totalMCPToolUsage,
+				StartedAt:                startedAt,
+				ReuseUserMessage:         reuseUserMessage,
 			}); retained != nil {
 				result = retained
 				retainedOutput = true
@@ -450,20 +457,8 @@ func (s *Service) sendMessageInternal(
 	}
 	route, err := s.routeResolver.ResolveRoute(ctx, routeResolveInput)
 	if err != nil {
-		if errors.Is(err, channel.ErrModelAccessDenied) {
-			retErr = ErrModelAccessDenied
-			return nil, retErr
-		}
-		if errors.Is(err, channel.ErrRouteNotFound) || errors.Is(err, channel.ErrModelNotFound) {
-			retErr = ErrModelRouteNotConfigured
-			return nil, retErr
-		}
-		if errors.Is(err, channel.ErrAllRoutesUnavailable) {
-			retErr = wrapUpstreamRequestError(err)
-			return nil, retErr
-		}
-		retErr = err
-		return nil, err
+		retErr = mapRouteResolutionError(err)
+		return nil, retErr
 	}
 	resolvedRoute = route
 	reasoningContentPassback := s.reasoningContentPassbackEnabled(ctx, input.UserID, route)
@@ -493,8 +488,6 @@ func (s *Service) sendMessageInternal(
 		run.Provider = inferProvider(conversation.Model)
 	}
 
-	// 构建完整活跃分支路径；压缩裁剪先于模型预算截断，避免摘要和全量历史重复发送。
-	contextMessages := filterBlockedMessages(buildBranchMessagePath(branchState, userMessage))
 	cfg := s.cfg.Snapshot()
 	compactPolicy := s.resolveContextCompactionPolicy(ctx, cfg, input.UserID)
 
@@ -524,11 +517,74 @@ func (s *Service) sendMessageInternal(
 
 	// 收集并行预取结果，再规划本轮可发送的 PromptScope。
 	prefetch := <-prefetchCh
-	contextMessages = s.expandContextMessagesToSnapshotBoundary(ctx, input.ConversationID, userMessage.ID, contextMessages, prefetch.snapshot, compactPolicy)
-	// 快照扩展可能重新加载数据库中的原始 error 状态；在最终分支路径上统一恢复可用的重试上下文。
+	if err = s.loadMessageBranchContext(
+		ctx,
+		input.ConversationID,
+		branchState,
+		prefetch.snapshot,
+		normalizedBranchReason,
+	); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("conversation_context_load_failed",
+				zap.String("trace_id", traceid.FromContext(ctx)),
+				zap.Uint("conversation_id", input.ConversationID),
+				zap.String("request_id", strings.TrimSpace(input.RequestID)),
+				zap.Error(err),
+			)
+		}
+		retErr = err
+		return nil, err
+	}
+
+	// 构建完整活跃分支路径。完整消息仅在模型路由与滚动快照已解析后按需加载，
+	// 避免默认分支定位和 Prompt 规划分别水合同一批附件与引用。
+	contextMessages := filterBlockedMessages(buildBranchMessagePath(branchState, userMessage))
 	contextMessages = recoverAssistantRetryUserStates(contextMessages)
+
+	// 软阈值压缩仍可按配置在响应后异步执行；只有当前请求已经越过所选模型的
+	// 有效输入预算时，才同步生成滚动快照，避免本轮先被静默截断、下一轮才补摘要。
+	preflightCompactInput := appcompact.MaybeCompactConversationInput{
+		ConversationID:   input.ConversationID,
+		UserID:           input.UserID,
+		RunID:            runID,
+		Messages:         contextMessages,
+		ExistingSnapshot: prefetch.snapshot,
+		PromptTokenEstimate: estimatePromptScopeTokens(
+			contextMessages,
+			prefetch.snapshot,
+			compactPolicy,
+			reasoningContentPassback,
+		),
+		ContextModelName:  route.UpstreamModel,
+		CapabilitiesJSON:  route.ModelCapabilitiesJSON,
+		PlatformModelName: s.resolveTextTaskModel(ctx, cfg.CompactTaskModel, conversation.Model, input.UserID, input.ConversationID, strings.TrimSpace(input.RequestID)),
+		Force:             true,
+	}
+	if compactPolicy.EffectiveEnabled() && s.compactSvc.ContextBudgetExceeded(preflightCompactInput) {
+		preflightSnapshot, compactErr := s.compactSvc.MaybeCompactConversation(ctx, preflightCompactInput)
+		if compactErr != nil {
+			retErr = compactErr
+			return nil, compactErr
+		}
+		if preflightSnapshot != nil {
+			prefetch.snapshot = preflightSnapshot
+			s.invalidateSnapshotCache(input.ConversationID)
+			_ = s.repo.UpdateConversationLastResponseID(ctx, input.ConversationID, "")
+			s.persistSnapshotContextArtifact(ctx, snapshotContextArtifactInput{
+				ConversationID: input.ConversationID,
+				UserID:         input.UserID,
+				MessageID:      assistantMessage.ID,
+				RunID:          runID,
+				Snapshot:       preflightSnapshot,
+			})
+			if traceRecorder != nil {
+				summary, markdown, payload := buildCompactionProcessTrace(preflightSnapshot)
+				traceRecorder.appendProcessSection(summary, markdown, payload, messageTraceStatusStreaming)
+			}
+		}
+	}
 	promptScope := buildPromptScope(contextMessages, prefetch.snapshot, compactPolicy)
-	promptMessages := s.applyContextTokenBudget(promptScope.activeMessages(), route.UpstreamModel, route.ModelCapabilitiesJSON, reasoningContentPassback)
+	promptMessages := promptScope.activeMessages()
 	ragQuery := buildRAGQuery(promptMessages, input.Content, cfg.RAGQueryHistoryTurns)
 	historicalScope := promptScope.historicalMessageScope(input.ConversationID, input.UserID, userMessage.ID)
 
@@ -578,6 +634,7 @@ func (s *Service) sendMessageInternal(
 	})
 	toolCallRows = append(toolCallRows, imageProcessing.Rows...)
 	mergeToolCallPersistenceKeys(&persistedToolCallKeys, imageProcessing.PersistedToolCallKeys)
+	totalMCPToolUsage = mergeMCPToolUsage(totalMCPToolUsage, imageProcessing.MCPToolUsage)
 	if err != nil {
 		retErr = err
 		return nil, err
@@ -593,6 +650,11 @@ func (s *Service) sendMessageInternal(
 	if imageProcessing.Routed {
 		fileContextPlan = withoutCurrentImageAttachments(fileContextPlan)
 	}
+	if !cfg.KnowledgeBaseEnabled {
+		// 知识库功能已被后台关闭：视同未选择知识库，检索与后续“知识库未命中/不可用”的
+		// 判定、提示一并跳过，避免存量引用阻塞发送或注入误导性提示。
+		input.KnowledgeBaseIDs = nil
+	}
 	knowledgeBaseFiles, err := s.resolveKnowledgeBaseRAGFiles(
 		ctx,
 		input.UserID,
@@ -604,7 +666,7 @@ func (s *Service) sendMessageInternal(
 		return nil, err
 	}
 
-	contextAssembler := NewContextAssembler(int64(cfg.ContextMaxInputTokens))
+	contextAssembler := NewContextAssembler(0)
 	userCtx := userContextInput{ImageAnalyses: imageProcessing.Analyses}
 	var prefixMemories []domainmemory.UserMemory
 	preferencePrompt := ""
@@ -807,24 +869,7 @@ func (s *Service) sendMessageInternal(
 		retErr = err
 		return nil, err
 	}
-	if traceRecorder != nil && skillPrompts != nil {
-		skillTitles := skillPromptTitles(skillPrompts.Skills)
-		traceRecorder.appendProcessSection(
-			fmt.Sprintf("已提供 %d 个 Skill 上下文", len(skillPrompts.Skills)),
-			formatTraceStep("Skill", fmt.Sprintf("本轮已加载 Skill：%s。包含 SKILL.md 内容，相关时使用。", strings.Join(skillTitles, "、"))),
-			map[string]interface{}{
-				processTracePayloadStage: map[string]interface{}{
-					"kind":   "skill_context",
-					"status": messageTraceStatusStreaming,
-				},
-				"skill_count":    len(skillPrompts.Skills),
-				"skill_ids":      skillPromptIDs(skillPrompts.Skills),
-				"skill_titles":   skillTitles,
-				"skill_triggers": skillPromptTriggers(skillPrompts.Skills),
-			},
-			messageTraceStatusStreaming,
-		)
-	}
+	recordSkillPromptTrace(traceRecorder, skillPrompts)
 	routePromptInput := messageRoutePromptInput{
 		UserContent:             input.Content,
 		ProjectSystemPrompt:     conversation.ProjectSystemPrompt,
@@ -895,13 +940,28 @@ func (s *Service) sendMessageInternal(
 		Tools:                  toolRuntime.definitions,
 		Options:                filteredOptions,
 	}
+	generateInput, initialBudgetFit := fitGenerateInputToModelBudget(
+		generateInput,
+		route.UpstreamModel,
+		route.ModelCapabilitiesJSON,
+		cfg.ContextWindowFallbackTokens,
+		cfg.ContextTokenBudgetEnabled,
+	)
+	if initialBudgetFit.Trimmed {
+		llmMessages = cloneLLMMessages(generateInput.Messages)
+		promptPlan.applyMessages(llmMessages)
+	}
+	s.logPromptBudgetFit(ctx, route.UpstreamModel, initialBudgetFit)
 	if supportsOpenAIResponsesBackgroundMode(route) {
 		generateInput.ResponsesBackground = true
 		sendSpan.SetAttributes(attribute.Bool("conversation.responses_background", true))
 	}
-	fullLLMMessages := llmMessages
+	fullLLMMessages := cloneLLMMessages(llmMessages)
 	applyOpenAIResponsesInstructions(route, routeConfig.Endpoint, &generateInput)
 	estimatedPromptTokens = estimateGenerateInputTokens(generateInput)
+	// 有状态 Responses 续传只发送本轮增量，但压缩决策必须继续观察完整上下文；
+	// 同时保留预算裁剪前的规模，让被裁掉的历史在回复后及时进入滚动摘要。
+	fullContextPromptTokens := maxPromptTokenEstimate(initialBudgetFit.TokensBefore, estimatedPromptTokens)
 	statefulContextConfig := buildPromptContextConfigSignature(cfg)
 	statefulContextState := buildPromptContextStateSignature(stableFullContextAttachments, prefixMemories)
 	statefulPrefixFingerprint := buildPromptStateFingerprint(promptStateFingerprintInput{
@@ -924,8 +984,8 @@ func (s *Service) sendMessageInternal(
 		statefulPrefixFingerprint,
 		filteredOptions,
 	)
+	// 有状态续传只裁剪发送的消息，上游仍按完整上下文计输入，规划预估保持完整形状。
 	if applyStatefulResponseContinuation(routeConfig.Endpoint, statefulDecision, &generateInput) {
-		estimatedPromptTokens = estimateGenerateInputTokens(generateInput)
 		sendSpan.SetAttributes(
 			attribute.Bool("conversation.stateful_response", true),
 			attribute.Int("conversation.stateful_full_messages", len(llmMessages)),
@@ -951,6 +1011,14 @@ func (s *Service) sendMessageInternal(
 		}))
 	}
 	sendSpan.SetAttributes(promptShapeTraceAttributes("conversation.prompt", initialPromptShape)...)
+	// 提示词形状已确定但尚未调用上游：按预估成本抬高预算预留，余额不足在此终止，不产生任何上游费用。
+	if err := s.ensureUsageBudgetCoversEstimate(ctx, input.UsageAuthorization, route, filteredOptions, usageBudgetEstimate{
+		InputTokens:  estimatedPromptTokens,
+		OutputTokens: messageRequestMaxOutputTokens(filteredOptions),
+	}); err != nil {
+		retErr = err
+		return nil, err
+	}
 
 	maxLLMCalls := s.resolveMaxLLMCallsPerRun()
 	llmRequestCount := 0
@@ -979,7 +1047,8 @@ func (s *Service) sendMessageInternal(
 		return nil
 	}
 	var lastGenerationAttemptObservation *generationAttemptObservation
-	runGenerate := func(currentInput llm.GenerateInput) (*llm.GenerateOutput, error) {
+	// fullMessages 是本次调用对应的完整上下文，有状态续传时用于估算上游实际计费的输入规模。
+	runGenerate := func(currentInput llm.GenerateInput, fullMessages []llm.Message) (*llm.GenerateOutput, error) {
 		attemptObservation := &generationAttemptObservation{}
 		lastGenerationAttemptObservation = attemptObservation
 		callPromptMode := "full"
@@ -997,10 +1066,11 @@ func (s *Service) sendMessageInternal(
 				return err
 			}
 			callVisibleText.WriteString(delta)
+			usageAccumulator.recordCallVisibleText(delta)
 			return nil
 		}
 		callPromptShape := summarizePromptShape(callPromptMode, currentInput.Messages, currentInput.Messages, currentInput.PreviousResponseID)
-		usageAccumulator.beginCall(currentInput)
+		usageAccumulator.beginCall(estimateBillableInputTokens(currentInput, fullMessages))
 		if currentInput.ResponsesBackground {
 			responsesBackgroundRecovery = openAIResponsesBackgroundRecoveryState{Enabled: true}
 		} else {
@@ -1025,42 +1095,24 @@ func (s *Service) sendMessageInternal(
 			generationSpan.End()
 		}()
 
-		emitNonStreamingOutput := func(output *llm.GenerateOutput) error {
-			if output == nil || (strings.TrimSpace(output.Text) == "" && output.Reasoning == nil) {
+		finalizeNonStreamingOutput := func(output *llm.GenerateOutput, emitVisible bool) error {
+			if output == nil {
 				return nil
 			}
-			cleanText, thinkText := splitAssistantOutputThinkingContent(output.Text)
-			if traceRecorder != nil && output.Reasoning != nil {
-				if traceRecorder.visible() && traceRecorder.onEvent != nil {
-					attemptObservation.markObservable()
-				}
-				traceRecorder.syncStructuredThink(
-					output.Reasoning.Text,
-					output.Reasoning.Summary,
-					reasoningPayload(&llm.ReasoningDelta{
-						EventType:        "response.completed",
-						ItemID:           output.Reasoning.ItemID,
-						Status:           output.Reasoning.Status,
-						Kind:             messageTraceThinkKindContent,
-						EncryptedContent: output.Reasoning.EncryptedContent,
-					}),
-				)
-			} else if traceRecorder != nil && strings.TrimSpace(thinkText) != "" {
-				if traceRecorder.visible() && traceRecorder.onEvent != nil {
-					attemptObservation.markObservable()
-				}
-				traceRecorder.syncStructuredThink(thinkText, "", nil)
+			if traceRecorder != nil && traceRecorder.visible() && traceRecorder.onEvent != nil &&
+				(output.Reasoning != nil || len(output.ServerToolCalls) > 0) {
+				attemptObservation.markObservable()
 			}
-			if traceRecorder != nil {
-				traceRecorder.completeUpstreamThink()
-			}
-			if cleanText == "" && strings.TrimSpace(thinkText) == "" {
-				cleanText = strings.TrimSpace(output.Text)
-			}
-			if streamErr := emitCallVisibleDelta(cleanText); streamErr != nil {
-				return streamErr
-			}
+			usageAccumulator.recordCallReasoningText(outputReasoningContent(output))
+			cleanText, _ := syncUpstreamOutputTrace(traceRecorder, output, runID)
 			output.Text = cleanText
+			if emitVisible {
+				if streamErr := emitCallVisibleDelta(cleanText); streamErr != nil {
+					return streamErr
+				}
+			} else {
+				usageAccumulator.recordCallVisibleText(cleanText)
+			}
 			return nil
 		}
 
@@ -1069,19 +1121,24 @@ func (s *Service) sendMessageInternal(
 			llmRequestCount++
 			output, err := s.llmClient.Generate(generationCtx, routeConfig, currentInput)
 			generateErr = err
-			if err == nil && streamRequested {
-				generateErr = emitNonStreamingOutput(output)
+			if err == nil {
+				generateErr = finalizeNonStreamingOutput(output, streamRequested)
 				if generateErr != nil {
 					return output, generateErr
 				}
 			}
 			if generateErr == nil {
-				usageAccumulator.finishCall(output != nil && output.Usage.InputTokens > 0)
+				completedLLMCallCount++
+				usageAccumulator.finishCall(
+					output != nil && output.Usage.HasObservedInput(),
+					output != nil && output.Usage.HasObservedOutput(),
+				)
 			}
 			return output, err
 		}
 		thinkingRouter := &thinkingDeltaRouter{}
 		callStreamUsage := llm.Usage{}
+		observedServerTools := make(map[string]string)
 		upstreamCallStarted = true
 		llmRequestCount++
 		output, streamErr := s.llmClient.GenerateStream(generationCtx, routeConfig, currentInput, func(event llm.GenerateStreamEvent) error {
@@ -1121,6 +1178,9 @@ func (s *Service) sendMessageInternal(
 			}
 			if event.Reasoning != nil && event.Reasoning.Text != "" {
 				attemptHadSideEffect = true
+				if event.Reasoning.Kind != messageTraceThinkKindSignature {
+					usageAccumulator.recordCallReasoningText(event.Reasoning.Text)
+				}
 			}
 			if traceRecorder != nil && event.Reasoning != nil && event.Reasoning.Text != "" {
 				if traceRecorder.visible() && traceRecorder.onEvent != nil {
@@ -1139,6 +1199,7 @@ func (s *Service) sendMessageInternal(
 					attemptObservation.markObservable()
 				}
 				toolStatus := normalizeStreamServerToolStatus(event.ServerToolCall.Status)
+				observeServerTool(observedServerTools, *event.ServerToolCall, toolStatus)
 				summary, markdown, payload := buildToolTrace([]model.ToolCall{{
 					RunID:      runID,
 					ToolCallID: strings.TrimSpace(event.ServerToolCall.ToolCallID),
@@ -1157,6 +1218,7 @@ func (s *Service) sendMessageInternal(
 			visibleDelta, thinkDelta := thinkingRouter.consume(event.Delta)
 			if thinkDelta != "" {
 				attemptHadSideEffect = true
+				usageAccumulator.recordCallReasoningText(thinkDelta)
 			}
 			if traceRecorder != nil && thinkDelta != "" {
 				if traceRecorder.visible() && traceRecorder.onEvent != nil {
@@ -1172,25 +1234,11 @@ func (s *Service) sendMessageInternal(
 		generateErr = streamErr
 		if generateErr == nil {
 			visibleTail, thinkTail := thinkingRouter.flush()
+			usageAccumulator.recordCallReasoningText(thinkTail)
 			if traceRecorder != nil && thinkTail != "" {
 				traceRecorder.appendUpstreamReasoning(messageTraceThinkKindContent, thinkTail, nil)
 			}
-			if traceRecorder != nil && output != nil && output.Reasoning != nil {
-				traceRecorder.syncStructuredThink(
-					output.Reasoning.Text,
-					output.Reasoning.Summary,
-					reasoningPayload(&llm.ReasoningDelta{
-						EventType:        "response.completed",
-						ItemID:           output.Reasoning.ItemID,
-						Status:           output.Reasoning.Status,
-						Kind:             messageTraceThinkKindContent,
-						EncryptedContent: output.Reasoning.EncryptedContent,
-					}),
-				)
-			}
-			if traceRecorder != nil {
-				traceRecorder.completeUpstreamThink()
-			}
+			finalizeStreamingOutputTrace(traceRecorder, output, runID, observedServerTools)
 			if visibleTail != "" {
 				if tailErr := emitCallVisibleDelta(visibleTail); tailErr != nil {
 					generateErr = tailErr
@@ -1205,11 +1253,15 @@ func (s *Service) sendMessageInternal(
 			llmRequestCount++
 			output, generateErr = s.llmClient.Generate(generationCtx, routeConfig, currentInput)
 			if generateErr == nil {
-				generateErr = emitNonStreamingOutput(output)
+				generateErr = finalizeNonStreamingOutput(output, true)
 			}
 		}
 		if generateErr == nil {
-			usageAccumulator.finishCall((callStreamUsage.InputTokens > 0) || (output != nil && output.Usage.InputTokens > 0))
+			completedLLMCallCount++
+			usageAccumulator.finishCall(
+				callStreamUsage.HasObservedInput() || (output != nil && output.Usage.HasObservedInput()),
+				callStreamUsage.HasObservedOutput() || (output != nil && output.Usage.HasObservedOutput()),
+			)
 		}
 		return output, generateErr
 	}
@@ -1223,7 +1275,7 @@ func (s *Service) sendMessageInternal(
 	}
 
 	runInitialRouteAttempt := func() (*llm.GenerateOutput, error) {
-		output, attemptErr := runGenerate(generateInput)
+		output, attemptErr := runGenerate(generateInput, fullLLMMessages)
 		if !attemptHadSideEffect && llmRequestCount < maxLLMCalls && generateInput.ResponsesBackground &&
 			lastGenerationAttemptObservation.canRetry(attemptErr, shouldRetryWithoutResponsesBackground) {
 			if s.logger != nil {
@@ -1237,7 +1289,7 @@ func (s *Service) sendMessageInternal(
 			}
 			generateInput.ResponsesBackground = false
 			responsesBackgroundRecovery = openAIResponsesBackgroundRecoveryState{}
-			output, attemptErr = runGenerate(generateInput)
+			output, attemptErr = runGenerate(generateInput, fullLLMMessages)
 		}
 		if !attemptHadSideEffect && llmRequestCount < maxLLMCalls && strings.TrimSpace(generateInput.PreviousResponseID) != "" &&
 			lastGenerationAttemptObservation.canRetry(attemptErr, shouldRetryWithoutPreviousResponseID) {
@@ -1269,7 +1321,7 @@ func (s *Service) sendMessageInternal(
 				}))
 			}
 			sendSpan.SetAttributes(promptShapeTraceAttributes("conversation.prompt_retry", initialPromptShape)...)
-			output, attemptErr = runGenerate(generateInput)
+			output, attemptErr = runGenerate(generateInput, fullLLMMessages)
 		}
 		return output, attemptErr
 	}
@@ -1335,7 +1387,6 @@ func (s *Service) sendMessageInternal(
 			filteredOptions,
 			llmMessages,
 		)
-		fullLLMMessages = llmMessages
 		generateInput = llm.GenerateInput{
 			RequestID:              strings.TrimSpace(input.RequestID),
 			ConversationID:         input.ConversationID,
@@ -1346,11 +1397,25 @@ func (s *Service) sendMessageInternal(
 			Tools:                  toolRuntime.definitions,
 			Options:                filteredOptions,
 		}
+		generateInput, failoverBudgetFit := fitGenerateInputToModelBudget(
+			generateInput,
+			route.UpstreamModel,
+			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
+			cfg.ContextTokenBudgetEnabled,
+		)
+		llmMessages = cloneLLMMessages(generateInput.Messages)
+		if failoverBudgetFit.Trimmed {
+			promptPlan.applyMessages(llmMessages)
+		}
+		s.logPromptBudgetFit(ctx, route.UpstreamModel, failoverBudgetFit)
 		if supportsOpenAIResponsesBackgroundMode(route) {
 			generateInput.ResponsesBackground = true
 		}
+		fullLLMMessages = cloneLLMMessages(llmMessages)
 		applyOpenAIResponsesInstructions(route, routeConfig.Endpoint, &generateInput)
 		estimatedPromptTokens = estimateGenerateInputTokens(generateInput)
+		fullContextPromptTokens = maxPromptTokenEstimate(failoverBudgetFit.TokensBefore, estimatedPromptTokens)
 		statefulPrefixFingerprint = buildPromptStateFingerprint(promptStateFingerprintInput{
 			Protocol:          route.Protocol,
 			Endpoint:          routeConfig.Endpoint,
@@ -1406,7 +1471,8 @@ func (s *Service) sendMessageInternal(
 	}
 	s.routeResolver.MarkRouteSuccess(ctx, route)
 
-	assistantText, nativeToolRows := syncUpstreamOutputTrace(traceRecorder, upstreamOutput, runID)
+	assistantText := upstreamOutput.Text
+	nativeToolRows := upstreamServerToolCallRows(upstreamOutput, runID)
 	toolCallRows = append(toolCallRows, nativeToolRows...)
 	totalUsage := upstreamOutput.Usage
 	if totalUsage == (llm.Usage{}) {
@@ -1419,6 +1485,15 @@ func (s *Service) sendMessageInternal(
 	llmCallCount := llmRequestCount
 	toolLedger := newToolExecutionLedger()
 	toolHistoryTrimmedForRun := false
+	// 工具回灌的每次上游调用都独立计费：按本条消息已产生的用量加本次调用的预估成本校验预留，
+	// 余额不足时在发起调用前终止，已产生的用量走中断结算。
+	ensureFollowUpBudget := func(nextInput llm.GenerateInput) error {
+		return s.ensureUsageBudgetCoversEstimate(ctx, input.UsageAuthorization, route, filteredOptions, followUpUsageBudgetEstimate(
+			usageAccumulator.billedUsage(),
+			estimateBillableInputTokens(nextInput, llmMessages),
+			filteredOptions,
+		))
+	}
 
 	for len(upstreamOutput.ToolCalls) > 0 && llmCallCount < maxLLMCalls && remainingToolCalls > 0 {
 		pendingToolCalls := upstreamOutput.ToolCalls
@@ -1441,6 +1516,7 @@ func (s *Service) sendMessageInternal(
 			assistantToolMessage,
 			route.UpstreamModel,
 			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
 		)
 		toolCtx, toolSpan := platformtracing.Start(ctx, "conversation.tool.execute",
 			trace.WithAttributes(
@@ -1461,7 +1537,7 @@ func (s *Service) sendMessageInternal(
 			ToolCallLimit:     remainingToolCalls,
 			TraceRecorder:     traceRecorder,
 			ToolNameMap:       toolRuntime.nameMap,
-			MCPConfigs:        toolRuntime.mcpConfigs,
+			MCPBindings:       toolRuntime.mcpBindings,
 			ToolSchemas:       toolRuntime.schemas,
 			Ledger:            toolLedger,
 			ResultTokenBudget: toolResultTokenBudget,
@@ -1476,6 +1552,7 @@ func (s *Service) sendMessageInternal(
 		toolSpan.End()
 		toolCallRows = append(toolCallRows, toolResult.Rows...)
 		mergeToolCallPersistenceKeys(&persistedToolCallKeys, toolResult.PersistedToolCallKeys)
+		totalMCPToolUsage = mergeMCPToolUsage(totalMCPToolUsage, toolResult.MCPToolUsage)
 		remainingToolCalls -= len(toolResult.Rows)
 		if toolResult.FatalErr != nil {
 			retErr = wrapUpstreamRequestError(toolResult.FatalErr)
@@ -1498,6 +1575,7 @@ func (s *Service) sendMessageInternal(
 			llmMessages,
 			route.UpstreamModel,
 			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
 		)
 		if toolHistoryTrimmed {
 			toolHistoryTrimmedForRun = true
@@ -1509,6 +1587,7 @@ func (s *Service) sendMessageInternal(
 			llmMessages,
 			route.UpstreamModel,
 			route.ModelCapabilitiesJSON,
+			cfg.ContextWindowFallbackTokens,
 		)
 		if toolResultsRebalanced {
 			sendSpan.SetAttributes(attribute.Bool("conversation.tool.results_rebalanced", true))
@@ -1530,7 +1609,11 @@ func (s *Service) sendMessageInternal(
 			applyOpenAIResponsesInstructions(route, routeConfig.Endpoint, &followUpInput)
 		}
 
-		nextOutput, nextErr := runGenerate(followUpInput)
+		if budgetErr := ensureFollowUpBudget(followUpInput); budgetErr != nil {
+			retErr = budgetErr
+			return nil, retErr
+		}
+		nextOutput, nextErr := runGenerate(followUpInput, llmMessages)
 		if handleCanceledGeneration(nextErr) {
 			return nil, retErr
 		}
@@ -1549,8 +1632,8 @@ func (s *Service) sendMessageInternal(
 		totalServerSideToolUsage = addServerSideToolUsage(totalServerSideToolUsage, nextOutput.ServerSideToolUsage)
 		upstreamOutput = nextOutput
 		llmCallCount = llmRequestCount
-		var nextNativeToolRows []model.ToolCall
-		assistantText, nextNativeToolRows = syncUpstreamOutputTrace(traceRecorder, upstreamOutput, runID)
+		assistantText = upstreamOutput.Text
+		nextNativeToolRows := upstreamServerToolCallRows(upstreamOutput, runID)
 		toolCallRows = append(toolCallRows, nextNativeToolRows...)
 	}
 	if len(upstreamOutput.ToolCalls) > 0 && remainingToolCalls <= 0 && llmCallCount < maxLLMCalls {
@@ -1560,7 +1643,11 @@ func (s *Service) sendMessageInternal(
 		finalInput.DisableTools = true
 		finalInput.PreviousResponseID = ""
 		applyOpenAIResponsesInstructions(route, routeConfig.Endpoint, &finalInput)
-		nextOutput, nextErr := runGenerate(finalInput)
+		if budgetErr := ensureFollowUpBudget(finalInput); budgetErr != nil {
+			retErr = budgetErr
+			return nil, retErr
+		}
+		nextOutput, nextErr := runGenerate(finalInput, llmMessages)
 		if handleCanceledGeneration(nextErr) {
 			return nil, retErr
 		}
@@ -1579,13 +1666,13 @@ func (s *Service) sendMessageInternal(
 		totalServerSideToolUsage = addServerSideToolUsage(totalServerSideToolUsage, nextOutput.ServerSideToolUsage)
 		upstreamOutput = nextOutput
 		llmCallCount++
-		var nextNativeToolRows []model.ToolCall
-		assistantText, nextNativeToolRows = syncUpstreamOutputTrace(traceRecorder, upstreamOutput, runID)
+		assistantText = upstreamOutput.Text
+		nextNativeToolRows := upstreamServerToolCallRows(upstreamOutput, runID)
 		toolCallRows = append(toolCallRows, nextNativeToolRows...)
 	}
 
 	effectiveInputTokens := usageAccumulator.effectiveInputTokens(estimatedPromptTokens)
-	effectiveOutputTokens := resolveObservedOrEstimatedOutputTokens(totalUsage.OutputTokens, assistantText)
+	effectiveOutputTokens, effectiveReasoningTokens := usageAccumulator.effectiveOutputTokens()
 
 	if toolRunFinalAnswerMissing(upstreamOutput, len(toolCallRows) > 0, llmCallCount, maxLLMCalls, remainingToolCalls) {
 		retErr = ErrToolRunFinalAnswerMissing
@@ -1598,6 +1685,7 @@ func (s *Service) sendMessageInternal(
 	finalUsageEvent := totalUsage
 	finalUsageEvent.InputTokens = effectiveInputTokens
 	finalUsageEvent.OutputTokens = effectiveOutputTokens
+	finalUsageEvent.ReasoningTokens = effectiveReasoningTokens
 	if err := emitLLMUsageEvent(input.OnEvent, finalUsageEvent); err != nil {
 		retErr = err
 		return nil, err
@@ -1629,7 +1717,7 @@ func (s *Service) sendMessageInternal(
 	run.OutputTokens = effectiveOutputTokens
 	run.CacheReadTokens = totalUsage.CacheReadTokens
 	run.CacheWriteTokens = totalUsage.CacheWriteTokens
-	run.ReasoningTokens = totalUsage.ReasoningTokens
+	run.ReasoningTokens = effectiveReasoningTokens
 	run.ToolCallsCount = len(toolCallRows)
 	run.FirstTokenLatencyMS = firstVisibleDeltaLatencyMS
 	if run.FirstTokenLatencyMS == 0 {
@@ -1679,7 +1767,7 @@ func (s *Service) sendMessageInternal(
 		CacheReadTokens:           totalUsage.CacheReadTokens,
 		CacheWriteTokens:          totalUsage.CacheWriteTokens,
 		OutputTokens:              effectiveOutputTokens,
-		ReasoningTokens:           totalUsage.ReasoningTokens,
+		ReasoningTokens:           effectiveReasoningTokens,
 		AssistantLatency:          assistantLatencyMS,
 		ResponseID:                responseIDForPersistence,
 		StatefulPromptFingerprint: statefulPromptFingerprint,
@@ -1706,10 +1794,13 @@ func (s *Service) sendMessageInternal(
 		UserID:              input.UserID,
 		RunID:               runID,
 		Messages:            compactMessages,
-		PromptTokenEstimate: estimatedPromptTokens,
+		ExistingSnapshot:    prefetch.snapshot,
+		PromptTokenEstimate: fullContextPromptTokens + effectiveOutputTokens,
+		ContextModelName:    route.UpstreamModel,
+		CapabilitiesJSON:    route.ModelCapabilitiesJSON,
 	}
 	var postBillingCompaction *postBillingCompactionTask
-	if !compactPolicy.EffectiveEnabled() {
+	if !compactPolicy.EffectiveEnabled() || !s.compactSvc.ShouldCompactConversation(compactInput) {
 		// 用户已关闭自动压缩，仅完成 trace 记录
 		if traceRecorder != nil {
 			traceRecorder.complete()
@@ -1730,9 +1821,10 @@ func (s *Service) sendMessageInternal(
 			TraceRecorder:  traceRecorder,
 		}
 		if compactCfg.CompactAsyncEnabled && traceRecorder != nil {
-			traceRecorder.complete()
+			summary, payload := buildPendingCompactionProcessTrace()
+			traceRecorder.setCompactionProcessStage(summary, "", payload)
+			traceRecorder.completeForBackgroundContinuation()
 			traceRecorder.attachToMessage(assistantMessage)
-			postBillingCompaction.TraceRecorder = nil
 			postBillingCompaction.OnEvent = nil
 		}
 	}
@@ -1766,6 +1858,8 @@ func (s *Service) sendMessageInternal(
 		CacheWrite5mTokens:    totalUsage.CacheWrite5mTokens,
 		CacheWrite1hTokens:    totalUsage.CacheWrite1hTokens,
 		ServerSideToolUsage:   totalServerSideToolUsage,
+		MCPToolUsage:          totalMCPToolUsage,
+		LLMCallCount:          completedLLMCallCount,
 		LatencyMS:             time.Since(startedAt).Milliseconds(),
 		StartedAt:             startedAt,
 		postBillingCompaction: postBillingCompaction,

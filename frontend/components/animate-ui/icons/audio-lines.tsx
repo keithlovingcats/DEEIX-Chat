@@ -4,9 +4,9 @@ import { motion, type Variants } from 'motion/react';
 
 import {
   getVariants,
-  useAnimateIconContext,
-  IconWrapper,
   type IconProps,
+  IconWrapper,
+  useAnimateIconContext,
 } from '@/components/animate-ui/icons/icon';
 
 type AudioLinesProps = IconProps<keyof typeof animations>;
@@ -186,9 +186,9 @@ function AudioLines(props: AudioLinesProps) {
 }
 
 export {
-  animations,
   AudioLines,
   AudioLines as AudioLinesIcon,
   type AudioLinesProps,
   type AudioLinesProps as AudioLinesIconProps,
+  animations,
 };

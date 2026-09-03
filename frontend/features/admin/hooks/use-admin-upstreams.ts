@@ -1,16 +1,15 @@
-import * as React from "react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import {
   listAdminLLMUpstreams,
   updateAdminLLMUpstream,
 } from "@/features/admin/api";
 import type { AdminBatchDeleteData, AdminLLMStatus, AdminLLMUpstreamView } from "@/features/admin/api/llm.types";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import { replaceByID } from "@/shared/lib/optimistic-list";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { runSettledBulkItems } from "@/shared/lib/bulk-action";
+import { replaceByID } from "@/shared/lib/optimistic-list";
 
 export const UPSTREAM_SORT_OPTIONS = [
   { labelKey: "sort.idDesc", value: "id_desc" },

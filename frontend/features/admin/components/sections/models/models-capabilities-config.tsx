@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { Check, ChevronDownIcon, CircleHelp, CopyPlus, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
-
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -27,9 +26,9 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 import type { AdminLLMModelDTO } from "@/features/admin/api/llm.types";
 import { ModelCapabilitiesPresetDialog } from "@/features/admin/components/sections/models/models-capabilities-presets";
+import { cn } from "@/lib/utils";
 import type { NativeToolDefinition } from "@/shared/lib/model-option-policy";
 import { MODEL_OPTION_POLICY_PROTOCOL_LABELS, resolveModelOptionPolicyProtocol } from "@/shared/lib/model-option-policy";
 import { nativeToolPayloadMatchesShape, nativeToolPayloadSignature } from "@/shared/lib/native-tool-payload";
@@ -1356,6 +1355,14 @@ export function ModelCapabilitiesQuickConfig({
       toast.error(t("sheet.capabilitiesQuick.invalidJSON"));
       return;
     }
+    // Automatic context windows belong to the source model identity. A preset
+    // may be applied to a different model, so let the destination resolve its
+    // own catalog value instead of copying a cached inference.
+    if (payload._deeixContextWindowMode === "auto") {
+      delete payload.contextWindow;
+      delete payload._deeixContextWindowMode;
+    }
+    const sanitizedValue = Object.keys(payload).length > 0 ? JSON.stringify(payload, null, 2) : "";
     setParameterRows(parseParameterRows(payload.defaultOptions, payload.optionControls, payload.lockedOptionPaths));
     setPromptCacheConfig(parsePromptCacheConfig(payload.promptCache));
     setNativeToolRows(parseNativeToolRows(payload, nativeTools, routeProtocols));
@@ -1363,7 +1370,7 @@ export function ModelCapabilitiesQuickConfig({
     setParameterErrors({});
     setNativeToolErrors({});
     setActiveTab("parameters");
-    setDraftBaseJSON(nextValue);
+    setDraftBaseJSON(sanitizedValue);
   }
 
   return (

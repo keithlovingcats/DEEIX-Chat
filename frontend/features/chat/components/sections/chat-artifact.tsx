@@ -24,11 +24,11 @@ import {
 import {
   useChatFontPreference,
   useChatFontWeightPreference,
-} from "@/features/settings/utils/chat-font";
-import { useFontSizePreference } from "@/features/settings/utils/font-size";
+  useFontSizePreference,
+} from "@/features/settings";
 import { cn } from "@/lib/utils";
-import { ShikiCodeView } from "@/shared/components/markdown/shiki-code-view";
 import { CopyActionButton } from "@/shared/components/copy-action";
+import { ShikiCodeView } from "@/shared/components/markdown/shiki-code-view";
 import { useTheme } from "@/shared/components/theme-provider";
 import { downloadBlob } from "@/shared/lib/export-download";
 import {

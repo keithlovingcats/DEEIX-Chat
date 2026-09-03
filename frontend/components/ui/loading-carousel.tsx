@@ -1,17 +1,16 @@
 "use client"
 
-import React, { useCallback, useEffect, useMemo, useState, type JSX } from "react"
-import Image from "next/image"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   AnimatePresence,
-  motion,
   MotionProps,
+  motion,
   Variants,
 } from "motion/react"
-
-import { cn } from "@/lib/utils"
+import Image from "next/image"
+import React, { type JSX, useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 interface Tip {
   text: string

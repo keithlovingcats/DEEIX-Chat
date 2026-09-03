@@ -1,12 +1,14 @@
 "use client";
 
+import type { LucideIcon } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type { ReactNode } from "react";
-
-import packageMeta from "@/package.json";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
+import packageMeta from "@/package.json";
 import { DeeixLogo } from "@/shared/components/app-logo";
+import { IdentityProviderIcon } from "@/shared/components/identity-provider-icon";
 import {
   SettingsPage,
   SettingsSection,
@@ -27,6 +29,52 @@ type AboutSettingsContentProps = {
   versionBadgeTooltip?: ReactNode;
   versionActions?: ReactNode;
 };
+
+type AboutLinkItem = {
+  label: string;
+  value: string;
+  href: string;
+  icon?: LucideIcon;
+  providerIcon?: {
+    name: string;
+    slug: string;
+  };
+};
+
+function _AboutLink({ item, className }: { item: AboutLinkItem; className?: string }) {
+  const Icon = item.icon;
+
+  return (
+    <a
+      href={item.href}
+      target={item.href.startsWith("mailto:") ? undefined : "_blank"}
+      rel={item.href.startsWith("mailto:") ? undefined : "noreferrer"}
+      className={cn(
+        "group relative isolate flex min-w-0 items-center justify-between gap-4 border-b border-border/60 px-2.5 py-3 text-sm transition-colors outline-none hover:border-foreground/30 focus-visible:border-foreground/30 focus-visible:ring-0",
+        "before:pointer-events-none before:absolute before:-inset-x-0.5 before:inset-y-1 before:-z-10 before:rounded-md before:bg-muted/60 before:opacity-0 before:transition-opacity focus-visible:before:opacity-100",
+        className,
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-2.5 text-muted-foreground">
+        {item.providerIcon ? (
+          <IdentityProviderIcon
+            name={item.providerIcon.name}
+            slug={item.providerIcon.slug}
+            className="size-3.5"
+            iconClassName="size-3.5"
+          />
+        ) : Icon ? (
+          <Icon className="size-3.5 shrink-0" />
+        ) : null}
+        <span className="truncate">{item.label}</span>
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-right font-medium text-foreground">
+        <span className="truncate">{item.value}</span>
+        <ExternalLink className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+      </span>
+    </a>
+  );
+}
 
 export function AboutSettingsContent({
   title,
@@ -76,7 +124,7 @@ export function AboutSettingsContent({
             href="https://www.apache.org/licenses/LICENSE-2.0"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-foreground/80 transition-colors hover:text-foreground"
+            className="inline-flex items-center gap-1 font-medium text-foreground/80 transition-colors outline-none hover:text-foreground focus-visible:text-foreground focus-visible:ring-0"
           >
             <span>{labels.license}</span>
             <ExternalLink className="size-3 shrink-0 text-muted-foreground" />

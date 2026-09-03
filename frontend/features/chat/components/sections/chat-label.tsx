@@ -1,18 +1,12 @@
 "use client";
 
-import * as React from "react";
 import { ChevronDown, PencilLine, Star, StarOff, Trash } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Sparkles } from "@/components/animate-ui/icons/sparkles";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItemIcon,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { AnimatedText } from "@/components/ui/animated-text";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -21,14 +15,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuItemIcon,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Spinner, SpinnerLabel } from "@/components/ui/spinner";
-import { AnimatedText } from "@/components/ui/animated-text";
-import { ConversationProjectSubmenu } from "@/shared/components/conversation-project-submenu";
-import { ConversationShareExportSubmenu } from "@/shared/components/conversation-share-export-menu";
 import { ConversationLabelsDialog, ConversationLabelsMenuItem } from "@/entities/conversation";
 import { cn } from "@/lib/utils";
+import { ConversationProjectSubmenu } from "@/shared/components/conversation-project-submenu";
+import { ConversationShareExportSubmenu } from "@/shared/components/conversation-share-export-menu";
 
 type ChatLabelProps = {
   title: string;
@@ -53,9 +53,9 @@ type ChatLabelProps = {
   shareActive?: boolean;
   onExport?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
-  screenshotFullLabel?: string;
+  screenshotLatestLabel?: string;
   screenshotSelectLabel?: string;
-  onScreenshotFull?: () => void;
+  onScreenshotLatest?: () => void;
   onScreenshotSelect?: () => void;
 };
 
@@ -73,9 +73,9 @@ export function ChatLabel({
   shareActive = false,
   onExport,
   onDelete,
-  screenshotFullLabel,
+  screenshotLatestLabel,
   screenshotSelectLabel,
-  onScreenshotFull,
+  onScreenshotLatest,
   onScreenshotSelect,
 }: ChatLabelProps) {
   const t = useTranslations("chat.labelMenu");
@@ -131,14 +131,13 @@ export function ChatLabel({
         onOpenChange={setMenuOpen}
       >
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             id="chat-label-actions-trigger"
             type="button"
+            variant="ghost"
+            size="sm"
             aria-label={t("actions")}
-            className={cn(
-              "group inline-flex h-7 max-w-full items-center gap-0.5 rounded-lg text-left transition-colors",
-              "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-            )}
+            className="group h-7 max-w-full gap-0.5 rounded-lg px-0 font-normal"
           >
             <span className="inline-flex min-w-0 items-center px-2">
               <AnimatedText
@@ -150,7 +149,7 @@ export function ChatLabel({
             <span className="inline-flex h-7 items-center px-1 text-muted-foreground transition-colors group-hover:text-foreground">
               <ChevronDown className="size-4 stroke-[1.8]" />
             </span>
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           side="bottom"
@@ -212,9 +211,9 @@ export function ChatLabel({
             exportLabel={t("exportJSON")}
             onShare={onShare}
             onExport={onExport}
-            screenshotFullLabel={screenshotFullLabel}
+            screenshotLatestLabel={screenshotLatestLabel}
             screenshotSelectLabel={screenshotSelectLabel}
-            onScreenshotFull={onScreenshotFull}
+            onScreenshotLatest={onScreenshotLatest}
             onScreenshotSelect={onScreenshotSelect}
             onCloseMenu={() => setMenuOpen(false)}
           />

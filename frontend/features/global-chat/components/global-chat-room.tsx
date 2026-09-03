@@ -16,14 +16,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useGlobalChatMessages } from "@/features/global-chat/hooks/use-global-chat-messages";
-import { useGlobalChatScroll } from "@/features/global-chat/hooks/use-global-chat-scroll";
-import { useGlobalChatSend } from "@/features/global-chat/hooks/use-global-chat-send";
-import { useGlobalChatStream } from "@/features/global-chat/hooks/use-global-chat-stream";
 import { ChatInput } from "@/features/global-chat/components/sections/chat-input";
 import { ImageLightbox } from "@/features/global-chat/components/sections/image-lightbox";
 import { MessageList } from "@/features/global-chat/components/sections/message-list";
 import { OnlineIndicator } from "@/features/global-chat/components/sections/online-indicator";
+import { useGlobalChatMessages } from "@/features/global-chat/hooks/use-global-chat-messages";
+import { useGlobalChatScroll } from "@/features/global-chat/hooks/use-global-chat-scroll";
+import { useGlobalChatSend } from "@/features/global-chat/hooks/use-global-chat-send";
+import { useGlobalChatStream } from "@/features/global-chat/hooks/use-global-chat-stream";
 import { batchDeleteGlobalChatMessages } from "@/shared/api/global-chat";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { readDeviceId } from "@/shared/auth/device-id";

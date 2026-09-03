@@ -9,16 +9,13 @@ import type {
   ModelOptionControl,
   ModelOptionControlType,
 } from "@/features/chat/types/chat-runtime";
-import { dispatchUserSettingsUpdated, USER_SETTINGS_UPDATED_EVENT } from "@/features/settings/events/user-settings-events";
-import type { SendShortcut } from "@/features/settings/types/settings";
-import { parseSendShortcut } from "@/features/settings/utils/chat-settings";
+import { parseSendShortcut, type SendShortcut } from "@/features/settings";
 import { getBillingConfig } from "@/shared/api/billing";
 import { listConversationRuns } from "@/shared/api/conversation";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 import { listPublicModels } from "@/shared/api/model";
 import type { PublicModelDTO } from "@/shared/api/model.types";
 import { getMCPPolicy, getModelOptionPolicy } from "@/shared/api/settings";
-import { getUserSettings, patchUserSettings } from "@/shared/api/user-settings";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import {
   type BillingDisplayCurrency,
@@ -29,12 +26,12 @@ import { parseProtocolsJSON } from "@/shared/lib/model-protocols";
 import { nativeToolDefinitionVariantsFromConfig, nativeToolPayloadSignature } from "@/shared/lib/native-tool-payload";
 import {
   type ChatContentWidth,
-  DEFAULT_CHAT_CONTENT_WIDTH,
   isChatContentWidth,
   parseChatContentWidth,
 } from "@/shared/model/chat-content-width";
 import { resolveConversationDefaultModel } from "@/shared/model/conversation-default-model";
 import { parseKindsJSON } from "@/shared/model/llm-schema";
+import { updateUserSettings, useUserSettings } from "@/shared/model/user-settings-store";
 
 // 多模型并行上限：与 use-chat-message-submit 的 MAX_CONCURRENT_RUNS 对齐，
 // 后端计费预留上限（UsageReservationMaxActivePerUser）同为 20。
@@ -143,7 +140,7 @@ function resolveNativeTools(raw: string): ModelNativeToolConfig[] {
     id: nativeToolID({ key, protocols: [], type: "", index }),
     key,
     protocol: "",
-    protocols: [],
+    protocols: [] as string[],
     type: "",
     label: key,
     enabled: true,
@@ -401,6 +398,8 @@ export function useChatModelOptions({
   conversationModel,
   conversationParallelModels,
   locallyCreatedConversationID,
+  newConversationDefaultModel,
+  newConversationDefaultsPending = false,
   resetToken,
 }: {
   conversationPublicID: string | null;
@@ -409,25 +408,19 @@ export function useChatModelOptions({
   conversationParallelModels?: string[] | null;
   /** 本页刚创建的会话 ID：首次发送把 draft 转正时保留用户已选组合（服务端尚未写回）。 */
   locallyCreatedConversationID?: string | null;
+  newConversationDefaultModel?: string | null;
+  newConversationDefaultsPending?: boolean;
   resetToken?: number;
 }) {
   const t = useTranslations("chat.models");
+  const { settings: userSettings } = useUserSettings();
   const [availableModels, setAvailableModels] = React.useState<PublicModelDTO[]>([]);
   const [modelsLoading, setModelsLoading] = React.useState(true);
+  const [defaultModelResolving, setDefaultModelResolving] = React.useState(false);
   const [modelsErrorMsg, setModelsErrorMsg] = React.useState("");
   const [selectedPlatformModelName, setSelectedPlatformModelName] = React.useState("");
   const [additionalPlatformModelNames, setAdditionalPlatformModelNames] = React.useState<string[]>([]);
-  const [userDefaultModel, setUserDefaultModel] = React.useState("");
-  const [sendShortcut, setSendShortcut] = React.useState<SendShortcut>(() => parseSendShortcut(undefined));
-  const [restoreDraftOnFailure, setRestoreDraftOnFailure] = React.useState(true);
-  const [preserveConversationDrafts, setPreserveConversationDrafts] = React.useState(true);
-  const [inputHeight, setInputHeight] = React.useState<"compact" | "standard" | "loose">("standard");
-  const [contentWidth, setContentWidth] = React.useState<ChatContentWidth>(DEFAULT_CHAT_CONTENT_WIDTH);
-  const [markdownRender, setMarkdownRender] = React.useState(true);
-  const [showModelInfo, setShowModelInfo] = React.useState(true);
-  const [showLatency, setShowLatency] = React.useState(true);
-  const [showTokenUsage, setShowTokenUsage] = React.useState(true);
-  const [showBillingCost, setShowBillingCost] = React.useState(false);
+  const [billingCostAvailable, setBillingCostAvailable] = React.useState(false);
   const [billingDisplayCurrency, setBillingDisplayCurrency] = React.useState<BillingDisplayCurrency>("USD");
   const [billingDisplayUsdToCnyRate, setBillingDisplayUsdToCnyRate] = React.useState<number | null>(null);
   const [modelOptionPolicy, setModelOptionPolicy] = React.useState<ModelOptionPolicy | null>(null);
@@ -440,8 +433,23 @@ export function useChatModelOptions({
   // toggle 快照：与对应 state 同步，避免嵌套 setState 读取过期值。
   const selectedPrimaryModelRef = React.useRef("");
   const additionalModelNamesRef = React.useRef<string[]>([]);
+  const previousResetTokenRef = React.useRef(resetToken);
   const runModelRequestRef = React.useRef(0);
   const modelCatalogRequestRef = React.useRef<Promise<ModelCatalogRefreshResult> | null>(null);
+  const userDefaultModel = userSettings["chat.default_model"]?.trim() ?? "";
+  const sendShortcut: SendShortcut = parseSendShortcut(userSettings["chat.send_on_enter"]);
+  const restoreDraftOnFailure = userSettings["chat.restore_draft_on_failure"] !== "false";
+  const preserveConversationDrafts = userSettings["chat.preserve_conversation_drafts"] !== "false";
+  const inputHeight: "compact" | "standard" | "loose" =
+    userSettings["chat.input_height"] === "compact" || userSettings["chat.input_height"] === "loose"
+      ? userSettings["chat.input_height"]
+      : "standard";
+  const contentWidth: ChatContentWidth = resolveChatContentWidth(userSettings);
+  const markdownRender = userSettings["chat.markdown_render"] !== "false";
+  const showModelInfo = userSettings["chat.show_model_info"] !== "false";
+  const showLatency = userSettings["chat.show_latency"] !== "false";
+  const showTokenUsage = userSettings["chat.show_token_usage"] !== "false";
+  const showBillingCost = billingCostAvailable && userSettings["chat.show_billing_cost"] !== "false";
 
   const selectPlatformModelName = React.useCallback((platformModelName: string) => {
     userSelectedModelRef.current = true;
@@ -523,7 +531,7 @@ export function useChatModelOptions({
 
       const [models, modelOptionPolicy] = await Promise.all([
         listPublicModels(token),
-        getModelOptionPolicy(token).catch(() => null),
+        getModelOptionPolicy(token).catch((): null => null),
       ]);
       return { models, modelOptionPolicy };
     })().finally(() => {
@@ -571,34 +579,19 @@ export function useChatModelOptions({
           setModelsErrorMsg(t("signInRequired"));
           return;
         }
-        const [catalog, settings, billingConfig, nextMCPPolicy] = await Promise.all([
+        const [catalog, billingConfig, nextMCPPolicy] = await Promise.all([
           loadModelCatalog(token),
-          getUserSettings(token).catch(() => ({} as Record<string, string>)),
-          getBillingConfig(token).catch(() => null),
-          getMCPPolicy(token).catch(() => null),
+          getBillingConfig(token).catch((): null => null),
+          getMCPPolicy(token).catch((): null => null),
         ]);
         if (cancelled) {
           return;
         }
         applyModelCatalog(catalog);
         setMCPMaxSelectedTools(resolveMCPMaxSelectedTools(nextMCPPolicy?.maxSelectedToolsPerMessage));
-        setUserDefaultModel(settings["chat.default_model"]?.trim() ?? "");
-        setSendShortcut(parseSendShortcut(settings["chat.send_on_enter"]));
-        setRestoreDraftOnFailure(settings["chat.restore_draft_on_failure"] !== "false");
-        setPreserveConversationDrafts(settings["chat.preserve_conversation_drafts"] !== "false");
-        setMarkdownRender(settings["chat.markdown_render"] !== "false");
-        setShowModelInfo(settings["chat.show_model_info"] !== "false");
-        setShowLatency(settings["chat.show_latency"] !== "false");
-        setShowTokenUsage(settings["chat.show_token_usage"] !== "false");
-        setShowBillingCost((billingConfig?.config.mode ?? "self") !== "self" && settings["chat.show_billing_cost"] !== "false");
+        setBillingCostAvailable((billingConfig?.config.mode ?? "self") !== "self");
         setBillingDisplayCurrency(normalizeBillingDisplayCurrency(billingConfig?.config.displayCurrency));
         setBillingDisplayUsdToCnyRate(billingConfig?.config.usdToCNYRate ?? null);
-        setInputHeight(
-          settings["chat.input_height"] === "compact" || settings["chat.input_height"] === "loose"
-            ? settings["chat.input_height"]
-            : "standard",
-        );
-        setContentWidth(resolveChatContentWidth(settings));
       } catch {
         if (!cancelled) {
           setModelsErrorMsg(t("loadFailed"));
@@ -617,24 +610,17 @@ export function useChatModelOptions({
   }, [applyModelCatalog, loadModelCatalog, t]);
 
   React.useEffect(() => {
-    const handleUserSettingsUpdated = (event: Event) => {
-      const settings = (event as CustomEvent<Record<string, string>>).detail;
-      if (!settings || typeof settings !== "object") {
-        return;
-      }
-      setContentWidth(resolveChatContentWidth(settings));
-    };
-
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, handleUserSettingsUpdated);
-    return () => {
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, handleUserSettingsUpdated);
-    };
-  }, []);
+    if (previousResetTokenRef.current === resetToken) {
+      return;
+    }
+    previousResetTokenRef.current = resetToken;
+    userSelectedModelRef.current = false;
+  }, [resetToken]);
 
   React.useEffect(() => {
     const normalizedConversationID = conversationPublicID?.trim() || null;
     if (!normalizedConversationID) {
-      // 无会话状态也可能来自当前页点击“新对话”，要保留用户刚在选择器里切换的模型。
+      // 普通无会话重渲染保留手动选择；显式新对话由 resetToken 重置。
       activeConversationRef.current = null;
       return;
     }
@@ -705,13 +691,16 @@ export function useChatModelOptions({
     const requestID = runModelRequestRef.current + 1;
     runModelRequestRef.current = requestID;
 
+    // 本次请求绑定的会话 ID（非空）。
+    const activeConversationID = normalizedConversationID;
+
     async function loadLatestRunModel() {
       const token = await resolveAccessToken();
       if (!token) {
         return;
       }
 
-      const runs = await listConversationRuns(token, normalizedConversationID, { page: 1, pageSize: 1 });
+      const runs = await listConversationRuns(token, activeConversationID, { page: 1, pageSize: 1 });
       if (cancelled || requestID !== runModelRequestRef.current || userSelectedModelRef.current) {
         return;
       }
@@ -721,7 +710,7 @@ export function useChatModelOptions({
     }
 
     if (!restoredParallelModels) {
-      void loadLatestRunModel().catch(() => undefined);
+      void loadLatestRunModel().catch((): undefined => undefined);
     }
 
     return () => {
@@ -731,13 +720,20 @@ export function useChatModelOptions({
 
   React.useEffect(() => {
     if (availableModels.length === 0) {
+      setDefaultModelResolving(false);
       return;
     }
     if (conversationPublicID?.trim()) {
+      setDefaultModelResolving(false);
+      return;
+    }
+    if (newConversationDefaultsPending) {
+      setDefaultModelResolving(true);
       return;
     }
 
     let cancelled = false;
+    setDefaultModelResolving(true);
     async function applyDefaultModel() {
       const token = await resolveAccessToken();
       if (!token || cancelled || userSelectedModelRef.current) {
@@ -746,6 +742,7 @@ export function useChatModelOptions({
       const result = await resolveConversationDefaultModel({
         accessToken: token,
         availableModels,
+        projectDefaultModel: newConversationDefaultModel ?? "",
         userDefaultModel,
       });
       if (!cancelled && !userSelectedModelRef.current) {
@@ -757,11 +754,15 @@ export function useChatModelOptions({
       if (!cancelled && !userSelectedModelRef.current) {
         setSelectedPlatformModelName(availableModels[0]?.platformModelName ?? "");
       }
+    }).finally(() => {
+      if (!cancelled) {
+        setDefaultModelResolving(false);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [availableModels, conversationPublicID, resetToken, userDefaultModel]);
+  }, [availableModels, conversationPublicID, newConversationDefaultModel, newConversationDefaultsPending, resetToken, userDefaultModel]);
 
   const modelOptions = React.useMemo<ChatModelOption[]>(
     () =>
@@ -774,24 +775,22 @@ export function useChatModelOptions({
     [selectedPlatformModelName, additionalPlatformModelNames],
   );
 
-  // 对话区宽度即时切换并持久化为用户设置（chat.content_width）。
+  // 对话区宽度即时切换并持久化为用户设置（chat.content_width）；
+  // store 乐观更新驱动所有订阅方即时刷新，失败时由快照回滚。
   const updateContentWidth = React.useCallback(
     (value: ChatContentWidth) => {
       if (!isChatContentWidth(value) || value === contentWidth) {
         return;
       }
-      setContentWidth(value);
       void resolveAccessToken()
-        .then(async (token) => {
+        .then((token) => {
           if (!token) {
             return null;
           }
-          const nextSettings = await patchUserSettings(token, { "chat.content_width": value });
-          dispatchUserSettingsUpdated(nextSettings);
-          return nextSettings;
+          return updateUserSettings(token, { "chat.content_width": value });
         })
         .catch(() => {
-          // 持久化失败不影响本次会话内的即时切换；下次加载回退到旧设置。
+          // 持久化失败不影响其他设置的当前值；下次加载回退到旧设置。
         });
     },
     [contentWidth],
@@ -801,7 +800,7 @@ export function useChatModelOptions({
     modelOptions,
     refreshModelCatalog,
     refreshModelOption,
-    modelsLoading,
+    modelsLoading: modelsLoading || newConversationDefaultsPending || defaultModelResolving,
     modelsErrorMsg,
     sendShortcut,
     restoreDraftOnFailure,

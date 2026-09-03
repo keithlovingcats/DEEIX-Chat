@@ -11,7 +11,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -235,8 +235,10 @@ func (s *Service) recordBasicServiceUsage(
 	}
 	billingCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	// 基础服务常与主对话共享系统前缀，提示词全部命中缓存时非缓存输入为 0 是合法观测值，
+	// 只有上游完全没上报输入侧用量才用预估补齐。
 	inputTokens := usage.InputTokens
-	if inputTokens <= 0 {
+	if !usage.HasObservedInput() {
 		inputTokens = estimatePromptTokens(fallbackMessages)
 	}
 	outputTokens := usage.OutputTokens

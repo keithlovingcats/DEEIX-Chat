@@ -1,12 +1,12 @@
 import { authedRequest } from "@/shared/api/authed-client";
-import { pathParam } from "@/shared/api/http-client";
 import type { PagePayload } from "@/shared/api/common.types";
+import { pathParam } from "@/shared/api/http-client";
 import type {
   CreateNoteRequest,
   NoteData,
   NoteDeleteData,
-  NotePage,
   NoteDTO,
+  NotePage,
   NoteSort,
   PatchNoteRequest,
 } from "@/shared/api/notes.types";

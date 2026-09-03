@@ -1,12 +1,11 @@
 "use client";
 
-import * as React from "react";
-import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, Minus, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
-
-import { resolveLocalizedErrorMessage } from "@/i18n/resolve-error-message";
+import * as React from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { resolveLocalizedErrorMessage } from "@/i18n/resolve-error-message";
 import { useFileScale } from "@/shared/components/file-preview/file-scale";
 import { PreviewLoading } from "@/shared/components/file-preview/preview-loading";
 
@@ -174,7 +173,6 @@ export function PreviewPdf({ source, toolbarContainer, showLoading = true, onLoa
           data: new Uint8Array(arrayBuffer),
           cMapUrl: "/pdfjs/cmaps/",
           cMapPacked: true,
-          enableScripting: false,
           standardFontDataUrl: "/pdfjs/standard_fonts/",
           useSystemFonts: true,
           enableXfa: true,
@@ -257,7 +255,10 @@ export function PreviewPdf({ source, toolbarContainer, showLoading = true, onLoa
         canvas.style.height = `${viewport.height}px`;
         context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
+        // 预先对 context 做了 devicePixelRatio 变换，走 canvasContext 兼容路径；
+        // pdfjs v6 要求此时 canvas 显式传 null。
         const renderTask = page.render({
+          canvas: null,
           canvasContext: context,
           viewport,
         });

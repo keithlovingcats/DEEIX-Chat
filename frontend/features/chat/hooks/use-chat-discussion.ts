@@ -5,9 +5,8 @@ import * as React from "react";
 import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
 import type {
   DiscussionRole,
-  MessageDiscussionMetaInput,
+  MessageDiscussionMetaInput,SendMessageResult 
 } from "@/shared/api/conversation.types";
-import type { SendMessageResult } from "@/shared/api/conversation.types";
 
 /** 多模型讨论约束（与后端 dto 校验、模型多选上限 MAX_PARALLEL_MODELS 对齐）。 */
 export const MAX_DISCUSSION_MODELS = 20;

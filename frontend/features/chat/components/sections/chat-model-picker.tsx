@@ -1,32 +1,31 @@
 "use client";
 
-import * as React from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Plus, TicketSlash, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
-
+import { InputGroupButton } from "@/components/ui/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { InputGroupButton } from "@/components/ui/input-group";
 import { MAX_PARALLEL_MODELS } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
-import {
-  resolveDesktopMenuListMaxHeight,
-  resolveDesktopModelMenuListMaxHeight,
-} from "./chat-model-picker-layout";
-import { useIsMobile } from "@/shared/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 import { ModelIcon } from "@/shared/components/model-icon";
+import { useIsMobile } from "@/shared/hooks/use-mobile";
+import type { BillingDisplayCurrency, BillingDisplayLabels, BillingDisplayOptions } from "@/shared/lib/billing-display";
 import {
   cacheWritePricingLabel,
   cacheWritePricingNote,
   formatBillingDisplayUnitPriceFromUSD,
   resolveCacheWritePricingUSD,
 } from "@/shared/lib/billing-display";
-import type { BillingDisplayCurrency, BillingDisplayLabels, BillingDisplayOptions } from "@/shared/lib/billing-display";
 import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
 import { resolveModelPresentationGroup } from "@/shared/lib/model-presentation";
-import { cn } from "@/lib/utils";
+import {
+  resolveDesktopMenuListMaxHeight,
+  resolveDesktopModelMenuListMaxHeight,
+} from "./chat-model-picker-layout";
 
 type ChatModelPickerProps = {
   modelOptions: ChatModelOption[];
@@ -706,7 +705,7 @@ export function ChatModelPicker({
       if (nextOpen) {
         setActiveGroupKey(selectedGroupKey || modelGroups[0]?.key || "");
         if (onModelCatalogRefresh) {
-          void Promise.resolve(onModelCatalogRefresh()).catch(() => undefined);
+          void Promise.resolve(onModelCatalogRefresh()).catch((): undefined => undefined);
         }
       }
       setOpen(nextOpen);

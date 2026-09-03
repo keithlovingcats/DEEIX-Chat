@@ -1,20 +1,20 @@
 "use client";
 
-import * as React from "react";
 import { Check, MessageCircle, Plus, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { MAX_DISCUSSION_ROUNDS, MAX_DISCUSSION_MODELS, DEFAULT_DISCUSSION_ROUNDS } from "@/features/chat/hooks/use-chat-discussion";
+import { DEFAULT_DISCUSSION_ROUNDS, MAX_DISCUSSION_MODELS, MAX_DISCUSSION_ROUNDS } from "@/features/chat/hooks/use-chat-discussion";
 import { MAX_PARALLEL_MODELS } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import { cn } from "@/lib/utils";
 import { ModelIcon } from "@/shared/components/model-icon";
 import { resolveModelIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
 import { resolveModelPresentationGroup } from "@/shared/lib/model-presentation";
-import { cn } from "@/lib/utils";
 
 const ADD_MENU_MAX_HEIGHT = 320;
 

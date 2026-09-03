@@ -1,8 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Plus, ScrollText, Search, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import {
   AlertDialog,
@@ -16,12 +16,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CenteredEmptyState } from "@/components/ui/empty-state";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +24,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
