@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { toast } from "sonner";
 import { DEFAULT_DISCUSSION_ROUNDS } from "@/features/chat/hooks/use-chat-discussion";
 import { sanitizeConversationOptions } from "@/features/chat/model/conversation-options";
 import type {
@@ -413,6 +414,7 @@ export function useChatModelOptions({
   resetToken?: number;
 }) {
   const t = useTranslations("chat.models");
+  const tModelPicker = useTranslations("chat.modelPicker");
   const { settings: userSettings } = useUserSettings();
   const [availableModels, setAvailableModels] = React.useState<PublicModelDTO[]>([]);
   const [modelsLoading, setModelsLoading] = React.useState(true);
@@ -527,14 +529,41 @@ export function useChatModelOptions({
   );
 
   // 启用/禁用附加模型：禁用的模型保留在组合里（持久化/恢复不受影响），仅退出
-  // fan-out 与讨论参与者。主模型不可禁用（发送模型不可悬空），返回 false 供 UI 提示。
+  // fan-out 与讨论参与者。禁用主模型走顺延晋升：首个启用的附加模型接任主模型，
+  // 原主模型降级为附加（插回首位附加位）并置为禁用态。全禁用保护：组合中至少
+  // 保留一个启用模型（发送模型不可悬空），无可用附加时拦截并提示。
   const toggleParallelModelEnabled = React.useCallback(
     (platformModelName: string): boolean => {
       const normalizedName = platformModelName.trim();
-      if (!normalizedName || normalizedName === selectedPrimaryModelRef.current) {
+      if (!normalizedName) {
         return false;
       }
+      const currentPrimary = selectedPrimaryModelRef.current;
+      const currentAdditional = additionalModelNamesRef.current;
       const currentDisabled = disabledModelNamesRef.current;
+
+      if (normalizedName === currentPrimary) {
+        // 与「移除主模型」的晋升策略刻意不同：移除路径取 index 0 附加并强制
+        // 解禁；禁用路径跳过禁用者选首个启用的附加，不让禁用模型被动唤醒。
+        const nextPrimary = currentAdditional.find((name) => !currentDisabled.includes(name));
+        if (!nextPrimary) {
+          toast.warning(tModelPicker("atLeastOneModelActive"));
+          return false;
+        }
+        // 主模型变更属于用户显式选择：阻断服务端组合/最近 run 模型回填覆盖晋升结果。
+        userSelectedModelRef.current = true;
+        const nextAdditional = [currentPrimary, ...currentAdditional.filter((name) => name !== nextPrimary)];
+        const nextDisabled = [...currentDisabled, currentPrimary];
+        setSelectedPlatformModelName(nextPrimary);
+        selectedPrimaryModelRef.current = nextPrimary;
+        setAdditionalPlatformModelNames(nextAdditional);
+        additionalModelNamesRef.current = nextAdditional;
+        setDisabledPlatformModelNames(nextDisabled);
+        disabledModelNamesRef.current = nextDisabled;
+        toast.success(tModelPicker("switchedPrimaryModel", { model: nextPrimary }));
+        return true;
+      }
+
       const nextDisabled = currentDisabled.includes(normalizedName)
         ? currentDisabled.filter((name) => name !== normalizedName)
         : [...currentDisabled, normalizedName];
@@ -542,7 +571,7 @@ export function useChatModelOptions({
       disabledModelNamesRef.current = nextDisabled;
       return true;
     },
-    [],
+    [tModelPicker],
   );
 
   // ref 快照与 state 保持同步（涵盖 effect 驱动的会话切换/默认模型回填路径）。

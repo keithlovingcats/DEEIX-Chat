@@ -57,12 +57,12 @@ export function ConversationParallelModelsBar({
 }: {
   modelOptions: ChatModelOption[];
   selectedPlatformModelNames: string[];
-  /** jun 定制（多模型禁用）：临时退出 fan-out/讨论的附加模型名单（主模型不可禁用）。 */
+  /** jun 定制（多模型禁用）：临时退出 fan-out/讨论的模型名单（禁用≠删除）。 */
   disabledPlatformModelNames?: string[];
   loading?: boolean;
   disabled?: boolean;
   onToggleParallelModel?: (platformModelName: string) => boolean;
-  /** 启用/禁用附加模型；返回 false 表示不可禁用（主模型）。 */
+  /** 启用/禁用模型：禁用主模型会顺延晋升首个启用的附加模型；全禁用时返回 false 并提示。 */
   onToggleParallelModelEnabled?: (platformModelName: string) => boolean;
   onModelCatalogRefresh?: () => void | Promise<void>;
   /** 多模型讨论：启用后发送改为串行辩论（≥2 个模型才可开）。 */
@@ -139,37 +139,56 @@ export function ConversationParallelModelsBar({
                     resolveModelIdentity({ code: option.platformModelName, vendor: option.vendor, icon: option.icon }).modelIcon,
                   )
                 : resolveModelIconURL(resolveModelIdentity({ code: name }).modelIcon);
-              // 首位是主模型（发送模型），不可禁用；其余附加模型可临时退出对话。
+              // 首位是主模型（发送模型）；禁用主模型会顺延晋升首个启用的附加模型。
               const isPrimary = index === 0;
               const modelDisabled = disabledNames.has(name);
+              // 全禁用保护：主模型是唯一启用的模型时不可禁用（发送模型不可悬空）。
+              const primaryBanLocked = isPrimary && activeNames.length <= 1;
+              const toggleEnabledLabel = primaryBanLocked
+                ? t("atLeastOneModelActive")
+                : modelDisabled
+                  ? t("enableParallelModel")
+                  : t("disableParallelModel");
               return (
                 <span
                   key={name}
-                  title={modelDisabled ? `${name} · ${t("parallelModelDisabledHint")}` : name}
-                  className={cn(
-                    "inline-flex h-6 max-w-44 items-center gap-1 rounded-full border-[0.5px] pl-1.5 pr-1 text-[11px] font-medium transition-opacity",
+                  title={
                     modelDisabled
-                      ? "border-dashed border-border bg-muted/20 text-muted-foreground/70"
+                      ? `${name} · ${t("parallelModelDisabledHint")}`
+                      : primaryBanLocked
+                        ? `${name} · ${t("atLeastOneModelActive")}`
+                        : name
+                  }
+                  className={cn(
+                    "inline-flex h-6 max-w-44 items-center gap-1 rounded-full border-[0.5px] pl-1.5 pr-1 text-[11px] font-medium transition-all",
+                    modelDisabled
+                      ? "border-dashed border-muted-foreground/35 bg-muted/15 text-muted-foreground/60 opacity-60 hover:opacity-90"
                       : "border-border bg-muted/40 text-foreground",
                   )}
                 >
-                  <ModelIcon iconUrl={iconURL} label={name} />
-                  <span className="truncate">{name}</span>
-                  {!isPrimary && onToggleParallelModelEnabled ? (
+                  <ModelIcon
+                    iconUrl={iconURL}
+                    label={name}
+                    className={cn(modelDisabled && "grayscale opacity-50 contrast-75")}
+                  />
+                  <span className={cn("truncate", modelDisabled && "line-through decoration-muted-foreground/50")}>
+                    {name}
+                  </span>
+                  {onToggleParallelModelEnabled ? (
                     <button
                       type="button"
                       className={cn(
                         "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted disabled:opacity-40",
                         modelDisabled
-                          ? "text-primary/80 hover:text-primary"
+                          ? "text-muted-foreground/80 hover:text-primary"
                           : "text-muted-foreground/70 hover:text-foreground",
                       )}
-                      aria-label={modelDisabled ? t("enableParallelModel") : t("disableParallelModel")}
-                      title={modelDisabled ? t("enableParallelModel") : t("disableParallelModel")}
-                      disabled={disabled}
+                      aria-label={toggleEnabledLabel}
+                      title={toggleEnabledLabel}
+                      disabled={disabled || primaryBanLocked}
                       onClick={() => onToggleParallelModelEnabled(name)}
                     >
-                      <Ban className="size-3" strokeWidth={2} />
+                      <Ban className="size-3" strokeWidth={modelDisabled ? 2.2 : 2} />
                     </button>
                   ) : null}
                   <button

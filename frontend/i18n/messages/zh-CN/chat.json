@@ -651,7 +651,9 @@
     "discussionToggle": "多模型讨论",
     "discussionRoundsCount": "{count, plural, other {# 轮}}",
     "discussionCallsHint": "发送后将串行发起 {count} 次模型调用",
-    "discussionCallCount": "约 {count} 次调用"
+    "discussionCallCount": "约 {count} 次调用",
+    "atLeastOneModelActive": "多模型组合中至少需要保留一个启用的模型",
+    "switchedPrimaryModel": "已将 {model} 切换为主模型"
   },
   "processTrace": {
     "fileBadges": {

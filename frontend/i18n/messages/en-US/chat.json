@@ -651,7 +651,9 @@
     "discussionToggle": "Multi-model discussion",
     "discussionRoundsCount": "{count, plural, one {# round} other {# rounds}}",
     "discussionCallsHint": "Will issue {count} sequential model calls",
-    "discussionCallCount": "~{count} calls"
+    "discussionCallCount": "~{count} calls",
+    "atLeastOneModelActive": "At least one model must remain enabled in the combination",
+    "switchedPrimaryModel": "Switched primary model to {model}"
   },
   "processTrace": {
     "fileBadges": {
