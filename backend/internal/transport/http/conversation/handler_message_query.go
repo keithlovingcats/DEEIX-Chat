@@ -138,6 +138,58 @@ func (h *Handler) SetMessageFeedback(c *gin.Context) {
 	response.Success(c, toMessageFeedbackResponse(result))
 }
 
+// DeleteMessage godoc
+// @Summary 删除消息
+// @Description 物理删除一条消息及其后续子树（删除 assistant 回复不影响同轮其他模型的兄弟；删除 user 提问会级联清掉其下回复），从对话记录与历史上下文彻底移除且不可恢复
+// @Tags chat
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "消息 public_id"
+// @Success 200 {object} MessageDeleteResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 409 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /messages/{id} [delete]
+// DeleteMessage 删除消息。
+func (h *Handler) DeleteMessage(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	result, err := h.service.DeleteMessage(c.Request.Context(), userID, publicID)
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrMessageDeleteTargetInvalid):
+			response.Error(c, http.StatusBadRequest, "invalid message delete target")
+			return
+		case errors.Is(err, appconversation.ErrMessageDeleteTargetActive):
+			response.Error(c, http.StatusConflict, "message delete target active")
+			return
+		case errors.Is(err, appconversation.ErrMessageNotFound):
+			response.Error(c, http.StatusNotFound, "message not found")
+			return
+		default:
+			response.Error(c, http.StatusInternalServerError, "delete message failed")
+			return
+		}
+	}
+
+	h.recordAudit(c, "delete_message",
+		"message",
+		result.MessagePublicID,
+		map[string]interface{}{
+			"conversation_id":   result.ConversationID,
+			"deleted_messages": result.DeletedMessages,
+		},
+	)
+
+	response.Success(c, toMessageDeleteResponse(result))
+}
+
 // ListMessages godoc
 // @Summary 查询会话消息
 // @Description 查询会话内消息列表

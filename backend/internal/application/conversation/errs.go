@@ -87,6 +87,10 @@ var (
 	ErrMessageEditTargetInvalid = errors.New("invalid message edit target")
 	// ErrMessageEditStateInvalid 当前消息状态不允许编辑。
 	ErrMessageEditStateInvalid = errors.New("invalid message edit state")
+	// ErrMessageDeleteTargetInvalid 删除目标不合法（仅支持 assistant 回复）。
+	ErrMessageDeleteTargetInvalid = errors.New("invalid message delete target")
+	// ErrMessageDeleteTargetActive 删除目标仍在生成中，不允许删除。
+	ErrMessageDeleteTargetActive = errors.New("message delete target active")
 	// ErrMessageForkStateInvalid 当前消息状态不允许 fork。
 	ErrMessageForkStateInvalid = errors.New("invalid message fork state")
 	// ErrMessageForkTargetInvalid 当前消息角色不允许 fork。

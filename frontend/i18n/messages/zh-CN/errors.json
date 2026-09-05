@@ -257,6 +257,8 @@
     "feedbackTargetInvalid": "消息反馈目标无效。",
     "editStateInvalid": "当前消息状态不允许编辑。",
     "editTargetInvalid": "只能编辑 AI 回复。",
+    "deleteTargetInvalid": "只能删除提问或 AI 回复。",
+    "deleteTargetActive": "这条回复或其后续追问正在生成中，请等待完成后再删除。",
     "invalidBranch": "消息分支无效。",
     "invalidContent": "消息内容无效。",
     "invalidFeedback": "消息反馈无效。",

@@ -14,6 +14,7 @@ import {
   Forward,
   LoaderCircle,
   TicketSlash,
+  Trash2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import * as React from "react";
@@ -484,6 +485,8 @@ export function UserMessageMeta({
   onRetry,
   onEdit,
   onCopy,
+  onDelete,
+  deleting = false,
   copySucceeded = false,
   readOnly = false,
   alwaysVisible = false,
@@ -497,6 +500,10 @@ export function UserMessageMeta({
   onRetry: () => void;
   onEdit: () => void;
   onCopy: () => void;
+  /** 物理删除本条提问（其下回复子树级联删除）：仅在确认对话框确认后触发。 */
+  onDelete?: () => void;
+  /** 删除请求进行中：按钮禁用并转圈。 */
+  deleting?: boolean;
   copySucceeded?: boolean;
   readOnly?: boolean;
   alwaysVisible?: boolean;
@@ -508,6 +515,7 @@ export function UserMessageMeta({
   const hasPersistedMessage = Boolean(resolvePersistedPublicID(item.publicID));
   const messagePending = Boolean(item.isPending || item.status?.trim().toLowerCase() === "pending");
   const canShowBranchNavigator = Boolean(showBranchNavigator && item.branchNavigator);
+  const canDelete = Boolean(!readOnly && !messagePending && hasPersistedMessage && onDelete);
 
   return (
     <MetaContainer align="end" alwaysVisible={alwaysVisible}>
@@ -545,6 +553,20 @@ export function UserMessageMeta({
               <Copy strokeWidth={1.8} animateOnHover="default" />
             )}
           </MetaIconButton>
+          {canDelete && onDelete ? (
+            <MetaIconButton
+              label={t("deleteQuestion")}
+              className="hover:text-destructive"
+              disabled={deleting}
+              onClick={onDelete}
+            >
+              {deleting ? (
+                <LoaderCircle className="size-3.5 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <Trash2 strokeWidth={1.8} />
+              )}
+            </MetaIconButton>
+          ) : null}
         </div>
       ) : null}
       {canShowBranchNavigator ? <BranchSwitcher item={item} onCycle={onCycleBranch} /> : null}
@@ -1128,6 +1150,8 @@ export function AssistantMessageMeta({
   onEdit,
   onCopy,
   onFork,
+  onDelete,
+  deleting = false,
   copySucceeded = false,
   onReact,
   showModelInfo = true,
@@ -1152,6 +1176,10 @@ export function AssistantMessageMeta({
   onEdit?: () => void;
   onCopy: () => void;
   onFork?: () => Promise<void> | void;
+  /** 物理删除本条回复（含追问子树）：仅在确认对话框确认后触发。 */
+  onDelete?: () => void;
+  /** 删除请求进行中：按钮禁用并转圈。 */
+  deleting?: boolean;
   copySucceeded?: boolean;
   onReact: (value: AssistantReaction) => void;
   showModelInfo?: boolean;
@@ -1177,6 +1205,7 @@ export function AssistantMessageMeta({
   const canEdit = Boolean(canRetry && !busy && onEdit);
   const canContinue = Boolean(canRetry && !busy && item.status === "interrupted");
   const canFork = Boolean(canRetry && onFork);
+  const canDelete = Boolean(canRetry && !busy && onDelete);
   // 多模型并行时顶部已有按模型聚合的 tab 条；底部切换器仅在无 tab，
   // 或同模型组内存在多个重试版本（tab 已归并）时展示，用于版本间导航。
   const hasModelTabs = (item.branchNavigator?.siblings?.length ?? 0) > 1;
@@ -1302,6 +1331,20 @@ export function AssistantMessageMeta({
                   />
                 ) : null}
                 <QuickMemoryPin disabled={messagePending} />
+                {canDelete && onDelete ? (
+                  <MetaIconButton
+                    label={t("deleteReply")}
+                    className="hover:text-destructive"
+                    disabled={deleting}
+                    onClick={onDelete}
+                  >
+                    {deleting ? (
+                      <LoaderCircle className="size-3.5 animate-spin" strokeWidth={1.8} />
+                    ) : (
+                      <Trash2 strokeWidth={1.8} />
+                    )}
+                  </MetaIconButton>
+                ) : null}
               </>
             ) : null}
             {canShowBranchNavigator ? (

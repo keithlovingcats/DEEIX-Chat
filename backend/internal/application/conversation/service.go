@@ -273,6 +273,13 @@ type MessageFeedbackResult struct {
 	ThumbsDownCount int64
 }
 
+// MessageDeleteResult 消息物理删除结果（含级联删除的后代消息数）。
+type MessageDeleteResult struct {
+	MessagePublicID string
+	ConversationID  uint
+	DeletedMessages int64
+}
+
 // NewServiceWithRuntime 创建使用运行时配置容器的服务。
 // 压缩、embedding、处理流水线、抽取与 RAG 服务由组合根装配后注入；上传服务的钩子需要回调本服务的
 // 文件能力与处理流水线，因此基于同一仓储在这里装配。

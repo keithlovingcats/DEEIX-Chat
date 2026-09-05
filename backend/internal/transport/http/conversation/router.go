@@ -49,6 +49,7 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.POST("/conversation-runs/:run_id/cancel", m.Handler.CancelMessageGeneration)
 	authRequired.PATCH("/messages/:id", m.Handler.UpdateMessage)
 	authRequired.PUT("/messages/:id/feedback", m.Handler.SetMessageFeedback)
+	authRequired.DELETE("/messages/:id", m.Handler.DeleteMessage)
 	authRequired.POST("/files", m.Handler.UploadFile)
 	authRequired.GET("/files", m.Handler.ListFiles)
 	authRequired.POST("/files/processing/statuses", m.Handler.GetFileProcessingStatuses)

@@ -39,6 +39,10 @@ type ChatMessageUserProps = {
   item: ChatAreaMessage;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
+  /** 物理删除本条提问（其下回复子树级联删除），确认对话框在上层组件。 */
+  onDeleteUserMessage?: (message: ChatAreaMessage) => void;
+  /** 本条提问的删除请求进行中。 */
+  deletingUserMessage?: boolean;
   modelOptions?: ChatModelOption[];
   selectedPlatformModelName?: string;
   onModelChange?: (platformModelName: string) => void;
@@ -56,6 +60,8 @@ export function ChatMessageUser({
   item,
   onRetryUserMessage,
   onEditUserMessage,
+  onDeleteUserMessage,
+  deletingUserMessage = false,
   modelOptions = [],
   selectedPlatformModelName = "",
   onModelChange = () => undefined,
@@ -334,6 +340,8 @@ export function ChatMessageUser({
         onRetry={onRetry}
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}
+        onDelete={onDeleteUserMessage ? () => onDeleteUserMessage(item) : undefined}
+        deleting={deletingUserMessage}
         copySucceeded={copySucceeded}
         readOnly={readOnly}
         alwaysVisible={readOnly}

@@ -164,6 +164,10 @@ type ChatMessageBotProps = {
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  /** 物理删除本条消息（含追问子树），确认对话框在上层组件。 */
+  onDeleteMessage?: (message: ChatAreaMessage) => void;
+  /** 本条回复的删除请求进行中。 */
+  deletingMessage?: boolean;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onSelectMessageBranch?: (parentPublicID: string | null, childPublicID: string) => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
@@ -197,6 +201,8 @@ export function ChatMessageBot({
   onContinueAssistantMessage,
   onEditAssistantMessage,
   onForkMessage,
+  onDeleteMessage,
+  deletingMessage = false,
   onCycleMessageBranch,
   onSelectMessageBranch,
   onReactAssistantMessage,
@@ -667,6 +673,8 @@ export function ChatMessageBot({
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}
         onFork={onForkMessage ? onFork : undefined}
+        onDelete={onDeleteMessage ? () => onDeleteMessage(item) : undefined}
+        deleting={deletingMessage}
         copySucceeded={copySucceeded}
         onReact={(value) => onReactAssistantMessage(item.publicID, value)}
         showModelInfo={showModelInfo}

@@ -4551,6 +4551,26 @@ definitions:
     - billingMode
     - pricingSnapshotJSON
     type: object
+  MessageDeleteResponse:
+    properties:
+      deletedMessages:
+        type: integer
+      messagePublicID:
+        type: string
+    required:
+    - deletedMessages
+    - messagePublicID
+    type: object
+  MessageDeleteResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/MessageDeleteResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   MessageDiscussionMetaRequest:
     properties:
       discussionID:
@@ -18915,6 +18935,42 @@ paths:
       tags:
       - memory
   /messages/{id}:
+    delete:
+      description: 物理删除一条消息及其后续子树（删除 assistant 回复不影响同轮其他模型的兄弟；删除 user 提问会级联清掉其下回复），从对话记录与历史上下文彻底移除且不可恢复
+      parameters:
+      - description: 消息 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/MessageDeleteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 删除消息
+      tags:
+      - chat
     patch:
       consumes:
       - application/json

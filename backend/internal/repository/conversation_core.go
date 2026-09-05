@@ -117,6 +117,8 @@ type MessageRepository interface {
 	ListMessagesForShare(ctx context.Context, conversationID uint, publicIDs []string) ([]domainconversation.Message, error)
 	ListRecentMessages(ctx context.Context, conversationID uint, limit int) ([]domainconversation.Message, int64, error)
 	GetMessageByID(ctx context.Context, conversationID uint, messageID uint) (*domainconversation.Message, error)
+	// DeleteMessageSubtree 物理删除消息及其全部后代与附属数据（附件/反馈/向量分片/轨迹事件/上下文证据），返回删除的消息数。
+	DeleteMessageSubtree(ctx context.Context, userID uint, conversationID uint, messageID uint) (int64, error)
 	ListMessageAncestors(ctx context.Context, conversationID uint, leafMessageID uint, maxDepth int) ([]domainconversation.Message, error)
 	ListLatestBranchPreviewMessages(ctx context.Context, conversationID uint, maxDepth int, limit int) ([]domainconversation.Message, error)
 }

@@ -56,8 +56,9 @@ import { findLatestDiscussionFinalMessage, sortDiscussionGroup } from "@/feature
 import type { ChatAreaMessage, ChatDiscussionGroup, } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings";
 import { cn } from "@/lib/utils";
-import { getConversation } from "@/shared/api/conversation";
+import { deleteMessage, getConversation } from "@/shared/api/conversation";
 import type { ConversationDTO, ConversationOptions } from "@/shared/api/conversation.types";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { DeleteFilesOption } from "@/shared/components/delete-files-option";
@@ -75,6 +76,8 @@ export function AppChatArea() {
   const t = useTranslations("chat");
   const tRecent = useTranslations("recent");
   const tScreenshot = useTranslations("chat.screenshot");
+  const tMessages = useTranslations("chat.messages");
+  const resolveErrorMessage = useLocalizedErrorMessage();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthSession();
@@ -770,6 +773,84 @@ export function AppChatArea() {
   }, [conversationID, modelsErrorMsg, t, visibleMessagesWithDiscussion]);
 
   const effectiveOptions = modelOptionPolicyDisabled ? EMPTY_CONVERSATION_OPTIONS : options;
+
+  // ---- 消息物理删除（user 提问 / assistant 回复 + 各自子树）----
+  // 待确认删除的目标消息与删除请求进行中的 public_id；确认对话框统一在组件根部。
+  // 删除 user 提问：其下回复（多模型兄弟）与追问级联清掉；悬空提问（回复已删光）单删。
+  const [deleteMessageTarget, setDeleteMessageTarget] = React.useState<ChatAreaMessage | null>(null);
+  const [deletingMessagePublicID, setDeletingMessagePublicID] = React.useState("");
+  // 删除目标是提问还是回复：确认框与 toast 文案按角色区分。
+  const deleteTargetIsQuestion = deleteMessageTarget?.role === "user";
+  // 子树规模（含目标消息自身）：追问/回复挂在下方，物理删除会级联清掉，确认框必须告知。
+  // 文案口径是「下方的后续消息数」，展示时需扣除目标自身。
+  const deleteMessageSubtreeCount = React.useMemo(() => {
+    if (!deleteMessageTarget) {
+      return 0;
+    }
+    const byParent = new Map<string, ChatAreaMessage[]>();
+    for (const message of combinedMessages) {
+      const parentKey = message.parentPublicID?.trim() || "";
+      if (!parentKey) {
+        continue;
+      }
+      byParent.set(parentKey, [...(byParent.get(parentKey) ?? []), message]);
+    }
+    let count = 0;
+    let frontier = [deleteMessageTarget.publicID];
+    const visited = new Set<string>();
+    while (frontier.length > 0) {
+      count += frontier.length;
+      const next: string[] = [];
+      for (const publicID of frontier) {
+        for (const child of byParent.get(publicID) ?? []) {
+          const childPublicID = child.publicID;
+          if (childPublicID && !visited.has(childPublicID)) {
+            visited.add(childPublicID);
+            next.push(childPublicID);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return count;
+  }, [combinedMessages, deleteMessageTarget]);
+  const handleDeleteMessage = React.useCallback((message: ChatAreaMessage) => {
+    setDeleteMessageTarget(message);
+  }, []);
+  const confirmDeleteMessage = React.useCallback(async () => {
+    const target = deleteMessageTarget;
+    const messagePublicID = target?.publicID?.trim() || "";
+    if (!target || !messagePublicID || deletingMessagePublicID) {
+      return;
+    }
+    const failedKey = target.role === "user" ? "deleteQuestionFailed" : "deleteReplyFailed";
+    setDeletingMessagePublicID(messagePublicID);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(tMessages(failedKey), {
+          description: tMessages("deleteReplySignInRequired"),
+        });
+        return;
+      }
+      const result = await deleteMessage(token, messagePublicID);
+      setDeleteMessageTarget(null);
+      toast.success(
+        target.role === "user" ? tMessages("questionDeleted") : tMessages("replyDeleted"),
+        {
+          description: tMessages("replyDeletedDescription", { count: result.deletedMessages }),
+        },
+      );
+      reload();
+    } catch (error) {
+      toast.error(tMessages(failedKey), {
+        description: resolveErrorMessage(error, tMessages("deleteReplyFailedDescription")),
+      });
+    } finally {
+      setDeletingMessagePublicID("");
+    }
+  }, [deleteMessageTarget, deletingMessagePublicID, reload, resolveErrorMessage, tMessages]);
+
   const temporaryAvailableTools = React.useMemo(
     () => availableTools.filter((tool) => tool.attachmentInputMode !== "image"),
     [availableTools],
@@ -977,6 +1058,8 @@ export function AppChatArea() {
                   onEditAssistantMessage={temporaryMode ? temporaryRuntime.onEditAssistantMessage : onEditAssistantMessage}
                   onEditUserMessage={temporaryMode ? temporaryRuntime.onEditUserMessage : onEditUserMessage}
                   onForkMessage={temporaryMode ? undefined : onForkMessage}
+                  onDeleteMessage={temporaryMode ? undefined : handleDeleteMessage}
+                  deletingMessagePublicID={deletingMessagePublicID || null}
                   modelOptions={modelOptions}
                   selectedPlatformModelName={selectedPlatformModelName}
                   onModelChange={setSelectedPlatformModelName}
@@ -1122,6 +1205,60 @@ export function AppChatArea() {
                 <AlertDialogCancel>{tRecent("dialogs.cancel")}</AlertDialogCancel>
                 <AlertDialogAction variant="destructive" onClick={() => void onConfirmDeleteActiveConversation()}>
                   {tRecent("dialogs.delete")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* 消息物理删除确认：追问子树会级联删除，删除前必须让用户知情。 */}
+          <AlertDialog
+            open={Boolean(deleteMessageTarget)}
+            onOpenChange={(open) => {
+              if (!open && !deletingMessagePublicID) {
+                setDeleteMessageTarget(null);
+              }
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {deleteTargetIsQuestion
+                    ? tMessages("deleteQuestionDialogTitle")
+                    : tMessages("deleteReplyDialogTitle")}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {deleteMessageSubtreeCount - 1 > 0
+                    ? tMessages(
+                        deleteTargetIsQuestion
+                          ? "deleteQuestionDialogCascadeDescription"
+                          : "deleteReplyDialogCascadeDescription",
+                        {
+                          count: deleteMessageSubtreeCount - 1,
+                        },
+                      )
+                    : tMessages(
+                        deleteTargetIsQuestion
+                          ? "deleteQuestionDialogDescription"
+                          : "deleteReplyDialogDescription",
+                      )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={Boolean(deletingMessagePublicID)}>
+                  {tRecent("dialogs.cancel")}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={Boolean(deletingMessagePublicID)}
+                  onClick={(event) => {
+                    // 阻止默认关闭：等删除请求完成后由状态驱动收起，失败时保留对话框。
+                    event.preventDefault();
+                    void confirmDeleteMessage();
+                  }}
+                >
+                  {deletingMessagePublicID
+                    ? tMessages("deleteReplyDialogInProgress")
+                    : tMessages("deleteReplyDialogConfirm")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

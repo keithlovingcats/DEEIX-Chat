@@ -153,6 +153,8 @@ var exactErrorSpecs = map[string]errorSpec{
 	"invalid message content":                                 {Code: "message.invalid_content", Message: "invalid message content"},
 	"message edit target invalid":                             {Code: "message.edit_target_invalid", Message: "message edit target invalid"},
 	"message edit state invalid":                              {Code: "message.edit_state_invalid", Message: "message edit state invalid"},
+	"invalid message delete target":                           {Code: "message.delete_target_invalid", Message: "invalid message delete target"},
+	"message delete target active":                            {Code: "message.delete_target_active", Message: "message delete target active"},
 	"invalid message branch":                                  {Code: "message.invalid_branch", Message: "invalid message branch"},
 	"message generation canceled":                             {Code: "conversation_run.canceled", Message: "message generation canceled"},
 	"too many files in one message":                           {Code: "message.too_many_files", Message: "too many files in one message"},

@@ -174,6 +174,10 @@
       "active": "正在思考",
       "done": "思考完成"
     },
+    "codeBlock": {
+      "collapse": "收起",
+      "expand": "展开全部 {count, plural, other {# 行}}"
+    },
     "diagram": {
       "downloadDiagram": "下载",
       "downloadDiagramAsSvg": "导出为 SVG",
@@ -185,10 +189,6 @@
       "zoomIn": "放大",
       "zoomOut": "缩小",
       "resetView": "重置视图"
-    },
-    "codeBlock": {
-      "collapse": "收起",
-      "expand": "展开全部 {count, plural, other {# 行}}"
     }
   },
   "artifacts": {
@@ -249,6 +249,23 @@
     "extendVideo": "扩展视频",
     "forkMessage": "分支到新聊天",
     "forkTitle": "{title}（分支）",
+    "deleteReply": "删除回复",
+    "deleteReplyDialogTitle": "删除这条回复？",
+    "deleteReplyDialogDescription": "将永久删除这条模型回复，从对话记录与后续上下文中彻底移除，此操作不可恢复。同轮其他模型的回复不受影响。",
+    "deleteReplyDialogCascadeDescription": "这条回复下还有 {count} 条后续消息（追问与回复），将随本条回复一并永久删除，且不可恢复。同轮其他模型的回复不受影响。",
+    "deleteReplyDialogConfirm": "删除",
+    "deleteReplyDialogInProgress": "删除中…",
+    "replyDeleted": "回复已删除",
+    "replyDeletedDescription": "已删除 {count} 条消息",
+    "deleteReplyFailed": "删除回复失败",
+    "deleteReplyFailedDescription": "请稍后重试",
+    "deleteReplySignInRequired": "请先登录后再删除",
+    "deleteQuestion": "删除提问",
+    "deleteQuestionDialogTitle": "删除这条提问？",
+    "deleteQuestionDialogDescription": "将永久删除这条提问，从对话记录与后续上下文中彻底移除，此操作不可恢复。",
+    "deleteQuestionDialogCascadeDescription": "这条提问下还有 {count} 条后续消息（回复与追问），将随本条提问一并永久删除，且不可恢复。",
+    "questionDeleted": "提问已删除",
+    "deleteQuestionFailed": "删除提问失败",
     "rememberPreference": "记住偏好",
     "memorySaved": "已记住",
     "memorySavedDescription": "此偏好将在后续对话中生效",
@@ -622,6 +639,8 @@
     "parallelModelDisabledHint": "已禁用：不参与本轮对话，仍保留在组合中",
     "enableParallelModel": "恢复此模型参与对话",
     "disableParallelModel": "本轮对话不使用此模型",
+    "atLeastOneModelActive": "多模型组合中至少需要保留一个启用的模型",
+    "switchedPrimaryModel": "已将 {model} 切换为主模型",
     "freeModel": "免费模型",
     "freeModelDescription": "不会扣除按量余额",
     "tieredPricing": "阶梯计费",
@@ -651,9 +670,7 @@
     "discussionToggle": "多模型讨论",
     "discussionRoundsCount": "{count, plural, other {# 轮}}",
     "discussionCallsHint": "发送后将串行发起 {count} 次模型调用",
-    "discussionCallCount": "约 {count} 次调用",
-    "atLeastOneModelActive": "多模型组合中至少需要保留一个启用的模型",
-    "switchedPrimaryModel": "已将 {model} 切换为主模型"
+    "discussionCallCount": "约 {count} 次调用"
   },
   "processTrace": {
     "fileBadges": {

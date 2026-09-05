@@ -2026,6 +2026,16 @@ export interface MessageBillingCostResponse {
   pricingSnapshotJSON: string;
 }
 
+export interface MessageDeleteResponse {
+  deletedMessages: number;
+  messagePublicID: string;
+}
+
+export interface MessageDeleteResponseDoc {
+  data: MessageDeleteResponse;
+  errorMsg: string;
+}
+
 export interface MessageDiscussionMetaRequest {
   /** @maxLength 64 */
   discussionID: string;
@@ -9695,6 +9705,25 @@ export namespace Memories {
 }
 
 export namespace Messages {
+  /**
+   * @description 物理删除一条消息及其后续子树（删除 assistant 回复不影响同轮其他模型的兄弟；删除 user 提问会级联清掉其下回复），从对话记录与历史上下文彻底移除且不可恢复
+   * @tags chat
+   * @name MessagesDelete
+   * @summary 删除消息
+   * @request DELETE:/messages/{id}
+   * @secure
+   */
+  export namespace MessagesDelete {
+    export type RequestParams = {
+      /** 消息 public_id */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = MessageDeleteResponseDoc;
+  }
+
   /**
    * @description 更新当前用户会话中的 assistant 消息内容，并标记为已编辑
    * @tags chat

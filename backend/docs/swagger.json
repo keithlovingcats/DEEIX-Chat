@@ -13650,6 +13650,62 @@
             }
         },
         "/messages/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "物理删除一条消息及其后续子树（删除 assistant 回复不影响同轮其他模型的兄弟；删除 user 提问会级联清掉其下回复），从对话记录与历史上下文彻底移除且不可恢复",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "删除消息",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "消息 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/MessageDeleteResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            },
             "patch": {
                 "security": [
                     {
@@ -21648,6 +21704,36 @@
                     "type": "string"
                 },
                 "pricingSnapshotJSON": {
+                    "type": "string"
+                }
+            }
+        },
+        "MessageDeleteResponse": {
+            "type": "object",
+            "required": [
+                "deletedMessages",
+                "messagePublicID"
+            ],
+            "properties": {
+                "deletedMessages": {
+                    "type": "integer"
+                },
+                "messagePublicID": {
+                    "type": "string"
+                }
+            }
+        },
+        "MessageDeleteResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/MessageDeleteResponse"
+                },
+                "errorMsg": {
                     "type": "string"
                 }
             }

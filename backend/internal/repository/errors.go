@@ -39,6 +39,8 @@ var (
 	ErrFileNotFound = errors.New("file not found")
 	// ErrStorageQuotaExceeded 用户存储配额超限。
 	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
+	// ErrMessageSubtreeHasActive 消息子树内存在仍在生成中的消息（status=pending），不允许删除。
+	ErrMessageSubtreeHasActive = errors.New("message subtree has active generation")
 
 	// 上游与模型仓储语义错误。
 	ErrUpstreamNotFound           = errors.New("upstream not found")

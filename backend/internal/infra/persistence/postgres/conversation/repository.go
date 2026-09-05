@@ -829,10 +829,13 @@ func (r *Repo) GetUserByID(ctx context.Context, userID uint) (*domainuser.User, 
 
 // IncrementMessageCount 增加消息计数。
 func (r *Repo) IncrementMessageCount(ctx context.Context, conversationID uint, delta int) error {
+	// 零值保底：物理删除的行数口径若与累计计数存在历史漂移，避免递减出负数。
 	return translateError(r.db.WithContext(ctx).
 		Model(&models.Conversation{}).
 		Where("id = ?", conversationID).
-		Update("message_count", gorm.Expr("message_count + ?", delta)).
+		Update("message_count", gorm.Expr(
+			"CASE WHEN message_count + ? < 0 THEN 0 ELSE message_count + ? END", delta, delta,
+		)).
 		Error)
 }
 
@@ -2197,6 +2200,96 @@ func (r *Repo) GetMessageByID(ctx context.Context, conversationID uint, messageI
 	item = single[0]
 	result := toMessageDomain(item)
 	return &result, nil
+}
+
+// DeleteMessageSubtree 物理删除一条消息及其全部后代（parent_message_id 子树）与附属数据。
+// 「物理删除」需求要求从对话记录与历史上下文彻底移除：所有含软删除标记的表均用
+// Unscoped 硬删；chat_runs（计费/审计）与 content_moderation_events（合规审计）保留。
+// 其余消息指向被删集合的 source_message_id 允许悬空（hydrate 对缺失引用解析为空串）。
+func (r *Repo) DeleteMessageSubtree(ctx context.Context, userID uint, conversationID uint, messageID uint) (int64, error) {
+	deleted := int64(0)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var root models.Message
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND conversation_id = ? AND user_id = ?", messageID, conversationID, userID).
+			First(&root).Error; err != nil {
+			return translateError(err)
+		}
+		// BFS 沿 parent_message_id 收集子树（Unscoped：把历史软删的孤儿一并清掉）。
+		collected := map[uint]struct{}{root.ID: {}}
+		frontier := []uint{root.ID}
+		for len(frontier) > 0 {
+			var next []uint
+			if err := tx.Unscoped().Model(&models.Message{}).
+				Where("parent_message_id IN ?", frontier).
+				Pluck("id", &next).Error; err != nil {
+				return translateError(err)
+			}
+			frontier = frontier[:0]
+			for _, id := range next {
+				if _, ok := collected[id]; !ok {
+					collected[id] = struct{}{}
+					frontier = append(frontier, id)
+				}
+			}
+		}
+		allIDs := make([]uint, 0, len(collected))
+		for id := range collected {
+			allIDs = append(allIDs, id)
+		}
+
+		// 子树内任一消息仍在生成（status=pending）即中止：目标根节点可能是已完成的
+		// 回复，但其追问下方可能有流式进行中的后代，硬删会让写入中的 goroutine 失联。
+		// 校验必须在事务内（BFS 与删除之间），否则存在收集后、删除前的竞态窗口。
+		var activeCount int64
+		if err := tx.Unscoped().Model(&models.Message{}).
+			Where("id IN ? AND LOWER(status) = ?", allIDs, "pending").
+			Count(&activeCount).Error; err != nil {
+			return translateError(err)
+		}
+		if activeCount > 0 {
+			return repository.ErrMessageSubtreeHasActive
+		}
+
+		// 附属数据先于消息行删除（附件、反馈、RAG 向量分片、轨迹事件、上下文证据）。
+		if err := tx.Unscoped().Where("message_id IN ?", allIDs).Delete(&models.Attachment{}).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Unscoped().Where("message_id IN ?", allIDs).Delete(&models.ConversationMessageFeedback{}).Error; err != nil {
+			return translateError(err)
+		}
+		// SQLite 方言下向量存于 sqlitevec 虚表（vec0 无外键级联），必须先清虚表再删
+		// 实体表（虚表清理 SQL 依赖实体行存在的子查询），与 UpsertMessageChunks 同标准。
+		if r.sqliteDialect() {
+			if err := deleteSQLiteMessageChunkVectorsByMessages(tx, allIDs); err != nil {
+				return err
+			}
+		}
+		if err := tx.Unscoped().Where("message_id IN ?", allIDs).Delete(&models.MessageChunk{}).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Unscoped().Where("message_id IN ?", allIDs).Delete(&models.ChatRunEvent{}).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Unscoped().Where("message_id IN ?", allIDs).Delete(&models.ChatContextRecord{}).Error; err != nil {
+			return translateError(err)
+		}
+		// 压缩快照若覆盖到被删消息，其覆盖游标指向不存在的消息，一并失效清理。
+		if err := tx.Unscoped().Where("covered_until_message_id IN ?", allIDs).Delete(&models.ChatContextRecord{}).Error; err != nil {
+			return translateError(err)
+		}
+
+		res := tx.Unscoped().Where("id IN ?", allIDs).Delete(&models.Message{})
+		if res.Error != nil {
+			return translateError(res.Error)
+		}
+		deleted = res.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return 0, translateError(err)
+	}
+	return deleted, nil
 }
 
 // ListMessageAncestors 从指定消息向上遍历 parent_message_id 链，返回祖先消息（根到叶排列）。

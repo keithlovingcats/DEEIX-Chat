@@ -33,6 +33,7 @@ import type {
   MediaImageRequest,
   MediaVideoExtensionRequest,
   MediaVideoRequest,
+  DeleteMessageResult,
   MessageDTO,
   MessageFeedbackResult,
   MessageProcessTraceDTO,
@@ -1089,6 +1090,18 @@ export async function setMessageFeedback(
       method: "PUT",
       accessToken,
       body: payload,
+    },
+    true,
+  );
+}
+
+// 物理删除一条 assistant 回复及其追问子树（多模型/重试兄弟不受影响），不可恢复。
+export async function deleteMessage(accessToken: string, messagePublicID: string): Promise<DeleteMessageResult> {
+  return authedRequest<DeleteMessageResult>(
+    `/api/v1/messages/${pathParam(messagePublicID)}`,
+    {
+      method: "DELETE",
+      accessToken,
     },
     true,
   );

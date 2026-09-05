@@ -174,6 +174,10 @@
       "active": "Thinking",
       "done": "Thinking complete"
     },
+    "codeBlock": {
+      "collapse": "Collapse",
+      "expand": "Expand all {count, plural, one {# line} other {# lines}}"
+    },
     "diagram": {
       "downloadDiagram": "Download",
       "downloadDiagramAsSvg": "Download diagram as SVG",
@@ -185,10 +189,6 @@
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
       "resetView": "Reset view"
-    },
-    "codeBlock": {
-      "collapse": "Collapse",
-      "expand": "Expand all {count, plural, one {# line} other {# lines}}"
     }
   },
   "artifacts": {
@@ -249,6 +249,23 @@
     "extendVideo": "Extend video",
     "forkMessage": "Fork conversation here",
     "forkTitle": "{title} (Fork)",
+    "deleteReply": "Delete reply",
+    "deleteReplyDialogTitle": "Delete this reply?",
+    "deleteReplyDialogDescription": "This model reply will be permanently removed from the conversation history and future context. This cannot be undone. Other models' replies in this round are unaffected.",
+    "deleteReplyDialogCascadeDescription": "{count} follow-up messages (questions and replies) under this reply will also be permanently deleted along with it. This cannot be undone. Other models' replies in this round are unaffected.",
+    "deleteReplyDialogConfirm": "Delete",
+    "deleteReplyDialogInProgress": "Deleting…",
+    "replyDeleted": "Reply deleted",
+    "replyDeletedDescription": "{count, plural, other {# messages}} deleted",
+    "deleteReplyFailed": "Failed to delete reply",
+    "deleteReplyFailedDescription": "Please try again later.",
+    "deleteReplySignInRequired": "Please sign in before deleting.",
+    "deleteQuestion": "Delete question",
+    "deleteQuestionDialogTitle": "Delete this question?",
+    "deleteQuestionDialogDescription": "This question will be permanently removed from the conversation history and future context. This cannot be undone.",
+    "deleteQuestionDialogCascadeDescription": "{count} follow-up messages (replies and questions) under this question will also be permanently deleted along with it. This cannot be undone.",
+    "questionDeleted": "Question deleted",
+    "deleteQuestionFailed": "Failed to delete question",
     "rememberPreference": "Remember preference",
     "memorySaved": "Remembered",
     "memorySavedDescription": "This preference will apply to future conversations.",
@@ -622,6 +639,8 @@
     "parallelModelDisabledHint": "Disabled: skipped in this conversation, still kept in the group",
     "enableParallelModel": "Re-enable this model in the conversation",
     "disableParallelModel": "Exclude this model from the conversation",
+    "atLeastOneModelActive": "At least one model must remain enabled in the combination",
+    "switchedPrimaryModel": "Switched primary model to {model}",
     "freeModel": "Free model",
     "freeModelDescription": "No usage balance will be deducted",
     "tieredPricing": "Tiered pricing",
@@ -651,9 +670,7 @@
     "discussionToggle": "Multi-model discussion",
     "discussionRoundsCount": "{count, plural, one {# round} other {# rounds}}",
     "discussionCallsHint": "Will issue {count} sequential model calls",
-    "discussionCallCount": "~{count} calls",
-    "atLeastOneModelActive": "At least one model must remain enabled in the combination",
-    "switchedPrimaryModel": "Switched primary model to {model}"
+    "discussionCallCount": "~{count} calls"
   },
   "processTrace": {
     "fileBadges": {

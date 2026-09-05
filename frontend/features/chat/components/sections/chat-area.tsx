@@ -246,6 +246,10 @@ type ChatAreaProps = {
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  /** 物理删除消息（user 提问/assistant 回复，子树级联），确认对话框在上层。 */
+  onDeleteMessage?: (message: ChatAreaMessage) => void;
+  /** 删除请求进行中的消息 public_id（按钮转圈防连点）。 */
+  deletingMessagePublicID?: string | null;
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
   onModelChange: (platformModelName: string) => void;
@@ -437,6 +441,8 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onEditAssistantMessage,
   onEditUserMessage,
   onForkMessage,
+  onDeleteMessage,
+  deletingMessagePublicID,
   modelOptions,
   selectedPlatformModelName,
   onModelChange,
@@ -474,6 +480,8 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onForkMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onDeleteMessage?: (message: ChatAreaMessage) => void;
+  deletingMessagePublicID?: string | null;
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
   onModelChange: (platformModelName: string) => void;
@@ -552,6 +560,10 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         item={item}
         onRetryUserMessage={onRetryUserMessage}
         onEditUserMessage={onEditUserMessage}
+        onDeleteUserMessage={onDeleteMessage}
+        deletingUserMessage={Boolean(
+          deletingMessagePublicID && deletingMessagePublicID === item.publicID,
+        )}
         modelOptions={modelOptions}
         selectedPlatformModelName={selectedPlatformModelName}
         onModelChange={onModelChange}
@@ -590,6 +602,10 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onContinueAssistantMessage={onContinueAssistantMessage}
         onEditAssistantMessage={onEditAssistantMessage}
         onForkMessage={onForkMessage}
+        onDeleteMessage={onDeleteMessage}
+        deletingMessage={Boolean(
+          deletingMessagePublicID && deletingMessagePublicID === item.publicID,
+        )}
         onCycleMessageBranch={onCycleMessageBranch}
         onSelectMessageBranch={onSelectMessageBranch}
         onReactAssistantMessage={onReactAssistantMessage}
@@ -679,6 +695,8 @@ export function ChatArea({
   onEditAssistantMessage,
   onEditUserMessage,
   onForkMessage,
+  onDeleteMessage,
+  deletingMessagePublicID = null,
   modelOptions,
   selectedPlatformModelName,
   onModelChange,
@@ -729,6 +747,7 @@ export function ChatArea({
   const stableOnEditAssistantMessage = useStableEvent(onEditAssistantMessage);
   const stableOnEditUserMessage = useStableEvent(onEditUserMessage);
   const stableOnForkMessage = useStableEvent(onForkMessage ?? ((): undefined => undefined));
+  const stableOnDeleteMessage = useStableEvent(onDeleteMessage ?? ((): undefined => undefined));
   const stableOnModelChange = useStableEvent(onModelChange);
   const stableOnModelCatalogRefresh = useStableEvent(onModelCatalogRefresh ?? ((): undefined => undefined));
   const stableOnEditImageAttachment = useStableEvent((attachment: MessageAttachment, sourceModelName?: string) => {
@@ -934,6 +953,10 @@ export function ChatArea({
                       onEditAssistantMessage={stableOnEditAssistantMessage}
                       onEditUserMessage={stableOnEditUserMessage}
                       onForkMessage={onForkMessage ? stableOnForkMessage : undefined}
+                      onDeleteMessage={
+                        onDeleteMessage ? stableOnDeleteMessage : undefined
+                      }
+                      deletingMessagePublicID={deletingMessagePublicID}
                       modelOptions={modelOptions}
                       selectedPlatformModelName={selectedPlatformModelName}
                       onModelChange={stableOnModelChange}

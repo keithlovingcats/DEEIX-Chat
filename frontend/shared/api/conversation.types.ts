@@ -33,6 +33,7 @@ import type {
   ConversationToolCallDetailResponse,
   MessageBillingCostResponse,
   MessageDiscussionMetaResponse,
+  MessageDeleteResponse,
   MessageFeedbackResponse,
   MessageProcessTraceResponse,
   MessagePromptTraceBlockResponse,
@@ -219,6 +220,8 @@ export type PublicSharedConversationDTO = Omit<PublicSharedConversationResponse,
 };
 
 export type SetMessageFeedbackRequest = ContractSetMessageFeedbackRequest;
+
+export type DeleteMessageResult = MessageDeleteResponse;
 
 export type UpdateMessageRequest = ContractUpdateMessageRequest;
 

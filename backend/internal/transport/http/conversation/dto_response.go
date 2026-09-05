@@ -1309,6 +1309,19 @@ func toMessageFeedbackResponse(r *appconversation.MessageFeedbackResult) Message
 	}
 }
 
+// MessageDeleteResponse 消息物理删除响应 DTO。
+type MessageDeleteResponse struct {
+	MessagePublicID string `json:"messagePublicID"`
+	DeletedMessages int64  `json:"deletedMessages"`
+}
+
+func toMessageDeleteResponse(r *appconversation.MessageDeleteResult) MessageDeleteResponse {
+	return MessageDeleteResponse{
+		MessagePublicID: r.MessagePublicID,
+		DeletedMessages: r.DeletedMessages,
+	}
+}
+
 // ---------- Conversation Run ----------
 
 // RunResponse 对话运行日志响应 DTO。
@@ -1642,6 +1655,12 @@ type MessageResponseDoc struct {
 type MessageFeedbackResponseDoc struct {
 	ErrorMsg string                  `json:"errorMsg"`
 	Data     MessageFeedbackResponse `json:"data"`
+}
+
+// MessageDeleteResponseDoc 设置消息删除响应文档。
+type MessageDeleteResponseDoc struct {
+	ErrorMsg string                `json:"errorMsg"`
+	Data     MessageDeleteResponse `json:"data"`
 }
 
 // ConversationRunListResponseDoc 运行日志分页响应文档。

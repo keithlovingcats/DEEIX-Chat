@@ -257,6 +257,8 @@
     "feedbackTargetInvalid": "Invalid message feedback target.",
     "editStateInvalid": "This message cannot be edited in its current state.",
     "editTargetInvalid": "Only AI replies can be edited.",
+    "deleteTargetInvalid": "Only questions and AI replies can be deleted.",
+    "deleteTargetActive": "This reply or its follow-ups are still generating. Please wait until they finish before deleting.",
     "invalidBranch": "Invalid message branch.",
     "invalidContent": "Invalid message content.",
     "invalidFeedback": "Invalid message feedback.",
