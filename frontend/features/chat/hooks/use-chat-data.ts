@@ -56,6 +56,10 @@ export function useChatData(
   const stateRef = React.useRef(state);
   stateRef.current = state;
   const previousConversationIDRef = React.useRef<string | null>(conversationID);
+  // 本会话内已正常到达终态的 run：resume 判定要排除它们。run 正常结束时消息
+  // 状态依赖异步 reload 更新，存在「消息仍 pending 但 run 已移出活跃集合」的窗口，
+  // 不排除会被误启动 resume，回放 message_created 再误报「并行回答未能自动恢复」。
+  const settledRunIDsRef = React.useRef<Set<string>>(new Set());
   const resumeSeqByRunRef = React.useRef<Record<string, number>>({});
   const pendingAssistantContentRef = React.useRef("");
   const resumedTextByRunRef = React.useRef<Record<string, string>>({});
@@ -89,6 +93,9 @@ export function useChatData(
 
       const isConversationSwitch = previousConversationIDRef.current !== conversationID;
       previousConversationIDRef.current = conversationID;
+      if (isConversationSwitch) {
+        settledRunIDsRef.current.clear();
+      }
       setState((prev) => ({
         conversationPublicID: conversationID,
         loading: isConversationSwitch || prev.messages.length === 0,
@@ -248,6 +255,20 @@ export function useChatData(
     }
   }, [conversationID]);
 
+  // 记录正常终态的 run 并转发上层回调（run state store 的 settle）。
+  // 时序保证：submitMessage 的 finally 在 onConversationRunFinished 之后才 bump
+  // 活跃集合 revision，resume effect 重跑时该 ref 已包含刚结束的 runID。
+  const handleConversationRunFinished = React.useCallback(
+    (runID: string) => {
+      const normalizedRunID = runID.trim();
+      if (normalizedRunID) {
+        settledRunIDsRef.current.add(normalizedRunID);
+      }
+      onConversationRunFinished?.(runID);
+    },
+    [onConversationRunFinished],
+  );
+
   const cancelResumedGeneration = React.useCallback(async () => {
     const active = activeResumeStreamRef.current;
     if (!active) {
@@ -265,11 +286,11 @@ export function useChatData(
 
     const result = await cancelMessageGeneration(token, active.runID).catch((): null => null);
     if (result?.canceled) {
-      onConversationRunFinished?.(active.runID);
+      handleConversationRunFinished(active.runID);
     }
     reload();
     return Boolean(result?.canceled);
-  }, [clearResumeCheckpoint, onConversationRunFinished, reload]);
+  }, [clearResumeCheckpoint, handleConversationRunFinished, reload]);
 
   const pendingAssistant = React.useMemo(() => {
     if (!conversationID || state.conversationPublicID !== conversationID) {
@@ -299,7 +320,9 @@ export function useChatData(
     if (
       !conversationID ||
       !pendingRunID ||
-      pendingRunIsActive
+      pendingRunIsActive ||
+      // 已正常终态的 run 不再 resume：pending 只是 reload 未返回的瞬态。
+      settledRunIDsRef.current.has(pendingRunID)
     ) {
       setResumingRunID("");
       setResumingActivityLabel("");
@@ -356,12 +379,25 @@ export function useChatData(
               });
               return;
             }
+            // 该 user 锚点下已有 ≥2 个 assistant 兄弟时 fan-out 并未丢失：
+            // 多为已正常完成 run 的竞态回放（如刷新后进入已完成组合），不提示。
+            const createdUserPublicID = event.userMessage.publicID?.trim() || "";
+            const siblingAssistantCount = createdUserPublicID
+              ? stateRef.current.messages.filter(
+                  (message) =>
+                    message.role === "assistant" &&
+                    message.parentPublicID === createdUserPublicID,
+                ).length
+              : 0;
+            if (siblingAssistantCount >= 2) {
+              return;
+            }
             toast.warning(tSubmit("parallelFanOutMissedOnReconnect"), {
               description: tSubmit("parallelFanOutMissedOnReconnectDescription"),
             });
           },
           onTerminal: () => {
-            onConversationRunFinished?.(pendingRunID);
+            handleConversationRunFinished(pendingRunID);
           },
           onEventSeq: (seq) => {
             if (isResumeInactive()) {
@@ -554,7 +590,7 @@ export function useChatData(
     conversationID,
     pendingRunID,
     pendingRunIsActive,
-    onConversationRunFinished,
+    handleConversationRunFinished,
     reload,
     tSubmit,
   ]);

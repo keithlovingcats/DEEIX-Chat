@@ -365,6 +365,7 @@ export function useChatMessageSubmit({
         maxFilesPerMessage,
         modelOptions,
         selectedPlatformModelName,
+        overridePlatformModelName,
         options,
         selectedToolIDs,
         selectedSkills,

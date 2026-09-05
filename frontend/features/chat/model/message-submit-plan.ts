@@ -73,6 +73,8 @@ export function planChatSubmission(input: {
   maxFilesPerMessage: number;
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
+  /** fan-out/讨论发言/原模型重试：覆盖本次发送使用的平台模型名。 */
+  overridePlatformModelName?: string;
   options: ConversationOptions;
   selectedToolIDs: number[];
   selectedSkills: SkillSummaryDTO[];
@@ -88,7 +90,12 @@ export function planChatSubmission(input: {
 }): ChatSubmissionPlanResult {
   const { content, currentAttachments, queuedSubmission, activeStreams, combinedMessages } = input;
   const payloadContent = content || input.attachmentFallbackContent;
-  const platformModelName = (queuedSubmission?.platformModelName ?? input.selectedPlatformModelName).trim();
+  // 模型优先级：队列快照（用户入队时的选择）> 显式覆盖（fan-out 兄弟/讨论发言/原模型重试）> 当前主选择。
+  const platformModelName = (
+    queuedSubmission?.platformModelName ??
+    input.overridePlatformModelName ??
+    input.selectedPlatformModelName
+  ).trim();
   const requestOptions = queuedSubmission?.options ?? input.options;
   const selectedToolIDs = queuedSubmission?.selectedToolIDs ?? input.selectedToolIDs;
   const selectedSkills = queuedSubmission?.selectedSkills ?? input.selectedSkills;

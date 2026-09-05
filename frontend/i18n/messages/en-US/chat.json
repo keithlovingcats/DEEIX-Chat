@@ -185,6 +185,10 @@
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
       "resetView": "Reset view"
+    },
+    "codeBlock": {
+      "collapse": "Collapse",
+      "expand": "Expand all {count, plural, one {# line} other {# lines}}"
     }
   },
   "artifacts": {

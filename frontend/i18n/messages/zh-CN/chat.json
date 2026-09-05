@@ -185,6 +185,10 @@
       "zoomIn": "放大",
       "zoomOut": "缩小",
       "resetView": "重置视图"
+    },
+    "codeBlock": {
+      "collapse": "收起",
+      "expand": "展开全部 {count, plural, other {# 行}}"
     }
   },
   "artifacts": {
