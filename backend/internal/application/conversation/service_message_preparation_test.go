@@ -335,8 +335,7 @@ func TestPrepareMessageSendBranchKeepsDiscussionPromptContent(t *testing.T) {
 }
 
 // 讨论发言标记随 assistant 消息透传落库（reuse 分支只建 assistant）。
-func TestCreateAssistantDiscussionTurnPersistsMeta(t *testing.T) {
-	repo := &discussionBranchRepositoryStub{
+func TestCreateAssistantDiscussionTurnPersistsMeta(t *testing.T) {	repo := &discussionBranchRepositoryStub{
 		messagesByPublicID: map[string]*model.Message{},
 	}
 	service := &Service{repo: repo}
@@ -378,5 +377,41 @@ func TestCreateAssistantDiscussionTurnPersistsMeta(t *testing.T) {
 	}
 	if repo.createdAssistant.DiscussionMeta == nil || repo.createdAssistant.DiscussionMeta.Role != "final" {
 		t.Fatal("persisted assistant message is missing the discussion meta")
+	}
+}
+
+// 检索辅助通道（RAG/召回/记忆/图片处理）用原始问题而非讨论 wrapper，
+// 避免 transcript 文本污染召回质量。
+func TestMessageRetrievalQueryPrefersOriginalQuestionForDiscussionTurn(t *testing.T) {
+	reusedUser := &model.Message{ID: 21, Role: "user", Content: "original user question"}
+
+	discussion := messageRetrievalQuery(
+		&SendMessageInput{Content: "wrapper with transcript", DiscussionMeta: &model.MessageDiscussionMeta{DiscussionID: "disc_test"}},
+		&messageBranchState{ReuseUserMessage: reusedUser},
+	)
+	if discussion != "original user question" {
+		t.Fatalf("discussion retrieval query = %q, want original user question", discussion)
+	}
+
+	// 普通 retry（无 meta）：content 已在 preparation 回填为原问题，直接使用。
+	plainRetry := messageRetrievalQuery(
+		&SendMessageInput{Content: "original user question"},
+		&messageBranchState{ReuseUserMessage: reusedUser},
+	)
+	if plainRetry != "original user question" {
+		t.Fatalf("plain retry retrieval query = %q, want reused content", plainRetry)
+	}
+
+	// 非 reuse 请求：本次输入即用户原始输入。
+	fresh := messageRetrievalQuery(
+		&SendMessageInput{Content: "brand new question"},
+		&messageBranchState{},
+	)
+	if fresh != "brand new question" {
+		t.Fatalf("fresh request retrieval query = %q, want input content", fresh)
+	}
+
+	if nilBranch := messageRetrievalQuery(&SendMessageInput{Content: "q"}, nil); nilBranch != "q" {
+		t.Fatalf("nil branch retrieval query = %q, want input content", nilBranch)
 	}
 }

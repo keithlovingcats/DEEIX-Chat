@@ -69,6 +69,18 @@ type messagePair struct {
 	assistant *model.Message
 }
 
+// messageRetrievalQuery 选择检索辅助通道（RAG 查询、语义/记忆召回、图片处理
+// prompt）使用的查询词。讨论发言的 content 是含 transcript 的讨论 wrapper，
+// 作为检索词会污染召回质量，改用复用 user 消息的原始问题；普通 retry 的
+// content 已在 preparation 回填为原问题，非 reuse 请求的 content 本就是
+// 用户输入，均直接使用。
+func messageRetrievalQuery(input *SendMessageInput, branchState *messageBranchState) string {
+	if branchState != nil && branchState.ReuseUserMessage != nil && input.DiscussionMeta != nil {
+		return branchState.ReuseUserMessage.Content
+	}
+	return input.Content
+}
+
 // createMessagePair 为已准备的分支原子写入用户消息、助手占位消息与附件引用。
 func (s *Service) createMessagePair(
 	ctx context.Context,

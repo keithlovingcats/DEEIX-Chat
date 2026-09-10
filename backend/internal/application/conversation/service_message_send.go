@@ -585,7 +585,10 @@ func (s *Service) sendMessageInternal(
 	}
 	promptScope := buildPromptScope(contextMessages, prefetch.snapshot, compactPolicy)
 	promptMessages := promptScope.activeMessages()
-	ragQuery := buildRAGQuery(promptMessages, input.Content, cfg.RAGQueryHistoryTurns)
+	// 检索辅助通道统一用原始用户问题：讨论发言的 content 是含 transcript 的
+	// wrapper，作为检索词会污染召回（生成上下文仍用 input.Content）。
+	retrievalQuery := messageRetrievalQuery(&input, branchState)
+	ragQuery := buildRAGQuery(promptMessages, retrievalQuery, cfg.RAGQueryHistoryTurns)
 	historicalScope := promptScope.historicalMessageScope(input.ConversationID, input.UserID, userMessage.ID)
 
 	// 语义召回必须先限定到当前活跃分支，再由向量存储执行 Top-K，避免 sibling 分支占用名额。
@@ -596,7 +599,7 @@ func (s *Service) sendMessageInternal(
 		go func() {
 			recallCtx, cancel := context.WithTimeout(ctx, semanticRecallDeadline)
 			defer cancel()
-			recallCh <- s.recallSemanticContext(recallCtx, historicalScope, input.Content)
+			recallCh <- s.recallSemanticContext(recallCtx, historicalScope, retrievalQuery)
 		}()
 	}
 
@@ -627,7 +630,7 @@ func (s *Service) sendMessageInternal(
 		MessageID:      assistantMessage.ID,
 		RequestID:      input.RequestID,
 		RunID:          runID,
-		UserPrompt:     input.Content,
+		UserPrompt:     retrievalQuery,
 		Attachments:    currentAttachments,
 		Runtime:        toolRuntime,
 		TraceRecorder:  traceRecorder,
@@ -688,7 +691,7 @@ func (s *Service) sendMessageInternal(
 		}
 		otherMems := filterMemoriesByScope(prefetch.userMemories, "profile", "custom")
 		if len(otherMems) > 0 {
-			userCtx.Memory = s.selectRelevantUserMemories(ctx, input.UserID, input.Content, otherMems, 5)
+			userCtx.Memory = s.selectRelevantUserMemories(ctx, input.UserID, retrievalQuery, otherMems, 5)
 		}
 	}
 	processTraceAttachments := attachmentProcessTraceItems(fileContextPlan.Attachments)
@@ -848,7 +851,7 @@ func (s *Service) sendMessageInternal(
 		ctx,
 		historicalScope,
 		promptScope.Snapshot != nil,
-		input.Content,
+		retrievalQuery,
 		ragContextChunks,
 		ragFallbackEvidenceAttachments(ragFallbacks),
 		userCtx.RecallChunks,
@@ -882,6 +885,9 @@ func (s *Service) sendMessageInternal(
 		ToolRuntime:             toolRuntime,
 		SkipImageAttachments:    imageAttachmentRoutingActive,
 		Config:                  cfg,
+		// 讨论发言复用原 user 消息且 content 未落库，必须覆盖链尾 user 文本，
+		// 讨论 prompt（transcript/终稿指令）才能进入生成上下文。
+		OverrideReusedUserContent: reuseUserMessage && input.DiscussionMeta != nil,
 	}
 	buildRoutePrompt := func(currentRoute *channel.ResolvedRoute) (PromptPlan, bool, error) {
 		passbackEnabled := s.reasoningContentPassbackEnabled(ctx, input.UserID, currentRoute)

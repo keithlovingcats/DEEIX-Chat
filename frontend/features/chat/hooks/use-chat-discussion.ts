@@ -11,6 +11,8 @@ import type {
 /** 多模型讨论约束（与后端 dto 校验、模型多选上限 MAX_PARALLEL_MODELS 对齐）。 */
 export const MAX_DISCUSSION_MODELS = 20;
 export const MAX_DISCUSSION_ROUNDS = 5;
+/** 最少 2 轮：1 轮只有盲测独立回答 + 终稿合成，无互审环节，不构成「讨论」。 */
+export const MIN_DISCUSSION_ROUNDS = 2;
 export const DEFAULT_DISCUSSION_ROUNDS = 2;
 /** 终稿容错的总尝试上限：候选最多 20 个、每人 2 次，最坏 ~40 次；
  * 上游整体故障时提前止损，避免长时间收不了尾。 */
@@ -71,11 +73,22 @@ function isTurnCompletedStatus(status: DiscussionTurnStatus): boolean {
   return status === "completed";
 }
 
-/** transcript 只收录成功发言；失败发言是运营故障而非观点，不进入后续 prompt。 */
-export function buildDiscussionTranscript(turns: DiscussionTurn[]): string {
+/**
+ * transcript 只收录成功发言；失败发言是运营故障而非观点，不进入后续 prompt。
+ * filter.maxRound 限定只收录该轮次及以前的发言（轮次快照）：第 N 轮发言只审阅
+ * 第 N-1 轮及以前的确定内容，消除轮内序列特权（后发言者提前看到同轮先发言者
+ * 的互审，单向信息泄露）。不传 filter 与全量行为完全等价（终稿合成用全量）。
+ */
+export function buildDiscussionTranscript(
+  turns: DiscussionTurn[],
+  filter?: { maxRound?: number },
+): string {
   const lines: string[] = [];
   for (const turn of turns) {
     if (turn.role !== "participant" || turn.status !== "completed" || !turn.text.trim()) {
+      continue;
+    }
+    if (filter?.maxRound !== undefined && turn.round > filter.maxRound) {
       continue;
     }
     lines.push(`Round ${turn.round}`);
@@ -162,9 +175,12 @@ export type DiscussionSendFn = (params: DiscussionSendParams) => Promise<boolean
 
 /**
  * useChatDiscussion 多模型讨论编排器。
- * 把「多模型并行 fan-out」的并行循环串行化为逐轮辩论：每个发言是一次独立的
- * submitMessage（独立 run/消息/计费），轮次间靠 Promise 语义等待；transcript
- * 拼进请求 content（后端对带 discussionMeta 的 reuse 分支不回填原用户消息）。
+ * 逐轮辩论、轮内并行：每个发言是一次独立的 submitMessage（独立 run/消息/计费），
+ * 轮与轮之间 barrier 等待（快照固定），同轮发言并行 fan-out（信息结构上本就互不
+ * 可见，并行只压缩墙钟时间）；讨论 prompt 拼进请求 content，后端对带
+ * discussionMeta 的 reuse 分支以 content 覆盖链尾 user 文本送入生成上下文。
+ * 第 1 轮全员盲测（裸原始问题，锚点 message_created 一到即 fan-out），第 2 轮
+ * 起凭上一轮快照互审，终稿凭全量 transcript 合成。
  */
 export function useChatDiscussion({
   submitMessage,
@@ -186,7 +202,8 @@ export function useChatDiscussion({
   /** 运行态权威相位表；渲染层优先取 runtime.phase，无 runtime（刷新恢复）才从消息推导。 */
   const getDiscussionRuntimes = React.useCallback(() => runtimesRef.current, []);
 
-  /** 停止进行中的讨论：置中止标志并按 runID 显式取消当前发言的 run。 */
+  /** 停止进行中的讨论：置中止标志并按 runID 显式取消全部进行中发言的 run
+   *（轮内并行后同时存在多条 running，逐一取消）。 */
   const stopDiscussion = React.useCallback(() => {
     let stopped = false;
     for (const runtime of runtimesRef.current.values()) {
@@ -195,9 +212,10 @@ export function useChatDiscussion({
       }
       runtime.abortRequested = true;
       stopped = true;
-      const runningTurn = runtime.turns.find((turn) => turn.status === "running");
-      if (runningTurn?.clientRunID) {
-        cancelRunRef.current(runningTurn.clientRunID);
+      for (const turn of runtime.turns) {
+        if (turn.status === "running" && turn.clientRunID) {
+          cancelRunRef.current(turn.clientRunID);
+        }
       }
     }
     if (stopped) {
@@ -224,9 +242,9 @@ export function useChatDiscussion({
         return false;
       }
       const discussionID = createDiscussionID();
-      const boundedRounds = Math.max(1, Math.min(rounds, MAX_DISCUSSION_ROUNDS));
+      const boundedRounds = Math.max(MIN_DISCUSSION_ROUNDS, Math.min(rounds, MAX_DISCUSSION_ROUNDS));
 
-      // 预排全部发言（参与者 × 轮次 + 终稿）：驱动串行循环、transcript 与中止标记；
+      // 预排全部发言（参与者 × 轮次 + 终稿）：驱动逐轮执行、transcript 与中止标记；
       // 面板渲染从消息树推导，不直接消费这里的 pending 占位。
       const turns: DiscussionTurn[] = [];
       let index = 0;
@@ -265,8 +283,19 @@ export function useChatDiscussion({
       bump();
 
       const anchor = { userPublicID: "", assistantPublicID: "" };
+      // 锚点就绪信号：Turn 1 的 message_created（消息落库即发）携带 user/assistant
+      // publicID，后续发言只依赖锚点而非 Turn 1 生成完成，据此可提前并行 fan-out。
+      let signalAnchorReady!: () => void;
+      const anchorReady = new Promise<void>((resolve) => {
+        signalAnchorReady = resolve;
+      });
 
       const runTurn = async (turn: DiscussionTurn, prompt: string) => {
+        if (runtime.abortRequested) {
+          turn.status = "stopped";
+          bump();
+          return false;
+        }
         turn.status = "running";
         bump();
         const meta: MessageDiscussionMetaInput = {
@@ -295,11 +324,15 @@ export function useChatDiscussion({
           onAssistantCreated: (created) => {
             turn.assistantPublicID = created.assistantPublicID;
             turn.clientRunID = created.runID;
+            if (runtime.abortRequested) {
+              cancelRunRef.current(created.runID);
+            }
             if (!anchor.userPublicID) {
               anchor.userPublicID = created.userPublicID;
             }
             if (!anchor.assistantPublicID) {
               anchor.assistantPublicID = created.assistantPublicID;
+              signalAnchorReady();
             }
             bump();
           },
@@ -343,7 +376,7 @@ export function useChatDiscussion({
       // 终稿容错：总结模型失败先同模型重试一次，仍失败则按参与顺序换
       // 「本次讨论中有成功发言」的参与者接替（每个候选同样一次重试机会），
       // 全部候选耗尽或达到总尝试上限（MAX_DISCUSSION_FINAL_ATTEMPTS）才判
-      // error——终稿是整场串行讨论的价值收口，不因单个模型不可用而作废。
+      // error——终稿是整场讨论的价值收口，不因单个模型不可用而作废。
       // 失败尝试作为独立 turn 保留在 turns 中（讨论面板可见红色卡片），
       // 替补发言复用同一 index：同一发言槽位的再次尝试，面板排序与后端
       // 校验均不受影响。
@@ -400,41 +433,76 @@ export function useChatDiscussion({
         }
       };
 
-      // 首条（第 1 轮第 1 个参与者）走 default 分支建立 user 消息与锚点。
-      // default 分支的 content 会落库为用户消息并渲染为用户气泡，必须用原始
-      // 输入而非讨论 wrapper —— 第 1 轮「独立回答」语义由第 2 轮起的 prompt 补足。
-      const firstTurn = turns[0];
-      await runTurn(firstTurn, content);
+      // ── Round 1（盲测）：首条走 default 分支建立 user 消息与锚点（content 落库
+      // 为用户气泡，必须用原始输入）；message_created 一到即并行发出其余盲测发言，
+      // 与多模型并行对话的 fan-out 同模式。race 兜底：Turn 1 失败收尾而锚点未建立
+      // （请求被拒/网络失败）时不得死等，整场终止。
+      const firstRun = runTurn(turns[0], content);
+      await Promise.race([anchorReady, firstRun]);
       if (!anchor.assistantPublicID) {
-        // 连消息锚点都没建立（请求被拒或网络失败），整场终止。
         markRemainingStopped();
-        runtime.phase = "error";
+        runtime.phase = runtime.abortRequested ? "stopped" : "error";
         bump();
         return false;
       }
+      if (runtime.abortRequested) {
+        markRemainingStopped();
+        runtime.phase = "stopped";
+        bump();
+        return true;
+      }
+      // 第 1 轮盲测隔离：全员透传原始问题，与首条 turn 完全同构——零 wrapper
+      // 元话语污染、零语言漂移，消除首模型锚定。带 meta 的 retry 分支后端
+      // 以 content 覆盖链尾 user 文本，裸 content 即独立重答原问题。
+      const round1RemainingTurns = turns.filter(
+        (item) => item.role === "participant" && item.round === 1 && item !== turns[0],
+      );
+      await Promise.all([
+        firstRun,
+        ...round1RemainingTurns.map((turn) => runTurn(turn, content)),
+      ]);
 
-      for (const turn of turns.slice(1)) {
+      // ── Round 2..N（互审）：轮间 barrier（快照固定），轮内并行——同轮发言本就
+      // 凭 maxRound 快照互不可见，并行不改变信息结构，只压缩墙钟时间。
+      for (let round = 2; round <= boundedRounds; round += 1) {
         if (runtime.abortRequested) {
           markRemainingStopped();
           runtime.phase = "stopped";
           bump();
           return true;
         }
-        if (turn.role === "final") {
-          runtime.phase = "summarizing";
-          bump();
-          await runFinalWithFallback(turn);
-        } else {
-          await runTurn(
-            turn,
-            buildDiscussionParticipantPrompt({
-              modelName: turn.model,
-              round: turn.round,
-              userPrompt: content,
-              transcript: buildDiscussionTranscript(turns),
-            }),
-          );
-        }
+        // 第 N 轮只审阅第 N-1 轮及以前的确定快照，消除轮内序列特权（后发言者
+        // 单向提前看到同轮互审）；对撞延迟到下一轮与终稿。前序全失败的兜底
+        // （快照为空串）由 buildDiscussionParticipantPrompt 的 !transcript 分支承接。
+        const transcript = buildDiscussionTranscript(turns, { maxRound: round - 1 });
+        const roundTurns = turns.filter((item) => item.role === "participant" && item.round === round);
+        await Promise.all(
+          roundTurns.map((turn) =>
+            runTurn(
+              turn,
+              buildDiscussionParticipantPrompt({
+                modelName: turn.model,
+                round: turn.round,
+                userPrompt: content,
+                transcript,
+              }),
+            ),
+          ),
+        );
+      }
+
+      // ── 终稿：凭全量 transcript 合成（runFinalWithFallback 内部取全量，不带快照过滤）。
+      if (runtime.abortRequested) {
+        markRemainingStopped();
+        runtime.phase = "stopped";
+        bump();
+        return true;
+      }
+      const finalTurn = turns.find((turn) => turn.role === "final");
+      if (finalTurn) {
+        runtime.phase = "summarizing";
+        bump();
+        await runFinalWithFallback(finalTurn);
       }
 
       // 终稿可能有多条同 index 尝试：成功以最新 completed 为准，不能看数组末尾

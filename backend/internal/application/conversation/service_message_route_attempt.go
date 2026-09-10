@@ -22,6 +22,10 @@ type messageRoutePromptInput struct {
 	ToolRuntime              selectedToolRuntime
 	SkipImageAttachments     bool
 	Config                   config.Config
+	// OverrideReusedUserContent 表示本次请求复用了既有 user 消息（reuse 分支）且
+	// 本次 content 未落库（带 DiscussionMeta 的讨论发言）。链尾 user 消息仍是
+	// 原问题文本，若不覆盖，讨论 prompt（含 transcript）永远进不了生成上下文。
+	OverrideReusedUserContent bool
 }
 
 func withMessageRouteReasoningPassbackOptions(
@@ -60,7 +64,11 @@ func (s *Service) buildMessageRoutePrompt(ctx context.Context, route *channel.Re
 			return PromptPlan{}, err
 		}
 	}
-	if len(historyMessages) == 0 {
+	if input.OverrideReusedUserContent {
+		// 讨论 prompt 内已含用户原问题，替换链尾（而非追加）避免重复，
+		// 也避免 Anthropic 协议下连续两条 user 消息；只覆盖文本，保留注入的图片 Parts。
+		historyMessages = replaceLastUserMessageContent(historyMessages, input.UserContent)
+	} else if len(historyMessages) == 0 {
 		historyMessages = append(historyMessages, llm.Message{Role: "user", Content: input.UserContent})
 	}
 
@@ -88,4 +96,18 @@ func (s *Service) buildMessageRoutePrompt(ctx context.Context, route *channel.Re
 		Config:            input.Config,
 		StoreProvider:     s.storeProvider,
 	}), nil
+}
+
+// replaceLastUserMessageContent 把最后一条 user 消息的文本替换为本次生成输入，
+// 供复用 user 消息且本次 content 未落库的请求（讨论发言）把讨论 prompt 送进
+// 生成上下文；仅覆盖 Content，保留消息上已注入的多模态 Parts。找不到 user
+// 消息时退化为追加，保证输入不丢失。
+func replaceLastUserMessageContent(messages []llm.Message, content string) []llm.Message {
+	for index := len(messages) - 1; index >= 0; index -= 1 {
+		if messages[index].Role == "user" {
+			messages[index].Content = content
+			return messages
+		}
+	}
+	return append(messages, llm.Message{Role: "user", Content: content})
 }

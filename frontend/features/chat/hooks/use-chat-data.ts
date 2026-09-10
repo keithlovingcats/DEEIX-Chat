@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
 import { buildMediaImagePreviewMarkdown } from "@/features/chat/model/media-image-preview";
+import { clearStreamEventSeq, peekStreamEventSeq } from "@/features/chat/model/stream-event-seq";
 import { upsertLiveUpstreamThinkTrace } from "@/features/chat/model/upstream-think-store";
 import { cancelMessageGeneration, listMessagesPage, resumeMessageGenerationStream } from "@/shared/api/conversation";
 import type { MessageDTO } from "@/shared/api/conversation.types";
@@ -263,6 +264,7 @@ export function useChatData(
       const normalizedRunID = runID.trim();
       if (normalizedRunID) {
         settledRunIDsRef.current.add(normalizedRunID);
+        clearStreamEventSeq(normalizedRunID);
       }
       onConversationRunFinished?.(runID);
     },
@@ -331,7 +333,10 @@ export function useChatData(
 
     const controller = new AbortController();
     let closed = false;
-    const afterSeq = resumeSeqByRunRef.current[pendingRunID] ?? 0;
+    // 回放起点取 resume 自身游标与原始流断点（stream-event-seq）的较大值：
+    // 运行中断流时从真实断点续传，不重发 message_created（讨论场景的
+    // 「讨论已中断」提示只在页面刷新（编排确已丢失）时出现）。
+    const afterSeq = Math.max(resumeSeqByRunRef.current[pendingRunID] ?? 0, peekStreamEventSeq(pendingRunID));
     const baseContent = pendingAssistantContentRef.current;
     const resumedTextByRun = resumedTextByRunRef.current;
     const clearResumedText = () => {

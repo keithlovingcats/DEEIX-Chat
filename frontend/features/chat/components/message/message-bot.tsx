@@ -595,19 +595,22 @@ export function ChatMessageBot({
       {screenshotMeta}
 
       {hasModelBranches ? (
-        <div className="mt-2 flex w-full justify-start" data-screenshot-exclude="true">
+        <div className="mt-2.5 flex w-full justify-start" data-screenshot-exclude="true">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 ref={backToModelTabsRef}
                 type="button"
                 variant="outline"
-                size="xs"
-                className="text-muted-foreground hover:text-foreground"
+                size="sm"
+                className="group h-7.5 gap-1.5 rounded-full border-border/80 bg-background/90 px-3 text-xs font-medium text-foreground/90 shadow-2xs transition-all duration-150 hover:border-primary/40 hover:bg-primary/5 hover:text-primary hover:shadow-xs active:scale-[0.98] dark:border-border/60 dark:bg-muted/40 dark:hover:border-primary/40 dark:hover:bg-primary/15"
                 onClick={() => scrollToMessageTop()}
               >
-                <ArrowUpToLine className="size-3" strokeWidth={1.8} />
-                {tMessages("backToModelTabs")}
+                <ArrowUpToLine
+                  className="size-3.5 text-primary transition-transform duration-200 group-hover:-translate-y-0.5"
+                  strokeWidth={1.8}
+                />
+                <span>{tMessages("backToModelTabs")}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>{tMessages("backToModelTabs")}</TooltipContent>
@@ -625,11 +628,11 @@ export function ChatMessageBot({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:bg-muted"
+                    className="pointer-events-auto group inline-flex size-9 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-lg backdrop-blur transition hover:border-primary/40 hover:bg-primary/5"
                     aria-label={tMessages("backToModelTabs")}
                     onClick={() => scrollToMessageTop()}
                   >
-                    <ArrowUpToLine className="size-4" strokeWidth={1.8} />
+                    <ArrowUpToLine className="size-4 text-primary transition-transform duration-200 group-hover:-translate-y-0.5" strokeWidth={1.8} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left">{tMessages("backToModelTabs")}</TooltipContent>

@@ -176,22 +176,28 @@ export function ChatMessageDiscussion({
         </div>
       )}
 
-      <div className="mt-1.5">
+      <div className="mt-2.5">
         <DiscussionPanel group={group} phase={discussion.phase} />
       </div>
 
-      <div className="mt-2 flex w-full items-center gap-2" data-screenshot-exclude="true">
+      <div
+        className="mt-3.5 flex w-full flex-wrap items-center gap-2 border-t border-border/40 pt-2.5"
+        data-screenshot-exclude="true"
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               type="button"
               variant="outline"
-              size="xs"
-              className="text-muted-foreground hover:text-foreground"
+              size="sm"
+              className="group h-7.5 gap-1.5 rounded-full border-border/80 bg-background/90 px-3 text-xs font-medium text-foreground/90 shadow-2xs transition-all duration-150 hover:border-primary/40 hover:bg-primary/5 hover:text-primary hover:shadow-xs active:scale-[0.98] dark:border-border/60 dark:bg-muted/40 dark:hover:border-primary/40 dark:hover:bg-primary/15"
               onClick={scrollToMessageTop}
             >
-              <ArrowUpToLine className="size-3" strokeWidth={1.8} />
-              {t("backToDiscussionTop")}
+              <ArrowUpToLine
+                className="size-3.5 text-primary transition-transform duration-200 group-hover:-translate-y-0.5"
+                strokeWidth={1.8}
+              />
+              <span>{t("backToDiscussionTop")}</span>
             </Button>
           </TooltipTrigger>
           <TooltipContent>{t("backToDiscussionTop")}</TooltipContent>
@@ -202,16 +208,20 @@ export function ChatMessageDiscussion({
               <Button
                 type="button"
                 variant="outline"
-                size="xs"
-                className="text-muted-foreground hover:text-foreground"
+                size="sm"
+                className={cn(
+                  "group h-7.5 gap-1.5 rounded-full border-border/80 bg-background/90 px-3 text-xs font-medium text-foreground/90 shadow-2xs transition-all duration-150 hover:border-border hover:bg-accent hover:text-foreground hover:shadow-xs active:scale-[0.98] dark:border-border/60 dark:bg-muted/40 dark:hover:bg-accent",
+                  isCopied(copyKey) &&
+                    "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 hover:border-emerald-500/50 hover:bg-emerald-500/15 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-400",
+                )}
                 onClick={handleCopy}
               >
                 {isCopied(copyKey) ? (
-                  <Check className="size-3 text-emerald-500" strokeWidth={1.8} />
+                  <Check className="size-3.5 text-emerald-500 transition-transform scale-110" strokeWidth={2} />
                 ) : (
-                  <Copy className="size-3" strokeWidth={1.8} />
+                  <Copy className="size-3.5 text-muted-foreground transition-colors group-hover:text-foreground" strokeWidth={1.8} />
                 )}
-                {isCopied(copyKey) ? t("copied") : t("copy")}
+                <span>{isCopied(copyKey) ? t("copied") : t("copy")}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>{isCopied(copyKey) ? t("copied") : t("copy")}</TooltipContent>

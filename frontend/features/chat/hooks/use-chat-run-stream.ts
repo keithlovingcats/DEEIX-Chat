@@ -7,6 +7,7 @@ import type { ChatSubmitTask } from "@/features/chat/model/chat-task";
 import { buildMediaImagePreviewMarkdown } from "@/features/chat/model/media-image-preview";
 import { toPendingProcessTrace } from "@/features/chat/model/message-submit";
 import { settleCompletedExchange } from "@/features/chat/model/message-submit-exchange";
+import { recordStreamEventSeq } from "@/features/chat/model/stream-event-seq";
 import {
   resolveMediaStatusLabel,
   resolveVideoExtensionOptions,
@@ -116,6 +117,11 @@ export function useChatRunStream({
       let terminalStreamError: Extract<StreamMessageEvent, { type: "error" }> | null = null;
       const streamOptions: ConversationStreamOptions = {
         signal,
+        // 记录原始流断点：断线重连时从真实断点续传，避免全量回放重发
+        // message_created（讨论场景会误报「讨论已中断」）。
+        onEventSeq: (seq) => {
+          recordStreamEventSeq(clientRunID, seq);
+        },
         onTerminal: () => {
           onConversationRunFinished?.(clientRunID);
         },

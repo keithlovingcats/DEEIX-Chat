@@ -332,6 +332,8 @@ export function DiscussionPanel({
       .map(([round, items]) => ({ round, items }));
   }, [turns]);
 
+  const isOpen = accordionValue === DISCUSSION_PANEL_ACCORDION;
+
   return (
     <Accordion
       type="single"
@@ -340,51 +342,71 @@ export function DiscussionPanel({
       onValueChange={(value) => setAccordionValue(value || "")}
       className="w-full"
     >
-      <AccordionItem value={DISCUSSION_PANEL_ACCORDION} className="border-b-0">
+      <AccordionItem
+        value={DISCUSSION_PANEL_ACCORDION}
+        className={cn(
+          "overflow-hidden rounded-xl border border-border/80 bg-background/60 shadow-2xs transition-all duration-200",
+          "hover:border-border hover:shadow-xs",
+          "dark:border-border/60 dark:bg-muted/20 dark:hover:border-border/80",
+          active && "border-primary/40 bg-primary/[0.02]",
+        )}
+      >
         <AccordionTrigger
           iconPosition="none"
-          className="group/discussion min-h-0 justify-between gap-1.5 py-0.5 text-left no-underline hover:no-underline"
+          className={cn(
+            "group/discussion flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left no-underline transition-colors hover:no-underline",
+            "hover:bg-muted/40 dark:hover:bg-muted/35 active:scale-[0.998]",
+            isOpen && "border-b border-border/40 bg-muted/20 dark:bg-muted/30",
+          )}
         >
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <MessageCircle className="size-3.5 shrink-0 text-primary" />
-              <Marker
-                render={<span />}
-                className={cn(
-                  "inline-flex min-h-0 w-auto text-[13px] font-medium transition-colors",
-                  !active && "text-muted-foreground group-hover/discussion:text-foreground",
-                )}
-              >
-                <MarkerContent className={cn("min-w-0", active && "shimmer")}>
-                  {t("panelTitle")}
-                </MarkerContent>
-              </Marker>
-              <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground">
-                <span className={cn("size-1.5 rounded-full", phaseDotClass(phase))} />
-                {active ? <Loader2 className="size-3 animate-spin" /> : null}
-                {t(phaseLabelKey(phase))}
-              </span>
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary transition-transform duration-200 group-hover/discussion:scale-105">
+              <MessageCircle className="size-3.5" strokeWidth={2} />
             </div>
-            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[11px] font-normal leading-4 text-muted-foreground/62">
-              <span>{t("panelParticipantCount", { count: participants.length })}</span>
-              {runningTurn ? (
-                <span className="truncate text-primary">
-                  {t("panelCurrentSpeaker", { model: runningTurn.model })}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Marker
+                  render={<span />}
+                  className={cn(
+                    "inline-flex min-h-0 w-auto text-[13px] font-semibold tracking-tight transition-colors",
+                    active ? "text-foreground" : "text-foreground/90 group-hover/discussion:text-foreground",
+                  )}
+                >
+                  <MarkerContent className={cn("min-w-0", active && "shimmer")}>
+                    {t("panelTitle")}
+                  </MarkerContent>
+                </Marker>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-2xs dark:bg-muted/50">
+                  <span className={cn("size-1.5 rounded-full", phaseDotClass(phase))} />
+                  {active ? <Loader2 className="size-2.5 animate-spin" /> : null}
+                  <span>{t(phaseLabelKey(phase))}</span>
                 </span>
-              ) : null}
-              {finalTurn?.model ? (
-                <span>{t("panelFinalModel", { model: finalTurn.model })}</span>
-              ) : null}
+              </div>
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[11px] font-normal leading-4 text-muted-foreground">
+                <span>{t("panelParticipantCount", { count: participants.length })}</span>
+                {runningTurn ? (
+                  <span className="truncate font-medium text-primary">
+                    {t("panelCurrentSpeaker", { model: runningTurn.model })}
+                  </span>
+                ) : null}
+                {finalTurn?.model ? (
+                  <span className="truncate text-muted-foreground/80">
+                    {t("panelFinalModel", { model: finalTurn.model })}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
-          <AnimatedChevronDown
-            className={cn(
-              "mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-hover/discussion:text-foreground",
-              accordionValue === DISCUSSION_PANEL_ACCORDION && "rotate-180",
-            )}
-          />
+          <div className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all group-hover/discussion:bg-background group-hover/discussion:text-foreground dark:group-hover/discussion:bg-muted/80">
+            <AnimatedChevronDown
+              className={cn(
+                "size-3.5 transition-transform duration-200",
+                isOpen && "rotate-180",
+              )}
+            />
+          </div>
         </AccordionTrigger>
-        <AccordionContent className="space-y-2 px-0 pb-0 pt-1.5 duration-[350ms] ease-in-out">
+        <AccordionContent className="space-y-2 px-3.5 pb-3 pt-2.5 duration-[350ms] ease-in-out">
           <div className="flex flex-wrap items-center gap-1">
             {participants.map((model) => (
               <button

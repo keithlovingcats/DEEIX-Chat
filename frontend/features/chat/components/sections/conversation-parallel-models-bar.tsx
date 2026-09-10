@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { DEFAULT_DISCUSSION_ROUNDS, MAX_DISCUSSION_MODELS, MAX_DISCUSSION_ROUNDS } from "@/features/chat/hooks/use-chat-discussion";
+import { DEFAULT_DISCUSSION_ROUNDS, MAX_DISCUSSION_MODELS, MAX_DISCUSSION_ROUNDS, MIN_DISCUSSION_ROUNDS } from "@/features/chat/hooks/use-chat-discussion";
 import { MAX_PARALLEL_MODELS } from "@/features/chat/hooks/use-chat-model-options";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { cn } from "@/lib/utils";
@@ -246,7 +246,7 @@ export function ConversationParallelModelsBar({
                 </button>
               </PopoverTrigger>
               <PopoverContent align="start" side="bottom" sideOffset={6} className="w-40 rounded-xl border-[0.5px] border-border bg-popover p-1.5 shadow-xs">
-                {Array.from({ length: MAX_DISCUSSION_ROUNDS }, (_, index) => index + 1).map((rounds) => (
+                {Array.from({ length: MAX_DISCUSSION_ROUNDS - MIN_DISCUSSION_ROUNDS + 1 }, (_, index) => index + MIN_DISCUSSION_ROUNDS).map((rounds) => (
                   <button
                     key={rounds}
                     type="button"
