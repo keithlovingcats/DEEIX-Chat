@@ -90,6 +90,12 @@ export function ChatMessageDiscussion({
   const displayMessage = streamingMessage ?? finalMessage ?? item;
   const running = discussion.phase === "running" || discussion.phase === "summarizing";
   const content = displayMessage.content?.trim() ?? "";
+  // 终稿全部失败时正文只落「讨论未产生最终回答」，补上最后一次尝试的具体错误便于定位。
+  const latestFinal = findLatestDiscussionFinalMessage(group);
+  const finalErrorMessage =
+    !running && !content && latestFinal?.inlineAlert?.message?.trim()
+      ? latestFinal.inlineAlert.message.trim()
+      : undefined;
   const copyKey = item.publicID || item.key;
   const handleCopy = React.useCallback(() => {
     void copy(displayMessage.content, { key: copyKey });
@@ -160,7 +166,14 @@ export function ChatMessageDiscussion({
       ) : streamingMessage ? (
         <AssistantMessageSkeleton label={streamingMessage.activityLabel} />
       ) : (
-        <p className="text-sm leading-7 text-muted-foreground">{t("emptyDiscussionContent")}</p>
+        <div>
+          <p className="text-sm leading-7 text-muted-foreground">{t("emptyDiscussionContent")}</p>
+          {finalErrorMessage ? (
+            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-red-500/90">
+              {finalErrorMessage}
+            </p>
+          ) : null}
+        </div>
       )}
 
       <div className="mt-1.5">

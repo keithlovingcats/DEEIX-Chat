@@ -67,6 +67,20 @@ func ErrorWithCode(c *gin.Context, status int, code string, msg string) {
 	ErrorWithDetails(c, status, code, PublicErrorMessage(status, code, msg), nil)
 }
 
+// ErrorWithClientMessage 返回带稳定错误码的错误响应；msg 视为调用方已脱敏的
+// 客户端可见文案（如上游错误摘要），跳过 PublicErrorMessage 白名单泛化。
+func ErrorWithClientMessage(c *gin.Context, status int, code string, msg string) {
+	if code == "" {
+		code = InferErrorCode(status, msg)
+	}
+	c.JSON(status, Envelope{
+		ErrorMsg:  strings.TrimSpace(msg),
+		ErrorCode: code,
+		RequestID: requestID(c),
+		Data:      nil,
+	})
+}
+
 // ErrorWithDetails 返回带稳定错误码、调试信息和请求 ID 的错误响应。
 func ErrorWithDetails(c *gin.Context, status int, code string, msg string, details interface{}) {
 	if code == "" {

@@ -90,7 +90,7 @@ import {
   summarizeImportResult,
   validateRowDrafts,
 } from "@/features/admin/model/upstreams-models";
-import { MODEL_KIND_OPTIONS, PAGE_SIZE_DEFAULT } from "@/features/admin/types/llm";
+import { MODEL_KIND_OPTIONS } from "@/features/admin/types/llm";
 import {
   PROTOCOL_OPTIONS,
   resolveKindsDisplayForProtocols,
@@ -1135,10 +1135,13 @@ type BulkPatchConfirm = {
   patch: RowDraftPatch;
 };
 
+/** 上游路由列表默认每页条数：单上游动辄数百个模型路由，默认 100 减少翻页。 */
+const ROUTE_PAGE_SIZE_DEFAULT = 100;
+
 const DEFAULT_ROUTE_LIST_PARAMS: RouteListParams = {
   upstreamID: null,
   page: 1,
-  pageSize: PAGE_SIZE_DEFAULT,
+  pageSize: ROUTE_PAGE_SIZE_DEFAULT,
   query: "",
   routeStatusFilter: "bound",
   upstreamStatusFilter: "all",

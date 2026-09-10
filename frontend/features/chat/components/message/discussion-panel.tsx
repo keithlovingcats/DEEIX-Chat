@@ -28,6 +28,8 @@ type TurnView = {
   running: boolean;
   failed: boolean;
   stopped: boolean;
+  /** 失败/拦截发言的具体错误；inlineAlert 在实时结算与刷新恢复两条路径都会挂载。 */
+  errorMessage?: string;
 };
 
 function toTurnView(message: ChatAreaMessage): TurnView {
@@ -45,6 +47,7 @@ function toTurnView(message: ChatAreaMessage): TurnView {
     running,
     failed,
     stopped,
+    errorMessage: running ? undefined : message.inlineAlert?.message?.trim() || undefined,
   };
 }
 
@@ -139,7 +142,8 @@ function TurnCard({
     formatDuration(turn.message.latencyMS),
   ].filter(Boolean) as string[];
   const content = turn.message.content?.trim() ?? "";
-  const collapsible = content.length > 0;
+  // 失败发言的错误信息可能与部分输出并存（流中断：先有 delta 后 error）。
+  const collapsible = content.length > 0 || Boolean(turn.errorMessage);
   const copyKey = turn.message.publicID || turn.message.key;
   const copied = isCopied(copyKey);
   return (
@@ -227,14 +231,28 @@ function TurnCard({
         >
           {content}
         </p>
-      ) : turn.running ? (
-        <p className="mt-1.5 flex items-center gap-1 leading-4 text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" />
-          {t("turnPreparing")}
+      ) : null}
+      {turn.errorMessage ? (
+        <p
+          className={cn(
+            "whitespace-pre-wrap break-words leading-4 text-red-500/90",
+            content && "mt-1.5",
+            !expanded && "line-clamp-3",
+          )}
+        >
+          {turn.errorMessage}
         </p>
-      ) : (
-        <p className="mt-1.5 leading-4 text-muted-foreground/70">{t("turnEmpty")}</p>
-      )}
+      ) : null}
+      {!content && !turn.errorMessage ? (
+        turn.running ? (
+          <p className="mt-1.5 flex items-center gap-1 leading-4 text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            {t("turnPreparing")}
+          </p>
+        ) : (
+          <p className="mt-1.5 leading-4 text-muted-foreground/70">{t("turnEmpty")}</p>
+        )
+      ) : null}
     </div>
   );
 }

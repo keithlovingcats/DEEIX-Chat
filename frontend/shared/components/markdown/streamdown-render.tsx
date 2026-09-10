@@ -208,6 +208,11 @@ const STREAMDOWN_REMEND = {
 } as const;
 
 const STREAMDOWN_CARET = "circle" as const;
+// streamdown 默认 codeBlockMaxHeight=400 会以内联 max-height 写在 code-block-body 上，
+// 压过 MarkdownCodePre 折叠用的 max-h class，导致"展开全部行"后仍被钉在 400px。
+// 传 0（非 undefined，undefined 会回落默认参数）让 streamdown 跳过内联限制，
+// 折叠/展开高度完全由 MarkdownCodePre 控制。
+const STREAMDOWN_CODE_BLOCK_MAX_HEIGHT = 0;
 const STREAMDOWN_LINK_SAFETY = { enabled: false } as const;
 const STREAMDOWN_SANITIZED_HTML_TAGS = {
   article: ["style"],
@@ -680,6 +685,7 @@ function ThinkingSegmentBlock({
             <Streamdown
               className={cn(THINKING_MARKDOWN_CLASSNAME, "text-[12px] leading-6 text-muted-foreground/84")}
               components={THINKING_STREAMDOWN_COMPONENTS}
+              codeBlockMaxHeight={STREAMDOWN_CODE_BLOCK_MAX_HEIGHT}
               controls={STREAMDOWN_CONTROLS}
               icons={icons}
               plugins={plugins}
@@ -719,6 +725,7 @@ function HTMLInlineMarkdownProvider({
         <Streamdown
           className={className}
           components={components}
+          codeBlockMaxHeight={STREAMDOWN_CODE_BLOCK_MAX_HEIGHT}
           controls={false}
           plugins={plugins}
           rehypePlugins={STREAMDOWN_REHYPE_PLUGINS}
@@ -852,6 +859,7 @@ export const StreamdownRender = React.memo(function StreamdownRender({
               <Streamdown
                 className={activeMarkdownClassName}
                 components={components}
+                codeBlockMaxHeight={STREAMDOWN_CODE_BLOCK_MAX_HEIGHT}
                 controls={STREAMDOWN_CONTROLS}
                 icons={icons}
                 plugins={plugins}

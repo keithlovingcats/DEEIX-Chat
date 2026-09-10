@@ -446,11 +446,14 @@ func handleSendMessageError(c *gin.Context, err error) {
 	case errors.Is(err, billing.ErrUsageBalanceInsufficient):
 		response.Error(c, http.StatusPaymentRequired, "usage balance is insufficient")
 	case errors.Is(err, appconversation.ErrUpstreamRequestFailed):
-		if code := appconversation.MessageErrorCode(err); code != "" {
-			response.ErrorWithCode(c, http.StatusBadGateway, code, mapClientErrorMessage(err))
-			return
+		// 上游失败摘要（含 HTTP 状态码与上游 error.message）直接透传给前端，
+		// 信息量与落库 error_message 一致；code 为空时钉稳定码，避免摘要被
+		// InferErrorCode 的启发式 slug 化成不可读错误码。
+		code := appconversation.MessageErrorCode(err)
+		if code == "" {
+			code = response.CodeUpstreamUnavailable
 		}
-		response.Error(c, http.StatusBadGateway, mapClientErrorMessage(err))
+		response.ErrorWithClientMessage(c, http.StatusBadGateway, code, mapClientErrorMessage(err))
 	default:
 		response.Error(c, http.StatusInternalServerError, "send message failed")
 	}

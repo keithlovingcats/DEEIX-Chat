@@ -90,8 +90,17 @@ export function ConversationParallelModelsBar({
   );
   const [activeGroupKey, setActiveGroupKey] = React.useState("");
   const modelGroups = React.useMemo(() => resolveModelGroups(modelOptions), [modelOptions]);
+  // 默认展开第一个供应商，但只初始化一次：之后完全交给用户，第一组也能折叠
+  // （不能每次 groups 变化都重置，弹层打开会刷新目录、覆盖用户刚折叠的状态）。
+  const defaultGroupInitRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!defaultGroupInitRef.current && modelGroups.length > 0) {
+      defaultGroupInitRef.current = true;
+      setActiveGroupKey(modelGroups[0].key);
+    }
+  }, [modelGroups]);
   const activeGroup = React.useMemo(
-    () => modelGroups.find((group) => group.key === activeGroupKey) ?? modelGroups[0] ?? null,
+    () => modelGroups.find((group) => group.key === activeGroupKey) ?? null,
     [activeGroupKey, modelGroups],
   );
 
@@ -310,6 +319,7 @@ export function ConversationParallelModelsBar({
                         expanded ? "text-foreground" : "text-muted-foreground",
                       )}
                       onClick={() => setActiveGroupKey(expanded ? "" : group.key)}
+                      title={group.label}
                     >
                       <ModelIcon iconUrl={groupIconURL} label={group.label} />
                       <span className="min-w-0 flex-1 truncate">{group.label}</span>
@@ -332,6 +342,7 @@ export function ConversationParallelModelsBar({
                                 selected ? "text-foreground" : "text-muted-foreground",
                               )}
                               onClick={() => toggleModel(item.platformModelName)}
+                              title={item.platformModelName}
                             >
                               <ModelIcon iconUrl={itemIconURL} label={item.platformModelName} />
                               <span className="min-w-0 flex-1 truncate">{item.platformModelName}</span>

@@ -6,8 +6,6 @@ import { parseKindsJSON, stringifyKinds } from "@/shared/model/llm-schema";
 // Constants
 // ---------------------------------------------------------------------------
 
-export const PAGE_SIZE_DEFAULT = 25;
-
 export const MODEL_STATUS_OPTIONS: AdminLLMStatus[] = ["active", "inactive"];
 
 export const MODEL_SORT_OPTIONS = [

@@ -24,7 +24,6 @@ import {
 import {
   displayToKindsJson,
   type ModelSortValue,
-  PAGE_SIZE_DEFAULT,
 } from "@/features/admin/types/llm";
 import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { resolveKindsDisplayForProtocols } from "@/features/admin/utils/llm-display";
@@ -35,6 +34,9 @@ import {
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { runSettledBulkItems } from "@/shared/lib/bulk-action";
 import { patchByID, removeByID, removeManyByID, replaceByID } from "@/shared/lib/optimistic-list";
+
+/** 模型管理列表默认每页条数：模型条目常数百级，默认 100 减少翻页。 */
+const MODELS_PAGE_SIZE_DEFAULT = 100;
 
 type UseAdminModelsState = {
   items: AdminLLMModelDTO[];
@@ -99,7 +101,7 @@ export function useAdminModels(): UseAdminModelsState {
   const [items, setItems] = React.useState<AdminLLMModelDTO[]>([]);
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(1);
-  const [pageSize, setPageSize] = React.useState(PAGE_SIZE_DEFAULT);
+  const [pageSize, setPageSize] = React.useState(MODELS_PAGE_SIZE_DEFAULT);
   const [loading, setLoading] = React.useState(true);
 
   const [query, setQuery] = React.useState("");
@@ -122,7 +124,7 @@ export function useAdminModels(): UseAdminModelsState {
   const [batchStatus, setBatchStatus] = React.useState<AdminLLMStatus | "">("");
   const [, startTableTransition] = React.useTransition();
   const requestSeqRef = React.useRef(0);
-  const pageSizeRef = React.useRef(PAGE_SIZE_DEFAULT);
+  const pageSizeRef = React.useRef(MODELS_PAGE_SIZE_DEFAULT);
 
   React.useEffect(() => {
     pageSizeRef.current = pageSize;

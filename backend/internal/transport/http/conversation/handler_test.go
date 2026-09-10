@@ -155,6 +155,38 @@ func TestMapBillingStreamErrorReturnsConcurrencyLimit(t *testing.T) {
 	}
 }
 
+func TestMapStreamErrorExposesUpstreamSummary(t *testing.T) {
+	err := errors.Join(appconversation.ErrUpstreamRequestFailed, &llm.UpstreamError{
+		StatusCode: 401,
+		Message:    "google authentication failed",
+	})
+
+	mapped := mapStreamError(err)
+	if mapped.Status != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", mapped.Status, http.StatusBadGateway)
+	}
+	if mapped.Code != response.CodeUpstreamUnavailable {
+		t.Fatalf("code = %q, want %q", mapped.Code, response.CodeUpstreamUnavailable)
+	}
+	if !strings.Contains(mapped.Message, "HTTP 401") || !strings.Contains(mapped.Message, "google authentication failed") {
+		t.Fatalf("expected upstream summary in message, got %q", mapped.Message)
+	}
+}
+
+func TestMapStreamErrorPinsUpstreamCode(t *testing.T) {
+	// 上游消息以 "not found" 结尾时，InferErrorCode 启发式会把中文摘要 slug 化，
+	// 钉稳定码避免前端词典 miss。
+	err := errors.Join(appconversation.ErrUpstreamRequestFailed, &llm.UpstreamError{
+		StatusCode: 404,
+		Message:    "model x not found",
+	})
+
+	mapped := mapStreamError(err)
+	if mapped.Code != response.CodeUpstreamUnavailable {
+		t.Fatalf("code = %q, want %q", mapped.Code, response.CodeUpstreamUnavailable)
+	}
+}
+
 func TestStreamErrorPayloadClassifiesImageStreamConfigurationFailure(t *testing.T) {
 	err := errors.Join(appconversation.ErrUpstreamRequestFailed, &llm.UpstreamError{
 		StatusCode: 500,

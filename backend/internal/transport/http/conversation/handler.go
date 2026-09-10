@@ -222,6 +222,14 @@ func mapStreamError(err error) streamError {
 		status = http.StatusBadGateway
 		code = appconversation.MessageErrorCode(err)
 		message = mapClientErrorMessage(err)
+		// 上游失败摘要（含 HTTP 状态码与上游 error.message）直接透传给前端，
+		// 信息量与落库 error_message 一致，不再被 PublicErrorMessage 泛化。
+		// MessageErrorCode 对普通上游失败返回空串，钉稳定码避免中文摘要
+		// 被 InferErrorCode 的启发式 slug 化成不可读错误码。
+		if code == "" {
+			code = response.CodeUpstreamUnavailable
+		}
+		return streamError{Status: status, Code: code, Message: message}
 	}
 	if code == "" {
 		code = response.InferErrorCode(status, message)

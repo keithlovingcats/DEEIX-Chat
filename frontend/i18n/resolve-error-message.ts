@@ -195,6 +195,45 @@ export function toErrorMessagePath(errorCode: string): string[] {
     .map((segment) => segment.replace(/_([a-z])/g, (_, char: string) => char.toUpperCase()));
 }
 
+// upstream 前缀之外的精确匹配：该 code 的 message 同样携带后端原始摘要
+const UPSTREAM_DETAIL_ERROR_CODES = new Set(["media.image_stream_unsupported"]);
+
+// 后端 mapClientErrorMessage / PublicErrorMessage 与前端兜底产生的无信息泛化串，
+// 拼接到翻译文案后不会增加排查信息，直接跳过。
+const UNINFORMATIVE_UPSTREAM_MESSAGES = new Set([
+  "upstream service unavailable",
+  "upstream rate limited",
+  "model request failed",
+  "model returned empty response",
+  "upstream returned empty response",
+  "upstream request failed",
+  "stream failed",
+  "generation failed",
+]);
+
+function shouldAppendUpstreamDetail(error: ApiError): boolean {
+  const code = error.errorCode?.trim() ?? "";
+  if (!code) {
+    return false;
+  }
+  return code.startsWith("upstream") || UPSTREAM_DETAIL_ERROR_CODES.has(code);
+}
+
+/**
+ * 词典命中后追加后端原始报错摘要（含 HTTP 状态码与上游 error.message），
+ * 信息量与落库 error_message 一致；泛化兜底串与空值直接原样返回翻译。
+ */
+export function appendUpstreamDetail(translated: string, error: ApiError): string {
+  if (!shouldAppendUpstreamDetail(error)) {
+    return translated;
+  }
+  const detail = (error.rawMessage ?? "").trim();
+  if (!detail || detail === translated.trim() || UNINFORMATIVE_UPSTREAM_MESSAGES.has(detail.toLowerCase())) {
+    return translated;
+  }
+  return `${translated}\n${detail}`;
+}
+
 function isInternalErrorKey(message: string): boolean {
   return /^errors\.[a-zA-Z0-9_.]+$/.test(message.trim());
 }
@@ -427,7 +466,7 @@ export function resolveLocalizedErrorMessage(error: unknown, fallback?: string):
 
     const translated = lookupErrorMessage(locale, error.errorCode);
     if (translated) {
-      return translated;
+      return appendUpstreamDetail(translated, error);
     }
   }
 

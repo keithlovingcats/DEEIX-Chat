@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/url"
 	"strings"
@@ -24,6 +25,56 @@ const (
 	modelProbeReadTimeoutMS  = 30000
 	modelProbeMaxConcurrency = 4
 )
+
+// 探测 prompt 池：开发者常见的技术短问题随机选用。固定 "Reply with OK." 会被
+// 风控敏感的上游按内容指纹聚类识别为测活流量（同 key 反复出现完全相同的请求）；
+// 日常寒暄式短句在 AI 平台流量里同样扎眼，技术提问才贴近真实调用分布。
+var modelProbePrompts = []string{
+	"What's the difference between HTTP 401 and 403?",
+	"How do I reverse a list in Python?",
+	"What does the async keyword do in JavaScript?",
+	"What is the time complexity of binary search?",
+	"How do I exit vim?",
+	"What does git rebase do?",
+	"Explain the difference between TCP and UDP briefly.",
+	"What does a SQL JOIN do?",
+	"How do I check my Python version?",
+	"What is a race condition?",
+	"What does the finally block do in try-catch?",
+	"How do I undo the last git commit?",
+}
+
+func modelProbePrompt() string {
+	return modelProbePrompts[rand.IntN(len(modelProbePrompts))]
+}
+
+// max tokens 在 [8, 32] 随机：max_tokens=1 是典型验活脚本指纹；提到自然量级后
+// 单次探测成本仍可忽略，且不再是「只验证存活」的特征值。
+func modelProbeMaxTokens() int {
+	return rand.IntN(25) + 8
+}
+
+// modelProbeOptions 按协议只发该协议原生的 token 限制键。不能三键同发：
+// openai chat 端点的 applyProviderOptions 保护列表不含 max_tokens 系列，
+// 未消费的键会原样透传进请求体，形成「同一请求带三种 token 限制」的强指纹。
+// temperature 不再下发（temperature:0 + max_tokens:1 是脚本调用的经典组合）。
+func modelProbeOptions(protocol string, maxTokens int) map[string]interface{} {
+	switch llm.NormalizeAdapter(protocol) {
+	case llm.AdapterOpenAIChatCompletions, llm.AdapterOpenRouterChat:
+		return map[string]interface{}{"max_completion_tokens": maxTokens}
+	case llm.AdapterAnthropicMessages:
+		return map[string]interface{}{"max_tokens": maxTokens}
+	case llm.AdapterGoogleGenerateContent:
+		return map[string]interface{}{"maxOutputTokens": maxTokens}
+	case llm.AdapterGeminiInteractions:
+		return map[string]interface{}{
+			"generation_config": map[string]interface{}{"maxOutputTokens": maxTokens},
+		}
+	default:
+		// openai_responses / openrouter_responses / xai_responses 等 Responses 端点协议。
+		return map[string]interface{}{"max_output_tokens": maxTokens}
+	}
+}
 
 // TestModel 使用当前活跃路由规则对平台模型执行一次轻量连通性测试。
 func (s *Service) TestModel(ctx context.Context, modelID uint, input ModelProbeInput) (*ModelProbeResult, error) {
@@ -262,15 +313,10 @@ func (s *Service) probeRoute(ctx context.Context, row repository.ChannelUpstream
 	routeConfig := modelProbeRouteConfig(resolved, attributionReferer, attributionTitle)
 	input := llm.GenerateInput{
 		Messages: []llm.Message{
-			{Role: "user", Content: "Reply with OK."},
+			{Role: "user", Content: modelProbePrompt()},
 		},
 		DisableTools: true,
-		Options: map[string]interface{}{
-			"max_output_tokens":     1,
-			"max_completion_tokens": 1,
-			"max_tokens":            1,
-			"temperature":           0,
-		},
+		Options: modelProbeOptions(row.Protocol, modelProbeMaxTokens()),
 	}
 
 	startedAt := time.Now()
