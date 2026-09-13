@@ -71,7 +71,8 @@
     "apply": "Apply",
     "bulkDelete": "Delete",
     "test": "Test",
-    "testAll": "Test all"
+    "testAll": "Test all",
+    "cleanOrphanModels": "Clean Orphan Models"
   },
   "probe": {
     "title": "Model test",
@@ -83,6 +84,7 @@
     "unknownError": "Unknown error",
     "latency": "{value} ms",
     "resultCount": "{current} / {total}",
+    "resultList": "Test results",
     "previous": "Previous",
     "next": "Next",
     "deleteSource": "Delete this model",
@@ -125,6 +127,15 @@
     "bulkConfirm": "Delete",
     "remaining": "More items",
     "batchSummary": "Deleted {success}, not found {notFound}, failed {failed}"
+  },
+  "cleanOrphan": {
+    "title": "Clean Orphan Models",
+    "description": "Found {count} models with no upstream sources configured. They will be permanently removed from the platform catalog. Continue?",
+    "noneFound": "No orphan models found.",
+    "scanFailed": "Failed to scan for orphan models",
+    "moreTargets": "more models",
+    "deleting": "Cleaning up...",
+    "confirm": "Clean Up"
   },
   "bulkConfirm": {
     "title": "Confirm bulk update",
@@ -213,6 +224,9 @@
     "bulkDeletePartialFailed": "Some models could not be deleted",
     "bulkDeleteCompleted": "Models deleted",
     "bulkDeleteFailed": "Could not delete selected models",
+    "cleanOrphanCompleted": "Successfully cleaned up {count} orphan models",
+    "cleanOrphanPartialFailed": "Failed to clean up some orphan models",
+    "cleanOrphanFailed": "Failed to clean up orphan models",
     "bulkPartialDescription": "Succeeded {success}, failed {failed}.",
     "bulkKindsAlreadyApplied": "Selected models already use this type",
     "bulkKindsUpdated": "Updated {count} model types",

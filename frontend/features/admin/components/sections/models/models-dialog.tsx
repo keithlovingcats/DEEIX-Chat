@@ -199,3 +199,101 @@ export function BulkDeleteModelsDialog({
     </AlertDialog>
   );
 }
+
+type CleanOrphanModelsDialogProps = {
+  targets: AdminLLMModelDTO[];
+  open: boolean;
+  onClose: () => void;
+  onDeleted: (result: AdminBatchDeleteData) => void;
+};
+
+export function CleanOrphanModelsDialog({
+  targets,
+  open,
+  onClose,
+  onDeleted,
+}: CleanOrphanModelsDialogProps) {
+  const t = useTranslations("adminModels");
+  const commonT = useTranslations("common");
+  const [pending, setPending] = React.useState(false);
+
+  const visibleTargets = React.useMemo(() => targets.slice(0, 8), [targets]);
+
+  const handleDelete = React.useCallback(async () => {
+    if (targets.length === 0) return;
+
+    const token = await resolveAccessToken();
+    if (!token) {
+      toast.error(t("toast.sessionExpired"), { description: t("toast.signInAgain") });
+      return;
+    }
+
+    setPending(true);
+    try {
+      const result = mergeBatchResultData(
+        await runBulkActionInChunks({
+          items: targets.map((item) => item.id),
+          title: t("cleanOrphan.deleting"),
+          runChunk: (ids) => batchDeleteAdminLLMModels(token, { ids }),
+        }),
+      );
+
+      onDeleted(result);
+      if (result.failedCount > 0) {
+        toast.error(t("toast.cleanOrphanPartialFailed"), {
+          description: summarizeBatchDeleteResult(result, t),
+        });
+      } else {
+        toast.success(t("toast.cleanOrphanCompleted", { count: result.successCount }));
+      }
+    } catch (error) {
+      toast.error(t("toast.cleanOrphanFailed"), { description: resolveAdminErrorMessage(error) });
+    } finally {
+      setPending(false);
+    }
+  }, [onDeleted, t, targets]);
+
+  return (
+    <AlertDialog open={open} onOpenChange={(nextOpen) => !nextOpen && !pending && onClose()}>
+      <AlertDialogContent className="sm:max-w-[480px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("cleanOrphan.title")}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("cleanOrphan.description", { count: targets.length })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="space-y-3 pt-1">
+          <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
+            {visibleTargets.map((item) => (
+              <Badge key={item.id} variant="secondary" className="max-w-full text-xs" title={item.platformModelName}>
+                {item.platformModelName}
+              </Badge>
+            ))}
+            {targets.length > visibleTargets.length && (
+              <Badge variant="outline" className="text-xs text-muted-foreground">
+                +{targets.length - visibleTargets.length} {t("cleanOrphan.moreTargets")}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>
+            {commonT("actions.cancel")}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={(event) => {
+              event.preventDefault();
+              void handleDelete();
+            }}
+            disabled={pending || targets.length === 0}
+          >
+            {pending ? <SpinnerLabel>{t("cleanOrphan.deleting")}</SpinnerLabel> : t("cleanOrphan.confirm")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}

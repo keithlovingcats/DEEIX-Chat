@@ -15,6 +15,7 @@ import type {
   AdminLLMModelUpstreamSourceDTO,
   AdminLLMStatus,
 } from "@/features/admin/api/llm.types";
+import { listAllAdminPages } from "@/features/admin/api/shared";
 import {
   isValidModelContextWindow,
   modelContextWindowOverride,
@@ -78,6 +79,12 @@ type UseAdminModelsState = {
   setDeleteTarget: (target: AdminLLMModelDTO | null) => void;
   bulkDeleteTargets: AdminLLMModelDTO[];
   closeBulkDelete: () => void;
+  orphanCount: number;
+  scanningOrphans: boolean;
+  cleanOrphanTargets: AdminLLMModelDTO[];
+  handleRequestCleanOrphans: () => Promise<void>;
+  closeCleanOrphans: () => void;
+  handleCleanOrphansDeleted: (result: AdminBatchDeleteData) => void;
   sourcesModel: AdminLLMModelDTO | null;
   setSourcesModel: (target: AdminLLMModelDTO | null) => void;
   loadModels: (page?: number, pageSize?: number) => Promise<void>;
@@ -98,6 +105,7 @@ type UseAdminModelsState = {
 
 export function useAdminModels(): UseAdminModelsState {
   const t = useTranslations("adminModels.toast");
+  const modelT = useTranslations("adminModels");
   const [items, setItems] = React.useState<AdminLLMModelDTO[]>([]);
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(1);
@@ -113,6 +121,8 @@ export function useAdminModels(): UseAdminModelsState {
   const [editTarget, setEditTarget] = React.useState<AdminLLMModelDTO | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<AdminLLMModelDTO | null>(null);
   const [bulkDeleteTargets, setBulkDeleteTargets] = React.useState<AdminLLMModelDTO[]>([]);
+  const [scanningOrphans, setScanningOrphans] = React.useState(false);
+  const [cleanOrphanTargets, setCleanOrphanTargets] = React.useState<AdminLLMModelDTO[]>([]);
   const [selectedModelIDs, setSelectedModelIDs] = React.useState<Set<number>>(new Set());
   const [sourcesModel, setSourcesModel] = React.useState<AdminLLMModelDTO | null>(null);
   const [batchApplying, setBatchApplying] = React.useState(false);
@@ -179,6 +189,13 @@ export function useAdminModels(): UseAdminModelsState {
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   const filteredItems = items;
+
+  // 孤儿数徽标仅统计当前页数据（sourceCount<=0 的模型），随本页 items 变化自动重算；
+  // 全量孤儿仍由「清理无上游模型」按钮触发时再扫描（handleRequestCleanOrphans）。
+  const orphanCount = React.useMemo(
+    () => items.filter((item) => item.sourceCount <= 0).length,
+    [items],
+  );
 
   React.useEffect(() => {
     const visibleIDs = new Set(filteredItems.map((item) => item.id));
@@ -602,6 +619,56 @@ export function useAdminModels(): UseAdminModelsState {
     }
   }
 
+  const handleRequestCleanOrphans = React.useCallback(async () => {
+    setScanningOrphans(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("sessionExpired"), { description: t("signInAgain") });
+        return;
+      }
+      const allModels = await listAllAdminPages(
+        (options) => listAdminLLMModels(token, options),
+        1000,
+      );
+      const orphanModels = allModels.filter((model) => model.sourceCount <= 0);
+      if (orphanModels.length === 0) {
+        toast.info(modelT("cleanOrphan.noneFound"));
+        return;
+      }
+      setCleanOrphanTargets(orphanModels);
+    } catch (error) {
+      toast.error(modelT("cleanOrphan.scanFailed"), {
+        description: resolveAdminErrorMessage(error),
+      });
+    } finally {
+      setScanningOrphans(false);
+    }
+  }, [modelT, t]);
+
+  const closeCleanOrphans = React.useCallback(() => {
+    setCleanOrphanTargets([]);
+  }, []);
+
+  const handleCleanOrphansDeleted = React.useCallback(
+    (result: AdminBatchDeleteData) => {
+      const removedIDs = result.results
+        .filter((item) => item.status === "deleted" || item.status === "not_found")
+        .map((item) => item.id);
+      setCleanOrphanTargets([]);
+      setItems((current) => removeManyByID(current, removedIDs, (item) => item.id));
+      setTotal((current) => Math.max(0, current - removedIDs.length));
+      setSelectedModelIDs((current) => {
+        const removed = new Set(removedIDs);
+        return new Set([...current].filter((id) => !removed.has(id)));
+      });
+      const targetPage =
+        items.length > 0 && removedIDs.length >= items.length && page > 1 ? page - 1 : page;
+      void loadModels(targetPage, pageSize);
+    },
+    [items.length, loadModels, page, pageSize],
+  );
+
   return {
     items,
     total,
@@ -642,6 +709,12 @@ export function useAdminModels(): UseAdminModelsState {
     setDeleteTarget,
     bulkDeleteTargets,
     closeBulkDelete,
+    orphanCount,
+    scanningOrphans,
+    cleanOrphanTargets,
+    handleRequestCleanOrphans,
+    closeCleanOrphans,
+    handleCleanOrphansDeleted,
     sourcesModel,
     setSourcesModel,
     loadModels,

@@ -84,6 +84,7 @@ import {
   createDraftPlatformModelNameMap,
   DEFAULT_NEW_BINDING,
   displayToKindsJson,
+  groupTestTargetsByProvider,
   type NewBindingFormState,
   type RowDraft,
   summarizeBatchDeleteResult,
@@ -105,6 +106,7 @@ import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
   mergeBatchResultData,
   runBulkActionInChunks,
+  runSettledGroupedTasksWithConcurrency,
 } from "@/shared/lib/bulk-action";
 
 function KindsDropdown({
@@ -1357,6 +1359,124 @@ export function UpstreamModelsDialog({
     [modelT, resolveErrorMessage, t, upstreamID],
   );
 
+  const handleBatchTest = React.useCallback(async () => {
+    if (!upstreamID || !stableUpstream || selected.size === 0) return;
+
+    const candidateRows = rows.filter((r) => selected.has(r.draftKey));
+    const validItems: Array<{ row: RowDraft; routeID: number; upstreamModelName: string }> = [];
+    let dirtyOrUnsavedCount = 0;
+
+    for (const row of candidateRows) {
+      const routeID = row.routeID || routeIDsForRow(row)[0] || 0;
+      if (row.isDirty || routeID <= 0) {
+        dirtyOrUnsavedCount += 1;
+      } else {
+        validItems.push({
+          row,
+          routeID,
+          upstreamModelName: row.upstreamModelName,
+        });
+      }
+    }
+
+    if (validItems.length === 0) {
+      toast.warning(t("modelsDialog.batchTestAllDirty"));
+      return;
+    }
+
+    if (dirtyOrUnsavedCount > 0) {
+      toast.info(
+        t("modelsDialog.batchTestSkippedDirty", {
+          count: dirtyOrUnsavedCount,
+          validCount: validItems.length,
+        }),
+      );
+    }
+
+    const token = await resolveAccessToken();
+    if (!token) {
+      toast.error(modelT("toast.sessionExpired"), { description: modelT("toast.signInAgain") });
+      return;
+    }
+
+    setProbeTargetName(t("modelsDialog.batchTestTargetName", { count: validItems.length }));
+    setProbeResults([]);
+    setProbeOpen(true);
+    setProbeLoading(true);
+
+    const groups = groupTestTargetsByProvider(validItems);
+    const toastID = toast.loading(
+      t("modelsDialog.batchTesting", {
+        current: 0,
+        total: validItems.length,
+      }),
+    );
+    let completedCount = 0;
+
+    try {
+      const settled = await runSettledGroupedTasksWithConcurrency({
+        groups,
+        concurrency: 4,
+        runItem: async (item) => {
+          try {
+            return await testAdminLLMUpstreamModelRoute(token, upstreamID, item.routeID);
+          } finally {
+            completedCount += 1;
+            toast.loading(
+              t("modelsDialog.batchTesting", {
+                current: completedCount,
+                total: validItems.length,
+              }),
+              { id: toastID },
+            );
+          }
+        },
+      });
+
+      const finalResults: AdminLLMModelProbeResult[] = settled.map((entry) => {
+        if (entry.status === "fulfilled") {
+          return entry.value;
+        }
+        const item = entry.item;
+        return {
+          success: false,
+          status: "failed",
+          errorCode: "request_failed",
+          errorMessage: resolveErrorMessage(entry.reason),
+          protocol: item.row.protocol || "",
+          endpoint: "",
+          platformModelID: item.row.platformModelID || 0,
+          platformModelName: item.row.platformModelNameDraft || item.row.platformModelName || "",
+          upstreamID: item.row.upstreamID,
+          upstreamName: stableUpstream.name || "",
+          upstreamModelID: item.row.id || 0,
+          upstreamModelName: item.row.upstreamModelName,
+          routeID: item.routeID,
+          bindingCode: item.row.bindingCode || "",
+          latencyMS: 0,
+        };
+      });
+
+      setProbeResults(finalResults);
+      const successCount = finalResults.filter((r) => r.success).length;
+      toast.success(
+        t("modelsDialog.batchTestCompleted", {
+          total: finalResults.length,
+          success: successCount,
+        }),
+        { id: toastID },
+      );
+    } catch (error) {
+      toast.error(t("toast.operationFailed"), {
+        id: toastID,
+        description: resolveErrorMessage(error),
+      });
+      setProbeOpen(false);
+    } finally {
+      setProbeLoading(false);
+    }
+  }, [modelT, resolveErrorMessage, rows, selected, stableUpstream, t, upstreamID]);
+
   const handleDeleteProbeRoute = React.useCallback(
     async (result: AdminLLMModelProbeResult) => {
       if (!stableUpstream) {
@@ -1704,11 +1824,20 @@ export function UpstreamModelsDialog({
               }
               bulkActions={[
                 {
+                  key: "batch-test",
+                  label: t("modelsDialog.batchTest"),
+                  icon: <Activity className="size-3.5 stroke-1" />,
+                  onClick: () => void handleBatchTest(),
+                  disabled: probeLoading || deleting,
+                  variant: "default",
+                },
+                {
                   key: "delete-bindings",
                   label: t("modelsDialog.deleteBindings"),
                   icon: <Trash2 />,
                   onClick: () => setDeleteConfirmOpen(true),
                   disabled: deleting,
+                  variant: "destructive",
                 },
               ]}
             >

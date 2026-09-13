@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
 import {
@@ -52,7 +53,7 @@ import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { AdminCircuitBreakerControl } from "../shared/admin-circuit-breaker-control";
-import { BulkDeleteModelsDialog, DeleteModelDialog } from "./models-dialog";
+import { BulkDeleteModelsDialog, CleanOrphanModelsDialog, DeleteModelDialog } from "./models-dialog";
 import { ModelProbeDialog } from "./models-probe-dialog";
 import { ModelsTable } from "./models-table";
 
@@ -557,6 +558,30 @@ export function AdminModelsPage() {
             type="button"
             size="sm"
             variant="outline"
+            className="relative h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+            onClick={() => void models.handleRequestCleanOrphans()}
+            disabled={models.loading || models.scanningOrphans}
+            title={models.orphanCount > 0 ? `${t("actions.cleanOrphanModels")} (${models.orphanCount})` : undefined}
+          >
+            {models.scanningOrphans ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <Trash2 className="size-3.5 stroke-1" />
+            )}
+            {t("actions.cleanOrphanModels")}
+            {models.orphanCount > 0 ? (
+              <span
+                className="pointer-events-none absolute -top-1.5 -right-1.5 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold tabular-nums leading-none text-destructive-foreground shadow-xs"
+                aria-label={`${models.orphanCount}`}
+              >
+                {models.orphanCount > 99 ? "99+" : models.orphanCount}
+              </span>
+            ) : null}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
             className="h-7 gap-1 text-xs"
             onClick={() => setPresentationOpen(true)}
             disabled={presentation.loading || presentation.vendors.length === 0}
@@ -670,6 +695,13 @@ export function AdminModelsPage() {
         targets={models.bulkDeleteTargets}
         onClose={models.closeBulkDelete}
         onDeleted={models.handleBulkDeleted}
+      />
+
+      <CleanOrphanModelsDialog
+        open={models.cleanOrphanTargets.length > 0}
+        targets={models.cleanOrphanTargets}
+        onClose={models.closeCleanOrphans}
+        onDeleted={models.handleCleanOrphansDeleted}
       />
 
       {models.sourcesModel ? (

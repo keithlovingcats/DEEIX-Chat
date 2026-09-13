@@ -206,3 +206,79 @@ export async function runSettledItemsWithConcurrency<TItem, TValue>({
 
   return results.filter((result): result is SettledBulkItemResult<TItem, TValue> => result !== undefined);
 }
+
+export type RunSettledGroupedTasksArgs<TItem, TValue> = {
+  concurrency?: number;
+  groups: Map<string, TItem[]> | Array<TItem[]>;
+  runItem: (item: TItem) => Promise<TValue>;
+  signal?: AbortSignal;
+};
+
+/**
+ * 按组执行批量任务：
+ * - 组间并行：最多同时调度 concurrency 个不同的组
+ * - 组内串行：同一个组内的各个项按顺序严格依次执行，避免相同提供商/渠道并发调用触发限流
+ * - 结果顺序：最终返回的结果顺序严格与所有项的初始顺序保持一致
+ */
+export async function runSettledGroupedTasksWithConcurrency<TItem, TValue>({
+  concurrency = 4,
+  groups,
+  runItem,
+  signal,
+}: RunSettledGroupedTasksArgs<TItem, TValue>): Promise<Array<SettledBulkItemResult<TItem, TValue>>> {
+  const groupLists = groups instanceof Map ? Array.from(groups.values()) : groups;
+  let totalItems = 0;
+  type IndexedItem = { item: TItem; originalIndex: number };
+  const indexedGroupLists: IndexedItem[][] = [];
+
+  for (const group of groupLists) {
+    const indexedGroup: IndexedItem[] = [];
+    for (const item of group) {
+      indexedGroup.push({ item, originalIndex: totalItems });
+      totalItems += 1;
+    }
+    if (indexedGroup.length > 0) {
+      indexedGroupLists.push(indexedGroup);
+    }
+  }
+
+  if (totalItems === 0) {
+    return [];
+  }
+
+  const results: Array<SettledBulkItemResult<TItem, TValue> | undefined> = new Array(totalItems);
+  let nextGroupIndex = 0;
+  const workerCount = Math.min(Math.max(1, Math.floor(concurrency)), indexedGroupLists.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (!signal?.aborted && nextGroupIndex < indexedGroupLists.length) {
+        const groupIndex = nextGroupIndex;
+        nextGroupIndex += 1;
+        const group = indexedGroupLists[groupIndex];
+        if (!group) continue;
+
+        for (const { item, originalIndex } of group) {
+          if (signal?.aborted) break;
+          try {
+            results[originalIndex] = {
+              item,
+              status: "fulfilled",
+              value: await runItem(item),
+            };
+          } catch (reason) {
+            if (!signal?.aborted) {
+              results[originalIndex] = {
+                item,
+                reason,
+                status: "rejected",
+              };
+            }
+          }
+        }
+      }
+    }),
+  );
+
+  return results.filter((result): result is SettledBulkItemResult<TItem, TValue> => result !== undefined);
+}

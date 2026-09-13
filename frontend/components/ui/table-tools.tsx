@@ -77,6 +77,7 @@ export type TableToolbarProps = {
     icon?: React.ReactNode;
     onClick: () => void;
     disabled?: boolean;
+    variant?: "default" | "destructive";
   }>;
   loading?: boolean;
   onRefresh: () => void;
@@ -417,7 +418,12 @@ export function TableToolbar({
                         type="button"
                         onClick={action.onClick}
                         disabled={loading || !hasSelection || action.disabled}
-                        className="group flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[11px] text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+                        className={cn(
+                          "group flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[11px] transition-colors disabled:pointer-events-none disabled:opacity-50",
+                          action.variant === "destructive" || (!action.variant && action.key.includes("delete"))
+                            ? "text-destructive hover:bg-destructive/10"
+                            : "text-foreground/85 hover:bg-muted hover:text-foreground",
+                        )}
                       >
                         {action.icon ? (
                           <span className="flex w-4 shrink-0 justify-center text-muted-foreground group-hover:text-current [&_svg]:size-3 [&_svg]:stroke-1">

@@ -268,6 +268,12 @@
     "bulkConfirmApply": "Apply",
     "bulkConfirmApplying": "Applying",
     "deleting": "Deleting...",
-    "confirmDelete": "Delete"
+    "confirmDelete": "Delete",
+    "batchTest": "Batch test",
+    "batchTestTargetName": "Batch test ({count} models)",
+    "batchTesting": "Testing models ({current}/{total})...",
+    "batchTestCompleted": "Batch test completed ({success} succeeded / {total} total)",
+    "batchTestAllDirty": "Selected models have unsaved changes or lack route bindings. Please save before testing.",
+    "batchTestSkippedDirty": "Skipped {count} unsaved models, testing the remaining {validCount} models..."
   }
 }

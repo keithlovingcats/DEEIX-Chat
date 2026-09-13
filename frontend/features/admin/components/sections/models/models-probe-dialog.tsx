@@ -67,20 +67,20 @@ function statusTextClass(state: ModelProbeState) {
   );
 }
 
+function statusDotClass(state: ModelProbeState) {
+  return cn(
+    state === "success" && "bg-emerald-500",
+    state === "error" && "bg-destructive",
+    state === "timeout" && "bg-amber-500",
+    state === "unsupported" && "bg-amber-500",
+  );
+}
+
 function StatusLine({ state }: { state: ModelProbeState }) {
   const t = useTranslations("adminModels.probe");
   return (
     <span className={cn("inline-flex items-center gap-2 text-xs font-medium", statusTextClass(state))}>
-      <span
-        className={cn(
-          "size-1.5 rounded-full",
-          state === "success" && "bg-emerald-500",
-          state === "error" && "bg-destructive",
-          state === "timeout" && "bg-amber-500",
-          state === "unsupported" && "bg-amber-500",
-        )}
-        aria-hidden="true"
-      />
+      <span className={cn("size-1.5 rounded-full", statusDotClass(state))} aria-hidden="true" />
       {t(`status.${state}`)}
     </span>
   );
@@ -100,6 +100,68 @@ function DetailPair({ left, right }: { left: React.ReactNode; right: React.React
     <div className="grid gap-x-5 gap-y-1.5 sm:grid-cols-2">
       {left}
       {right}
+    </div>
+  );
+}
+
+/**
+ * 多结果时的常驻结果索引列表：每条一行（状态点、上游模型名、状态码、延迟），
+ * 当前项高亮并自动滚动到可见，点击任意行直达对应详情。
+ * 与逐条翻页按钮互补，一次能看到全部结果的成败分布。
+ */
+function ResultList({
+  results,
+  activeIndex,
+  loading,
+  onSelect,
+}: {
+  results: AdminLLMModelProbeResult[];
+  activeIndex: number;
+  loading: boolean;
+  onSelect: (index: number) => void;
+}) {
+  const t = useTranslations("adminModels.probe");
+  const listRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!listRef.current) return;
+    listRef.current
+      .querySelector(`[data-result-index="${activeIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
+  return (
+    <div
+      ref={listRef}
+      className="max-h-48 shrink-0 overflow-y-auto border-y border-border/60"
+      aria-label={t("resultList")}
+    >
+      {results.map((result, index) => {
+        const state = resolveProbeState(result);
+        const statusCode = result.upstreamStatusCode || result.debug?.response.statusCode || "-";
+        const modelName = result.upstreamModelName || result.platformModelName || "-";
+        return (
+          <button
+            key={`${result.routeID}-${index}`}
+            type="button"
+            data-result-index={index}
+            onClick={() => onSelect(index)}
+            disabled={loading}
+            title={`${result.platformModelName || "-"} / ${result.upstreamModelName || "-"} · ${t(`status.${state}`)}`}
+            className={cn(
+              "flex w-full items-center gap-2 px-5 py-1.5 text-left text-xs transition-colors disabled:pointer-events-none",
+              index === activeIndex ? "bg-muted" : "hover:bg-muted/50",
+            )}
+          >
+            <span className={cn("size-1.5 shrink-0 rounded-full", statusDotClass(state))} aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate font-mono text-foreground/85">{modelName}</span>
+            <span className="w-9 shrink-0 text-right font-mono text-muted-foreground">{statusCode}</span>
+            <span className="w-14 shrink-0 text-right font-mono text-muted-foreground">
+              {t("latency", { value: result.latencyMS || 0 })}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -239,7 +301,7 @@ export function ModelProbeDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[min(86vh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[600px]">
+        <DialogContent className="flex h-[min(86vh,720px)] max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[600px]">
           <DialogHeader className="shrink-0 px-5 pb-4 pt-5">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0 space-y-1.5">
@@ -277,6 +339,10 @@ export function ModelProbeDialog({
               ) : null}
             </div>
           </DialogHeader>
+
+          {canNavigate ? (
+            <ResultList results={normalizedResults} activeIndex={activeIndex} loading={loading} onSelect={setActiveIndex} />
+          ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
             {loading ? (

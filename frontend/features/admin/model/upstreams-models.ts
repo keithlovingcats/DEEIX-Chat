@@ -160,3 +160,36 @@ export function summarizeImportResult(result: {
 }, messages: Pick<UpstreamModelMessages, "importSummary">): string {
   return messages.importSummary(result);
 }
+
+/**
+ * 提取上游模型名称中的提供商前缀（如 "42/claude-opus-5" -> "42"）。
+ * 若模型名称不包含前缀斜杠，则返回空字符串。
+ */
+export function extractModelProviderPrefix(upstreamModelName: string): string {
+  const trimmed = upstreamModelName.trim();
+  const slashIndex = trimmed.indexOf("/");
+  if (slashIndex > 0) {
+    return trimmed.slice(0, slashIndex);
+  }
+  return "";
+}
+
+/**
+ * 按提供商前缀将待测试模型项分组：
+ * - 拥有相同前缀（例如 "42/" 开头）的模型归入同一组，后续在此组内串行执行测试，保护下游提供商/渠道；
+ * - 无斜杠前缀的模型统一归入 "__no_prefix__" 默认组，在该组内同样串行执行；
+ * - 不同的组之间支持由并发调度器并行调度。
+ */
+export function groupTestTargetsByProvider<T extends { upstreamModelName: string }>(
+  items: T[],
+): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const prefix = extractModelProviderPrefix(item.upstreamModelName);
+    const groupKey = prefix ? `prefix:${prefix}` : "__no_prefix__";
+    const group = groups.get(groupKey) ?? [];
+    group.push(item);
+    groups.set(groupKey, group);
+  }
+  return groups;
+}
