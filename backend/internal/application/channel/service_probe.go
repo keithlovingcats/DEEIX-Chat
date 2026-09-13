@@ -3,7 +3,6 @@ package channel
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand/v2"
 	"net"
 	"net/url"
@@ -58,21 +57,21 @@ func modelProbeMaxTokens() int {
 // openai chat 端点的 applyProviderOptions 保护列表不含 max_tokens 系列，
 // 未消费的键会原样透传进请求体，形成「同一请求带三种 token 限制」的强指纹。
 // temperature 不再下发（temperature:0 + max_tokens:1 是脚本调用的经典组合）。
-func modelProbeOptions(protocol string, maxTokens int) map[string]interface{} {
+func modelProbeOptions(protocol string, maxTokens int) map[string]any {
 	switch llm.NormalizeAdapter(protocol) {
 	case llm.AdapterOpenAIChatCompletions, llm.AdapterOpenRouterChat:
-		return map[string]interface{}{"max_completion_tokens": maxTokens}
+		return map[string]any{"max_completion_tokens": maxTokens}
 	case llm.AdapterAnthropicMessages:
-		return map[string]interface{}{"max_tokens": maxTokens}
+		return map[string]any{"max_tokens": maxTokens}
 	case llm.AdapterGoogleGenerateContent:
-		return map[string]interface{}{"maxOutputTokens": maxTokens}
+		return map[string]any{"maxOutputTokens": maxTokens}
 	case llm.AdapterGeminiInteractions:
-		return map[string]interface{}{
-			"generation_config": map[string]interface{}{"maxOutputTokens": maxTokens},
+		return map[string]any{
+			"generation_config": map[string]any{"maxOutputTokens": maxTokens},
 		}
 	default:
 		// openai_responses / openrouter_responses / xai_responses 等 Responses 端点协议。
-		return map[string]interface{}{"max_output_tokens": maxTokens}
+		return map[string]any{"max_output_tokens": maxTokens}
 	}
 }
 
@@ -316,7 +315,7 @@ func (s *Service) probeRoute(ctx context.Context, row repository.ChannelUpstream
 			{Role: "user", Content: modelProbePrompt()},
 		},
 		DisableTools: true,
-		Options: modelProbeOptions(row.Protocol, modelProbeMaxTokens()),
+		Options:      modelProbeOptions(row.Protocol, modelProbeMaxTokens()),
 	}
 
 	startedAt := time.Now()
@@ -464,7 +463,6 @@ func failedModelProbeResult(row repository.ChannelUpstreamRouteRow, code string,
 
 func (s *Service) failedModelProbeFromError(row repository.ChannelUpstreamRouteRow, route llm.RouteConfig, err error, latencyMS int64) *ModelProbeResult {
 	code, message, statusCode := classifyModelProbeError(err)
-	message = sanitizeSensitiveText(message, route.APIKey, route.BaseURL)
 	result := failedModelProbeResult(row, code, message)
 	result.LatencyMS = latencyMS
 	result.UpstreamStatusCode = statusCode
@@ -493,46 +491,29 @@ func classifyModelProbeError(err error) (string, string, int) {
 
 	var upstreamErr *llm.UpstreamError
 	if errors.As(err, &upstreamErr) {
-		summary := strings.TrimSpace(upstreamErr.Message)
-		if summary == "" {
-			summary = fmt.Sprintf("upstream_status_%d", upstreamErr.StatusCode)
-		}
 		if upstreamErr.StatusCode >= 200 && upstreamErr.StatusCode < 300 {
-			return "response_incompatible", "upstream response format is incompatible: " + summary, upstreamErr.StatusCode
+			return "response_incompatible", "upstream response format is incompatible", upstreamErr.StatusCode
 		}
 		switch upstreamErr.StatusCode {
 		case 401, 403:
-			return "auth_failed", "authentication failed: " + summary, upstreamErr.StatusCode
+			return "auth_failed", "upstream authentication failed", upstreamErr.StatusCode
 		case 404:
-			return "model_not_found", "model or endpoint not found: " + summary, upstreamErr.StatusCode
+			return "model_not_found", "upstream model or endpoint was not found", upstreamErr.StatusCode
 		case 408, 504:
-			return "timeout", "upstream request timed out: " + summary, upstreamErr.StatusCode
+			return "timeout", "upstream request timed out", upstreamErr.StatusCode
 		case 429:
-			return "rate_limited", "upstream rate limit reached: " + summary, upstreamErr.StatusCode
+			return "rate_limited", "upstream rate limit reached", upstreamErr.StatusCode
 		case 400, 422:
-			return "request_invalid", "upstream rejected the test request: " + summary, upstreamErr.StatusCode
+			return "request_invalid", "upstream rejected the test request", upstreamErr.StatusCode
 		default:
 			if upstreamErr.StatusCode >= 500 {
-				return "upstream_unavailable", "upstream service unavailable: " + summary, upstreamErr.StatusCode
+				return "upstream_unavailable", "upstream service is unavailable", upstreamErr.StatusCode
 			}
-			return "upstream_request_failed", "upstream request failed: " + summary, upstreamErr.StatusCode
+			return "upstream_request_failed", "upstream request failed", upstreamErr.StatusCode
 		}
 	}
 
-	message := strings.TrimSpace(err.Error())
-	lowerMessage := strings.ToLower(message)
-	switch {
-	case strings.Contains(lowerMessage, "timeout"):
-		return "timeout", "upstream request timed out", 0
-	case strings.Contains(lowerMessage, "unsupported"):
-		return "request_invalid", "request parameter is not supported by upstream", 0
-	case strings.Contains(lowerMessage, "invalid base url"):
-		return "config_invalid", "upstream base url is invalid", 0
-	case strings.Contains(lowerMessage, "parse") || strings.Contains(lowerMessage, "invalid response") || strings.Contains(lowerMessage, "missing"):
-		return "response_incompatible", "upstream response format is incompatible: " + message, 0
-	default:
-		return "network_error", "upstream request failed: " + message, 0
-	}
+	return "network_error", "upstream request failed", 0
 }
 
 func sanitizeModelProbeDebug(debug *llm.UpstreamDebugSnapshot, route llm.RouteConfig) *ModelProbeDebugView {

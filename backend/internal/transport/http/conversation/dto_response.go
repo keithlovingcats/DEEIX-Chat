@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"encoding/json"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/textutil"
 	"strings"
 	"time"
 
@@ -449,7 +450,7 @@ type FileObjectResponse struct {
 	EmbedStatus            string     `json:"embedStatus"`
 	EmbedError             string     `json:"embedError"`
 	ChunkCount             int        `json:"chunkCount"`
-	RagOptOut              bool       `json:"ragOptOut"`
+	RAGOptOut              bool       `json:"ragOptOut"`
 	CanVectorize           bool       `json:"canVectorize"`
 	VectorizationReason    string     `json:"vectorizationReason"`
 	LastAccessedAt         *time.Time `json:"lastAccessedAt" extensions:"x-nullable,!x-omitempty"`
@@ -477,7 +478,7 @@ func toFileObjectResponse(item *model.FileObject, capability appembedding.FileVe
 		EmbedStatus:            item.EmbedStatus,
 		EmbedError:             item.EmbedError,
 		ChunkCount:             item.ChunkCount,
-		RagOptOut:              item.RagOptOut,
+		RAGOptOut:              item.RAGOptOut,
 		CanVectorize:           capability.CanVectorize,
 		VectorizationReason:    capability.Reason,
 		LastAccessedAt:         item.LastAccessedAt,
@@ -934,7 +935,7 @@ func sanitizeTracePayloadJSON(raw string) string {
 	if value == "" {
 		return ""
 	}
-	payload := map[string]interface{}{}
+	payload := map[string]any{}
 	if err := json.Unmarshal([]byte(value), &payload); err != nil {
 		return value
 	}
@@ -954,7 +955,7 @@ func sanitizePublicTracePayloadJSON(raw string) string {
 	if value == "" {
 		return ""
 	}
-	payload := map[string]interface{}{}
+	payload := map[string]any{}
 	if err := json.Unmarshal([]byte(value), &payload); err != nil {
 		return ""
 	}
@@ -969,18 +970,18 @@ func sanitizePublicTracePayloadJSON(raw string) string {
 	return string(data)
 }
 
-func deleteUpstreamNameFields(payload map[string]interface{}, parentKey string) {
+func deleteUpstreamNameFields(payload map[string]any, parentKey string) {
 	for key, value := range payload {
 		if isUpstreamNameField(key, parentKey) {
 			delete(payload, key)
 			continue
 		}
 		switch child := value.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			deleteUpstreamNameFields(child, key)
-		case []interface{}:
+		case []any:
 			for _, item := range child {
-				if itemMap, ok := item.(map[string]interface{}); ok {
+				if itemMap, ok := item.(map[string]any); ok {
 					deleteUpstreamNameFields(itemMap, key)
 				}
 			}
@@ -988,18 +989,18 @@ func deleteUpstreamNameFields(payload map[string]interface{}, parentKey string) 
 	}
 }
 
-func deletePublicSensitiveTraceFields(payload map[string]interface{}) {
+func deletePublicSensitiveTraceFields(payload map[string]any) {
 	for key, value := range payload {
 		if isPublicSensitiveTraceField(key) {
 			delete(payload, key)
 			continue
 		}
 		switch child := value.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			deletePublicSensitiveTraceFields(child)
-		case []interface{}:
+		case []any:
 			for _, item := range child {
-				if itemMap, ok := item.(map[string]interface{}); ok {
+				if itemMap, ok := item.(map[string]any); ok {
 					deletePublicSensitiveTraceFields(itemMap)
 				}
 			}
@@ -1032,7 +1033,7 @@ func isUpstreamNameField(key string, parentKey string) bool {
 }
 
 func messageBillingMode(snapshotJSON string) string {
-	snapshot := map[string]interface{}{}
+	snapshot := map[string]any{}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(snapshotJSON)), &snapshot); err != nil {
 		return ""
 	}
@@ -1064,10 +1065,6 @@ func toMessageBillingCostResponse(m model.Message) *MessageBillingCostResponse {
 		BilledUSD:           messageNanousdToUSD(m.BilledNanousd),
 		PricingSnapshotJSON: snapshotJSON,
 	}
-}
-
-func toMessageResponse(m model.Message) MessageResponse {
-	return toMessageResponseWithRun(m, model.Run{})
 }
 
 // toMessageResponseWithRun 将消息和同 run 的模型快照合并成前端展示 DTO。
@@ -1222,7 +1219,7 @@ func toMessageResponseWithRunAndFallbackAdmin(m model.Message, run model.Run, fa
 	if !strings.EqualFold(strings.TrimSpace(m.Status), "blocked") {
 		return resp
 	}
-	eventID := strings.TrimSpace(firstNonEmptyString(m.ModerationEventID, run.ModerationEventID))
+	eventID := strings.TrimSpace(textutil.FirstNonEmpty(m.ModerationEventID, run.ModerationEventID))
 	placeholder := "[blocked by content moderation"
 	if eventID != "" {
 		placeholder += "; event " + eventID
@@ -1240,15 +1237,6 @@ func toMessageResponseWithRunAndFallbackAdmin(m model.Message, run model.Run, fa
 		}
 	}
 	return resp
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
 }
 
 // ---------- Send Message ----------
@@ -1716,9 +1704,9 @@ type PublicSharedConversationResponseDoc struct {
 
 // ErrorDoc 错误响应文档。
 type ErrorDoc struct {
-	ErrorMsg  string      `json:"errorMsg"`
-	ErrorCode string      `json:"errorCode,omitempty"`
-	Details   interface{} `json:"details,omitempty"`
-	RequestID string      `json:"requestId,omitempty"`
-	Data      interface{} `json:"data"`
+	ErrorMsg  string `json:"errorMsg"`
+	ErrorCode string `json:"errorCode,omitempty"`
+	Details   any    `json:"details,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
+	Data      any    `json:"data"`
 }

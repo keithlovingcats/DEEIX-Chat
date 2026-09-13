@@ -827,7 +827,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "从 storage 缓存读取 OpenRouter 模型标识、定价和上下文限制；缓存不存在、过期或 refresh=true 时由后端刷新。",
+                "description": "从 storage 缓存读取 OpenRouter 模型标识、基础定价、输入 token 阶梯覆盖和上下文限制；无法映射到当前 token 计费模型的附加字段会在 unsupportedFields 中标记，快速配置会忽略这些字段并继续导入可识别的 token 价格。由原生工具计费负责的按次字段（例如 web_search）会被忽略。",
                 "consumes": [
                     "application/json"
                 ],
@@ -21649,7 +21649,7 @@ const docTemplate = `{
                 },
                 "options": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {}
                 },
                 "parentMessagePublicID": {
                     "type": "string",
@@ -22786,6 +22786,13 @@ const docTemplate = `{
                 "cacheWriteNanousdPerMTokens": {
                     "type": "integer"
                 },
+                "cacheWritePriceBasis": {
+                    "type": "string",
+                    "enum": [
+                        "direct",
+                        "anthropic_5m"
+                    ]
+                },
                 "cacheWriteUSDPerMTokens": {
                     "type": "number"
                 },
@@ -23721,6 +23728,33 @@ const docTemplate = `{
                 }
             }
         },
+        "OpenRouterOfficialPricingOverrideResponse": {
+            "type": "object",
+            "required": [
+                "completion",
+                "inputCacheRead",
+                "inputCacheWrite",
+                "minPromptTokens",
+                "prompt"
+            ],
+            "properties": {
+                "completion": {
+                    "type": "string"
+                },
+                "inputCacheRead": {
+                    "type": "string"
+                },
+                "inputCacheWrite": {
+                    "type": "string"
+                },
+                "minPromptTokens": {
+                    "type": "integer"
+                },
+                "prompt": {
+                    "type": "string"
+                }
+            }
+        },
         "OpenRouterOfficialPricingResponseDoc": {
             "type": "object",
             "required": [
@@ -23739,12 +23773,20 @@ const docTemplate = `{
         "OpenRouterOfficialPricingUnitPricingResponse": {
             "type": "object",
             "required": [
+                "cacheWritePriceBasis",
                 "completion",
                 "inputCacheRead",
                 "inputCacheWrite",
                 "prompt"
             ],
             "properties": {
+                "cacheWritePriceBasis": {
+                    "type": "string",
+                    "enum": [
+                        "direct",
+                        "anthropic_5m"
+                    ]
+                },
                 "completion": {
                     "type": "string"
                 },
@@ -23754,8 +23796,20 @@ const docTemplate = `{
                 "inputCacheWrite": {
                     "type": "string"
                 },
+                "overrides": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/OpenRouterOfficialPricingOverrideResponse"
+                    }
+                },
                 "prompt": {
                     "type": "string"
+                },
+                "unsupportedFields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -24812,6 +24866,8 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "cacheReadUSDPerMTokens",
+                "cacheWrite1hMultiplier",
+                "cacheWrite5mMultiplier",
                 "cacheWriteUSDPerMTokens",
                 "callUSDPerCall",
                 "currency",
@@ -24824,6 +24880,12 @@ const docTemplate = `{
             ],
             "properties": {
                 "cacheReadUSDPerMTokens": {
+                    "type": "number"
+                },
+                "cacheWrite1hMultiplier": {
+                    "type": "number"
+                },
+                "cacheWrite5mMultiplier": {
                     "type": "number"
                 },
                 "cacheWriteUSDPerMTokens": {
@@ -26001,7 +26063,7 @@ const docTemplate = `{
                 },
                 "options": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {}
                 },
                 "parallelModels": {
                     "type": "array",
@@ -27056,7 +27118,7 @@ const docTemplate = `{
                 },
                 "options": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {}
                 },
                 "selectedToolIDs": {
                     "type": "array",
@@ -27924,6 +27986,13 @@ const docTemplate = `{
                 "cacheReadUSDPerMTokens": {
                     "type": "number",
                     "minimum": 0
+                },
+                "cacheWritePriceBasis": {
+                    "type": "string",
+                    "enum": [
+                        "direct",
+                        "anthropic_5m"
+                    ]
                 },
                 "cacheWriteUSDPerMTokens": {
                     "type": "number",
@@ -29830,7 +29899,7 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "0.4.0",
+	Version:          "0.4.1",
 	Host:             "",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},

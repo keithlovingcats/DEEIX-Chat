@@ -3,7 +3,6 @@ package usersettings
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,13 +11,6 @@ import (
 	domainusersettings "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/usersettings"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
-
-// ErrValidation 表示用户输入校验失败，可被 handler 识别并返回 400。
-type ErrValidation struct {
-	Msg string
-}
-
-func (e *ErrValidation) Error() string { return e.Msg }
 
 // allowedKeys 是用户可配置的 key 集合及其默认值。
 var allowedKeys = map[string]string{
@@ -88,7 +80,7 @@ func validateValue(key, value string) error {
 	}
 	if boolKeys[key] {
 		if value != "true" && value != "false" {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be 'true' or 'false'", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be 'true' or 'false'", key))
 		}
 	}
 	if allowed, ok := enumKeys[key]; ok {
@@ -97,12 +89,12 @@ func validateValue(key, value string) error {
 			for v := range allowed {
 				valid = append(valid, "'"+v+"'")
 			}
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be one of %s", key, strings.Join(valid, ", "))}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be one of %s", key, strings.Join(valid, ", ")))
 		}
 	}
 	if pattern, ok := patternKeys[key]; ok && value != "" {
 		if !pattern.MatchString(value) {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a lowercase slug (letters, digits, hyphens)", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be a lowercase slug (letters, digits, hyphens)", key))
 		}
 	}
 	return nil
@@ -111,23 +103,17 @@ func validateValue(key, value string) error {
 func validateDefaultMCPToolIDs(value string, key string) error {
 	var toolIDs []uint64
 	if err := json.Unmarshal([]byte(strings.TrimSpace(value)), &toolIDs); err != nil {
-		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must be a JSON array of positive tool IDs", key)}
+		return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must be a JSON array of positive tool IDs", key))
 	}
 	if len(toolIDs) > 128 {
-		return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: must contain at most 128 tool IDs", key)}
+		return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: must contain at most 128 tool IDs", key))
 	}
 	for _, id := range toolIDs {
 		if id == 0 {
-			return &ErrValidation{Msg: fmt.Sprintf("invalid value for %s: tool IDs must be positive integers", key)}
+			return settingValidationError(ErrInvalidSettingValue, fmt.Sprintf("invalid value for %s: tool IDs must be positive integers", key))
 		}
 	}
 	return nil
-}
-
-// IsValidationError 判断 err 是否为校验错误。
-func IsValidationError(err error) bool {
-	var ve *ErrValidation
-	return errors.As(err, &ve)
 }
 
 // Service 封装用户配置业务逻辑。
@@ -173,7 +159,7 @@ func (s *Service) PatchSettings(ctx context.Context, userID uint, patches map[st
 	for key, value := range patches {
 		key = strings.TrimSpace(key)
 		if _, ok := allowedKeys[key]; !ok {
-			return nil, &ErrValidation{Msg: fmt.Sprintf("unknown setting key: %s", key)}
+			return nil, settingValidationError(ErrUnknownSetting, "unknown setting key")
 		}
 		if err := validateValue(key, value); err != nil {
 			return nil, err

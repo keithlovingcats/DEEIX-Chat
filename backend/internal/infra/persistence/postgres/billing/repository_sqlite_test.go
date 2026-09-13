@@ -9,6 +9,7 @@ import (
 	"time"
 
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/driver/sqlite"
@@ -158,6 +159,37 @@ func TestUsageQueriesUseSQLitePortableExpressions(t *testing.T) {
 	}
 	if len(weeklyStatistics.Trend) != 1 || weeklyStatistics.Trend[0].PeriodStart.Format("2006-01-02") != "2026-06-01" {
 		t.Fatalf("unexpected weekly statistics: %+v", weeklyStatistics.Trend)
+	}
+}
+
+func TestModelPricingCacheWriteBasisMigrationAndRoundTrip(t *testing.T) {
+	db := openBillingSQLiteTestDB(t)
+	// Simulate a price saved before the cache-write basis column existed.
+	if err := db.Exec(`CREATE TABLE billing_model_prices (id integer PRIMARY KEY AUTOINCREMENT, platform_model_name text NOT NULL)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO billing_model_prices (platform_model_name) VALUES ('claude-test')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.ModelPricing{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepo(db)
+	legacy, err := repo.GetModelPricing(t.Context(), "claude-test")
+	if err != nil || legacy.CacheWritePriceBasis != "" {
+		t.Fatalf("legacy price changed: %#v, %v", legacy, err)
+	}
+	for _, basis := range []string{domainbilling.CacheWritePriceBasisAnthropic5m, domainbilling.CacheWritePriceBasisDirect, ""} {
+		legacy.CacheWritePriceBasis = basis
+		legacy.CacheWriteNanousdPerMTokens = 3_750_000_000
+		saved, err := repo.UpsertModelPricing(t.Context(), legacy)
+		if err != nil || saved.CacheWritePriceBasis != basis {
+			t.Fatalf("save basis %q: %#v, %v", basis, saved, err)
+		}
+		loaded, err := repo.GetModelPricing(t.Context(), "claude-test")
+		if err != nil || loaded.CacheWritePriceBasis != basis || loaded.CacheWriteNanousdPerMTokens != 3_750_000_000 {
+			t.Fatalf("load basis %q: %#v, %v", basis, loaded, err)
+		}
 	}
 }
 
@@ -521,7 +553,7 @@ func TestUsageLedgerRefNoUniqueIndexOnlyCoversKeyedRows(t *testing.T) {
 	if err := db.Create(row("run_unique")).Error; err != nil {
 		t.Fatalf("create keyed ledger: %v", err)
 	}
-	if err := translateError(db.Create(row("run_unique")).Error); !errors.Is(err, repository.ErrDuplicate) {
+	if err := dberror.Translate(db.Create(row("run_unique")).Error); !errors.Is(err, repository.ErrDuplicate) {
 		t.Fatalf("duplicate keyed ledger error = %v, want ErrDuplicate", err)
 	}
 	for range 2 {
@@ -1205,7 +1237,7 @@ func TestAddPeriodUsageAndSettleOverageSplitsCreditAndBalance(t *testing.T) {
 	if ledger.BalanceAfterNanousd == nil || *ledger.BalanceAfterNanousd != 200 {
 		t.Fatalf("ledger balance after = %v, want 200", ledger.BalanceAfterNanousd)
 	}
-	var snapshot map[string]interface{}
+	var snapshot map[string]any
 	if err := json.Unmarshal([]byte(ledger.PricingSnapshotJSON), &snapshot); err != nil {
 		t.Fatalf("decode pricing snapshot: %v", err)
 	}
@@ -1292,7 +1324,7 @@ func TestAddPeriodUsageAndSettleOverageRecordsDebt(t *testing.T) {
 	}
 
 	assertUsageSettlement(t, db, 1, "gpt-period-debt", -300, -400, -300, "")
-	var snapshot map[string]interface{}
+	var snapshot map[string]any
 	if err := json.Unmarshal([]byte(usage.PricingSnapshotJSON), &snapshot); err != nil {
 		t.Fatalf("decode pricing snapshot: %v", err)
 	}

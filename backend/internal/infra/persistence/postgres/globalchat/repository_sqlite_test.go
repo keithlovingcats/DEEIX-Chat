@@ -15,22 +15,22 @@ import (
 func TestImageFileQueriesEnforcePurposeAndOwnership(t *testing.T) {
 	db := openGlobalChatSQLiteTestDB(t)
 	seedFileObject(t, db, model.FileObject{
-		FileID:      "gc-image",
-		UserID:      7,
-		Purpose:     "global-chat",
-		MimeType:    "image/png",
+		FileID:       "gc-image",
+		UserID:       7,
+		Purpose:      "global-chat",
+		MimeType:     "image/png",
 		DetectedMIME: "image/png",
-		StoragePath: "storage/gc-image",
-		Status:      "active",
+		StoragePath:  "storage/gc-image",
+		Status:       "active",
 	})
 	seedFileObject(t, db, model.FileObject{
-		FileID:      "conv-image",
-		UserID:      7,
-		Purpose:     "conversation_input",
-		MimeType:    "image/png",
+		FileID:       "conv-image",
+		UserID:       7,
+		Purpose:      "conversation_input",
+		MimeType:     "image/png",
 		DetectedMIME: "image/png",
-		StoragePath: "storage/conv-image",
-		Status:      "active",
+		StoragePath:  "storage/conv-image",
+		Status:       "active",
 	})
 
 	repo := NewRepo(db)

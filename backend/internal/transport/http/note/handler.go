@@ -179,7 +179,7 @@ func pageParams(c *gin.Context) (int, int) {
 func idParam(c *gin.Context) (uint, bool) {
 	parsed, err := strconv.ParseUint(c.Param("id"), 10, strconv.IntSize)
 	if err != nil || parsed == 0 {
-		response.Error(c, http.StatusBadRequest, "invalid note id")
+		response.ErrorWithCode(c, http.StatusBadRequest, response.CodeRequestInvalidID)
 		return 0, false
 	}
 	return uint(parsed), true
@@ -188,10 +188,10 @@ func idParam(c *gin.Context) (uint, bool) {
 func writeNoteError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, appnote.ErrNoteNotFound):
-		response.Error(c, http.StatusNotFound, "note not found")
+		response.ErrorFrom(c, http.StatusNotFound, err)
 	case errors.Is(err, appnote.ErrInvalidNote):
-		response.Error(c, http.StatusBadRequest, "invalid note")
+		response.ErrorFrom(c, http.StatusBadRequest, err)
 	default:
-		response.Error(c, http.StatusInternalServerError, "note operation failed")
+		response.InternalError(c)
 	}
 }

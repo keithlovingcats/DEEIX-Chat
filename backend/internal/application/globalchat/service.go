@@ -160,7 +160,7 @@ func (s *Service) DeleteMessage(ctx context.Context, id uint) error {
 	}
 	s.hub.Broadcast(HubEvent{
 		Type: EventMessageDeleted,
-		Data: map[string]interface{}{"id": id},
+		Data: map[string]any{"id": id},
 	})
 	return nil
 }
@@ -182,7 +182,7 @@ func (s *Service) DeleteMessages(ctx context.Context, ids []uint) (int, error) {
 	for _, id := range normalized {
 		s.hub.Broadcast(HubEvent{
 			Type: EventMessageDeleted,
-			Data: map[string]interface{}{"id": id},
+			Data: map[string]any{"id": id},
 		})
 	}
 	return deleted, nil

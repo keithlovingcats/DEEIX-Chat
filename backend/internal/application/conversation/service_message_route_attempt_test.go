@@ -81,8 +81,8 @@ func TestBuildMessageRoutePromptOverridesReusedUserContentForDiscussionTurn(t *t
 
 	plan, err := service.buildMessageRoutePrompt(t.Context(), nil, messageRoutePromptInput{
 		UserContent:               wrapper,
-		DomainMessages:           domainMessages,
-		SkipImageAttachments:     true,
+		DomainMessages:            domainMessages,
+		SkipImageAttachments:      true,
 		OverrideReusedUserContent: true,
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func TestBuildMessageRoutePromptOverridesReusedUserContentForDiscussionTurn(t *t
 
 	// 回归：普通请求（reuse 不带 meta / 非 reuse）不受影响，链尾保持原问题。
 	plainPlan, err := service.buildMessageRoutePrompt(t.Context(), nil, messageRoutePromptInput{
-		UserContent:           wrapper,
+		UserContent:          wrapper,
 		DomainMessages:       domainMessages,
 		SkipImageAttachments: true,
 	})
@@ -150,7 +150,7 @@ func TestReplaceLastUserMessageContent(t *testing.T) {
 
 func TestWithMessageRouteReasoningPassbackOptions(t *testing.T) {
 	route := &channel.ResolvedRoute{
-		ReasoningPassbackRequestOptions: map[string]interface{}{
+		ReasoningPassbackRequestOptions: map[string]any{
 			"preserve_thinking": true,
 		},
 	}
@@ -163,7 +163,7 @@ func TestWithMessageRouteReasoningPassbackOptions(t *testing.T) {
 
 	explicit := withMessageRouteReasoningPassbackOptions(
 		nil,
-		map[string]interface{}{"preserve_thinking": false},
+		map[string]any{"preserve_thinking": false},
 		route,
 		true,
 		messages,

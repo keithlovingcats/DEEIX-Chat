@@ -58,7 +58,7 @@ func (h *Handler) ListMessages(c *gin.Context) {
 	if raw := strings.TrimSpace(c.Query("before_id")); raw != "" {
 		beforeID, parseErr := strconv.ParseUint(raw, 10, strconv.IntSize)
 		if parseErr != nil || beforeID == 0 {
-			response.Error(c, http.StatusBadRequest, "invalid before_id")
+			response.InvalidQueryParam(c, "before_id")
 			return
 		}
 		items, hasMore, err = h.service.ListBeforeID(c.Request.Context(), uint(beforeID), limit)
@@ -124,7 +124,7 @@ func (h *Handler) Stream(c *gin.Context) {
 	afterID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("after_id")), 10, strconv.IntSize)
 	events, ok, unsubscribe := h.service.Hub().Subscribe(middleware.MustUserID(c))
 	if !ok {
-		response.Error(c, http.StatusServiceUnavailable, "global chat connection limit reached")
+		response.ErrorWithCode(c, http.StatusServiceUnavailable, response.CodeServiceUnavailable)
 		return
 	}
 	defer unsubscribe()
@@ -135,7 +135,7 @@ func (h *Handler) Stream(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
 
-	writeEvent := func(payload map[string]interface{}) bool {
+	writeEvent := func(payload map[string]any) bool {
 		encoded, marshalErr := json.Marshal(payload)
 		if marshalErr != nil {
 			return true
@@ -149,9 +149,9 @@ func (h *Handler) Stream(c *gin.Context) {
 
 	// 下发 resync：客户端数据不完整时整体重拉的信号（返回 false 表示连接已断）。
 	writeResync := func(reason string) bool {
-		return writeEvent(map[string]interface{}{
+		return writeEvent(map[string]any{
 			"type": appglobalchat.EventResync,
-			"data": map[string]interface{}{"reason": reason},
+			"data": map[string]any{"reason": reason},
 		})
 	}
 
@@ -194,9 +194,9 @@ func (h *Handler) Stream(c *gin.Context) {
 				}
 			default:
 				for _, id := range deletedIDs {
-					if !writeEvent(map[string]interface{}{
+					if !writeEvent(map[string]any{
 						"type": appglobalchat.EventMessageDeleted,
-						"data": map[string]interface{}{"id": id},
+						"data": map[string]any{"id": id},
 					}) {
 						return
 					}
@@ -212,9 +212,9 @@ func (h *Handler) Stream(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			return
 		case <-heartbeat.C:
-			if !writeEvent(map[string]interface{}{
+			if !writeEvent(map[string]any{
 				"type": appglobalchat.EventHeartbeat,
-				"data": map[string]interface{}{"ts": time.Now().Unix()},
+				"data": map[string]any{"ts": time.Now().Unix()},
 			}) {
 				return
 			}
@@ -257,7 +257,7 @@ func (h *Handler) GetOnlineCount(c *gin.Context) {
 func (h *Handler) GetImageContent(c *gin.Context) {
 	fileID := strings.TrimSpace(c.Param("file_id"))
 	if fileID == "" {
-		response.Error(c, http.StatusBadRequest, "invalid file id")
+		response.ErrorWithCode(c, http.StatusBadRequest, response.CodeRequestInvalidID)
 		return
 	}
 	result, err := h.service.OpenImageContent(c.Request.Context(), fileID)
@@ -286,7 +286,7 @@ func (h *Handler) GetImageContent(c *gin.Context) {
 func (h *Handler) DeleteMessage(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, strconv.IntSize)
 	if err != nil || id == 0 {
-		response.Error(c, http.StatusBadRequest, "invalid message id")
+		response.ErrorWithCode(c, http.StatusBadRequest, response.CodeRequestInvalidID)
 		return
 	}
 	if err := h.service.DeleteMessage(c.Request.Context(), uint(id)); err != nil {
@@ -322,20 +322,20 @@ func (h *Handler) BatchDeleteMessages(c *gin.Context) {
 	response.Success(c, GlobalChatMessagesBatchDeleteDataResponse{Deleted: deleted})
 }
 
-func streamMessagePayload(item domainglobalchat.Message) map[string]interface{} {
-	return map[string]interface{}{
+func streamMessagePayload(item domainglobalchat.Message) map[string]any {
+	return map[string]any{
 		"type": appglobalchat.EventMessage,
 		"data": toMessageResponse(item),
 	}
 }
 
-func streamEventPayload(event appglobalchat.HubEvent) map[string]interface{} {
+func streamEventPayload(event appglobalchat.HubEvent) map[string]any {
 	if event.Type == appglobalchat.EventMessage {
 		if item, ok := event.Data.(*domainglobalchat.Message); ok && item != nil {
 			return streamMessagePayload(*item)
 		}
 	}
-	return map[string]interface{}{"type": event.Type, "data": event.Data}
+	return map[string]any{"type": event.Type, "data": event.Data}
 }
 
 func writeError(c *gin.Context, err error) {
@@ -343,10 +343,10 @@ func writeError(c *gin.Context, err error) {
 	case errors.Is(err, appglobalchat.ErrInvalidMessage):
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 	case errors.Is(err, appglobalchat.ErrImageFileInvalid):
-		response.Error(c, http.StatusBadRequest, "invalid image file")
+		response.ErrorFrom(c, http.StatusBadRequest, err)
 	case errors.Is(err, appglobalchat.ErrMessageNotFound), errors.Is(err, appglobalchat.ErrImageFileNotFound):
-		response.Error(c, http.StatusNotFound, "not found")
+		response.ErrorWithCode(c, http.StatusNotFound, response.CodeResourceNotFound)
 	default:
-		response.Error(c, http.StatusInternalServerError, "global chat operation failed")
+		response.InternalError(c)
 	}
 }

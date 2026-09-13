@@ -552,6 +552,15 @@ function ChatInputComponent({
       return;
     }
     textarea.focus({ preventScroll: true });
+    const caretPosition = textarea.value.length;
+    textarea.setSelectionRange(caretPosition, caretPosition);
+    const frameID = window.requestAnimationFrame(() => {
+      if (document.activeElement === textarea) {
+        const nextCaretPosition = textarea.value.length;
+        textarea.setSelectionRange(nextCaretPosition, nextCaretPosition);
+      }
+    });
+    return () => window.cancelAnimationFrame(frameID);
   }, [autoFocusKey, loading]);
 
   React.useLayoutEffect(() => {

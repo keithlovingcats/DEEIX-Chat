@@ -13,6 +13,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogHeightTransition,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -451,53 +452,53 @@ export function ProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         ref={dialogContentRef}
-        className="flex max-h-[min(86vh,760px)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]"
+        className="w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[720px]"
       >
-        <DialogHeader className="shrink-0 px-4 py-4">
-          <DialogTitle>{stableDraft?.publicID ? t("editTitle") : t("createTitle")}</DialogTitle>
-          <DialogDescription>{stableDraft?.publicID ? t("editDescription") : t("createDescription")}</DialogDescription>
-        </DialogHeader>
+        <DialogHeightTransition contentClassName="max-h-[min(86vh,760px)]">
+          <DialogHeader className="shrink-0 px-4 py-4">
+            <DialogTitle>{stableDraft?.publicID ? t("editTitle") : t("createTitle")}</DialogTitle>
+            <DialogDescription>{stableDraft?.publicID ? t("editDescription") : t("createDescription")}</DialogDescription>
+          </DialogHeader>
 
-        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-2">
-            <div className="space-y-1">
-              <label htmlFor={nameInputID} className="text-xs text-muted-foreground">
-                {t("nameLabel")}
-              </label>
-              <Input
-                id={nameInputID}
-                autoFocus
-                value={stableDraft?.name ?? ""}
-                maxLength={80}
-                placeholder={t("namePlaceholder")}
-                onChange={(event) => {
-                  setDraft((current) => current ? { ...current, name: event.target.value } : current);
-                }}
-                disabled={submitting}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label htmlFor={systemPromptInputID} className="text-xs text-muted-foreground">
-                {t("systemPromptLabel")}
-              </label>
-              <Textarea
-                id={systemPromptInputID}
-                value={stableDraft?.systemPrompt ?? ""}
-                maxLength={12000}
-                placeholder={t("systemPromptPlaceholder")}
-                className="h-48 resize-none overflow-y-auto [field-sizing:fixed]"
-                onChange={(event) => {
-                  setDraft((current) => current ? { ...current, systemPrompt: event.target.value } : current);
-                }}
-                disabled={submitting}
-              />
-            </div>
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-2">
+              <div className="space-y-1">
+                <label htmlFor={nameInputID} className="text-xs text-muted-foreground">
+                  {t("nameLabel")}
+                </label>
+                <Input
+                  id={nameInputID}
+                  autoFocus
+                  value={stableDraft?.name ?? ""}
+                  maxLength={80}
+                  placeholder={t("namePlaceholder")}
+                  onChange={(event) => {
+                    setDraft((current) => current ? { ...current, name: event.target.value } : current);
+                  }}
+                  disabled={submitting}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor={systemPromptInputID} className="text-xs text-muted-foreground">
+                  {t("systemPromptLabel")}
+                </label>
+                <Textarea
+                  id={systemPromptInputID}
+                  value={stableDraft?.systemPrompt ?? ""}
+                  maxLength={12000}
+                  placeholder={t("systemPromptPlaceholder")}
+                  className="h-48 resize-none overflow-y-auto [field-sizing:fixed]"
+                  onChange={(event) => {
+                    setDraft((current) => current ? { ...current, systemPrompt: event.target.value } : current);
+                  }}
+                  disabled={submitting}
+                />
+              </div>
 
-            <div className="grid gap-4 border-t border-border/60 pt-4 sm:grid-cols-2 sm:items-start">
-              <div className="min-w-0 space-y-3">
-                <div className="space-y-1">
-                  <label htmlFor={defaultModelInputID} className="text-xs text-muted-foreground">
+              <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
+                <div className="min-w-0 space-y-1">
+                  <label htmlFor={defaultModelInputID} className="block text-xs text-muted-foreground">
                     {t("defaultModelLabel")}
                   </label>
                   {modelCatalogLoading ? (
@@ -529,13 +530,11 @@ export function ProjectDialog({
                       disabled={submitting}
                     />
                   )}
-                  <p className="text-[11px] leading-4 text-muted-foreground">{t("defaultModelDescription")}</p>
                 </div>
 
                 <ProjectDefaultSelector
                   icon={Wrench}
                   label={t("mcpDefaultsLabel")}
-                  description={inheritGlobalMCPDefaults ? t("inheritGlobalMCPDefaultsDescription") : t("mcpDefaultsDescription")}
                   emptyLabel={t("mcpDefaultsEmpty")}
                   searchPlaceholder={t("searchMCPTools")}
                   options={mcpTools.map((tool) => ({
@@ -574,39 +573,11 @@ export function ProjectDialog({
                       : current);
                   }}
                 />
-              </div>
-
-              <div className="min-w-0 space-y-3">
-                <ProjectDefaultSelector
-                  icon={Box}
-                  label={t("selectSkills")}
-                  description={t("skillDefaultsDescription")}
-                  emptyLabel={t("skillDefaultsEmpty")}
-                  searchPlaceholder={t("searchSkills")}
-                  options={skillCatalog.items.map((skill) => ({
-                    id: skill.id,
-                    label: skill.title,
-                    detail: skill.description.trim() || (skill.trigger ? `/${skill.trigger}` : ""),
-                  }))}
-                  selectedIDs={stableDraft?.defaultSkillIDs ?? []}
-                  selectionLimit={selectionLimit}
-                  loading={skillCatalog.loading && skillCatalog.items.length === 0}
-                  searching={skillCatalog.loading}
-                  loadingMore={skillCatalog.loadingMore}
-                  hasMore={skillCatalog.hasMore}
-                  disabled={submitting || catalogLoading}
-                  onQueryChange={skillCatalog.setQuery}
-                  onLoadMore={skillCatalog.loadMore}
-                  onChange={(defaultSkillIDs) => {
-                    setDraft((current) => current ? { ...current, defaultSkillIDs } : current);
-                  }}
-                />
 
                 {knowledgeBaseEnabled ? (
                   <ProjectDefaultSelector
                     icon={BookOpen}
                     label={t("selectKnowledgeBases")}
-                    description={t("knowledgeBaseDefaultsDescription")}
                     emptyLabel={t("knowledgeBaseDefaultsEmpty")}
                     searchPlaceholder={t("searchKnowledgeBases")}
                     options={knowledgeBaseCatalog.items.map((item) => ({
@@ -629,19 +600,43 @@ export function ProjectDialog({
                     }}
                   />
                 ) : null}
+
+                <ProjectDefaultSelector
+                  icon={Box}
+                  label={t("selectSkills")}
+                  emptyLabel={t("skillDefaultsEmpty")}
+                  searchPlaceholder={t("searchSkills")}
+                  options={skillCatalog.items.map((skill) => ({
+                    id: skill.id,
+                    label: skill.title,
+                    detail: skill.description.trim() || (skill.trigger ? `/${skill.trigger}` : ""),
+                  }))}
+                  selectedIDs={stableDraft?.defaultSkillIDs ?? []}
+                  selectionLimit={selectionLimit}
+                  loading={skillCatalog.loading && skillCatalog.items.length === 0}
+                  searching={skillCatalog.loading}
+                  loadingMore={skillCatalog.loadingMore}
+                  hasMore={skillCatalog.hasMore}
+                  disabled={submitting || catalogLoading}
+                  onQueryChange={skillCatalog.setQuery}
+                  onLoadMore={skillCatalog.loadMore}
+                  onChange={(defaultSkillIDs) => {
+                    setDraft((current) => current ? { ...current, defaultSkillIDs } : current);
+                  }}
+                />
               </div>
             </div>
-          </div>
 
-          <DialogFooter className="shrink-0 px-4 py-3">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
-              {t("cancel")}
-            </Button>
-            <Button type="submit" disabled={!draft?.name.trim() || submitting}>
-              {t("save")}
-            </Button>
-          </DialogFooter>
-        </form>
+            <DialogFooter className="shrink-0 px-4 py-3">
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
+                {t("cancel")}
+              </Button>
+              <Button type="submit" disabled={!draft?.name.trim() || submitting}>
+                {t("save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogHeightTransition>
       </DialogContent>
     </Dialog>
   );
@@ -650,7 +645,6 @@ export function ProjectDialog({
 function ProjectDefaultSelector<T extends string | number>({
   icon: Icon,
   label,
-  description,
   emptyLabel,
   searchPlaceholder,
   options,
@@ -668,7 +662,6 @@ function ProjectDefaultSelector<T extends string | number>({
 }: {
   icon: LucideIcon;
   label: string;
-  description: string;
   emptyLabel: string;
   searchPlaceholder: string;
   options: ProjectDefaultOption<T>[];
@@ -712,8 +705,8 @@ function ProjectDefaultSelector<T extends string | number>({
       : emptyLabel;
 
   return (
-    <div className="space-y-1 pt-1">
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="min-w-0 space-y-1">
+      <p className="block text-xs text-muted-foreground">{label}</p>
       <Popover
         modal
         open={open}
@@ -827,7 +820,6 @@ function ProjectDefaultSelector<T extends string | number>({
           </div>
         </PopoverContent>
       </Popover>
-      <p className="text-[11px] leading-4 text-muted-foreground">{description}</p>
     </div>
   );
 }

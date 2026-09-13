@@ -98,9 +98,9 @@ func TestStreamMessageEmitsMessageCreatedBeforeUpstream(t *testing.T) {
 	}
 	logger := zap.NewNop()
 	service := &Service{
-		cfg:              runtimeCfg,
-		repo:             repo,
-		logger:           logger,
+		cfg:               runtimeCfg,
+		repo:              repo,
+		logger:            logger,
 		generationStreams: newGenerationStreamRegistry(nil, defaultGenerationStreamOptions()),
 	}
 	service.compactSvc = appcompact.NewServiceWithRuntime(runtimeCfg, repo, logger)
@@ -119,7 +119,13 @@ func TestStreamMessageEmitsMessageCreatedBeforeUpstream(t *testing.T) {
 
 	// 路由未配置：sendMessageInternal 必然在进入上游调用前返回错误，
 	// 但 message_created 在 route check 之前已发射。
-	_, _ = service.StreamMessage(context.Background(), input, func(string) error { return nil })
+	// 流式发送要求 ctx 先持有生成生命周期租约（生产路径由 transport 层 acquire）。
+	generationCtx, releaseLifecycle, ok := service.AcquireMessageGenerationLifecycle(context.Background())
+	if !ok {
+		t.Fatal("failed to acquire generation lifecycle")
+	}
+	defer releaseLifecycle()
+	_, _ = service.StreamMessage(generationCtx, input, func(string) error { return nil })
 
 	createdIndex := recorder.find("message_created")
 	if createdIndex < 0 {

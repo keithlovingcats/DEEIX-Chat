@@ -7,11 +7,11 @@ import type { ChatSubmitTask } from "@/features/chat/model/chat-task";
 import { buildMediaImagePreviewMarkdown } from "@/features/chat/model/media-image-preview";
 import { toPendingProcessTrace } from "@/features/chat/model/message-submit";
 import { settleCompletedExchange } from "@/features/chat/model/message-submit-exchange";
-import { recordStreamEventSeq } from "@/features/chat/model/stream-event-seq";
 import {
   resolveMediaStatusLabel,
   resolveVideoExtensionOptions,
 } from "@/features/chat/model/message-submit-media";
+import { recordStreamEventSeq } from "@/features/chat/model/stream-event-seq";
 import type { PendingAttachment, PendingExchange } from "@/features/chat/types/chat-runtime";
 import {
   type ConversationStreamOptions,

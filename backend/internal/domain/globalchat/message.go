@@ -25,7 +25,7 @@ type Message struct {
 	// 用于同账号多设备的自我区分展示；为空表示历史消息或旧客户端。
 	DeviceID  string
 	CreatedAt time.Time
-	UpdatedAt   time.Time
+	UpdatedAt time.Time
 }
 
 // ImageFile 表示全服聊天图片引用的文件对象读取结果。

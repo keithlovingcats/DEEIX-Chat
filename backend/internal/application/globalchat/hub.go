@@ -18,7 +18,7 @@ const (
 // Hub 事件是广播给订阅者的领域事件；NDJSON 序列化形状由 transport 层决定。
 type HubEvent struct {
 	Type string
-	Data interface{}
+	Data any
 }
 
 const (

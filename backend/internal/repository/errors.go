@@ -41,6 +41,8 @@ var (
 	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
 	// ErrMessageSubtreeHasActive 消息子树内存在仍在生成中的消息（status=pending），不允许删除。
 	ErrMessageSubtreeHasActive = errors.New("message subtree has active generation")
+	// ErrConversationShareSchemaOutdated 会话分享存储结构未更新。
+	ErrConversationShareSchemaOutdated = errors.New("conversation share schema outdated")
 
 	// 上游与模型仓储语义错误。
 	ErrUpstreamNotFound           = errors.New("upstream not found")

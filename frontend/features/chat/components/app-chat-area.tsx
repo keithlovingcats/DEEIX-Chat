@@ -55,10 +55,10 @@ import { filterAvailableMCPToolIDs } from "@/features/chat/model/chat-mcp-tool-d
 import { findLatestDiscussionFinalMessage, sortDiscussionGroup } from "@/features/chat/model/chat-thread";
 import type { ChatAreaMessage, ChatDiscussionGroup, } from "@/features/chat/types/messages";
 import { useSettingsChatPreferences } from "@/features/settings";
+import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cn } from "@/lib/utils";
 import { deleteMessage, getConversation } from "@/shared/api/conversation";
 import type { ConversationDTO, ConversationOptions } from "@/shared/api/conversation.types";
-import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { DeleteFilesOption } from "@/shared/components/delete-files-option";

@@ -40,6 +40,7 @@ type UpsertModelPricingRequest struct {
 	InputUSDPerMTokens      *float64 `json:"inputUSDPerMTokens" binding:"required,gte=0"`
 	CacheReadUSDPerMTokens  *float64 `json:"cacheReadUSDPerMTokens" binding:"required,gte=0"`
 	CacheWriteUSDPerMTokens *float64 `json:"cacheWriteUSDPerMTokens" binding:"required,gte=0"`
+	CacheWritePriceBasis    string   `json:"cacheWritePriceBasis,omitempty" binding:"omitempty,oneof=direct anthropic_5m" enums:"direct,anthropic_5m"`
 	OutputUSDPerMTokens     *float64 `json:"outputUSDPerMTokens" binding:"required,gte=0"`
 	CallUSDPerCall          *float64 `json:"callUSDPerCall" binding:"required,gte=0"`
 	DurationUSDPerSecond    *float64 `json:"durationUSDPerSecond" binding:"required,gte=0"`
@@ -469,6 +470,7 @@ type ModelPricingResponse struct {
 	InputUSDPerMTokens          float64   `json:"inputUSDPerMTokens"`
 	CacheReadUSDPerMTokens      float64   `json:"cacheReadUSDPerMTokens"`
 	CacheWriteUSDPerMTokens     float64   `json:"cacheWriteUSDPerMTokens"`
+	CacheWritePriceBasis        string    `json:"cacheWritePriceBasis,omitempty" enums:"direct,anthropic_5m"`
 	OutputUSDPerMTokens         float64   `json:"outputUSDPerMTokens"`
 	CallUSDPerCall              float64   `json:"callUSDPerCall"`
 	DurationUSDPerSecond        float64   `json:"durationUSDPerSecond"`
@@ -500,6 +502,18 @@ type OpenRouterOfficialPricingItemResponse struct {
 
 // OpenRouterOfficialPricingUnitPricingResponse OpenRouter 官方模型价格字段。
 type OpenRouterOfficialPricingUnitPricingResponse struct {
+	Prompt               string                                      `json:"prompt"`
+	Completion           string                                      `json:"completion"`
+	InputCacheRead       string                                      `json:"inputCacheRead"`
+	InputCacheWrite      string                                      `json:"inputCacheWrite"`
+	CacheWritePriceBasis string                                      `json:"cacheWritePriceBasis" enums:"direct,anthropic_5m"`
+	Overrides            []OpenRouterOfficialPricingOverrideResponse `json:"overrides,omitempty"`
+	UnsupportedFields    []string                                    `json:"unsupportedFields,omitempty"`
+}
+
+// OpenRouterOfficialPricingOverrideResponse OpenRouter 官方模型输入 token 阶梯覆盖。
+type OpenRouterOfficialPricingOverrideResponse struct {
+	MinPromptTokens int64  `json:"minPromptTokens"`
 	Prompt          string `json:"prompt"`
 	Completion      string `json:"completion"`
 	InputCacheRead  string `json:"inputCacheRead"`
@@ -683,11 +697,11 @@ type RedemptionApplyResponseDoc struct {
 
 // ErrorDoc 错误响应。
 type ErrorDoc struct {
-	ErrorMsg  string      `json:"errorMsg"`
-	ErrorCode string      `json:"errorCode,omitempty"`
-	Details   interface{} `json:"details,omitempty"`
-	RequestID string      `json:"requestId,omitempty"`
-	Data      interface{} `json:"data"`
+	ErrorMsg  string `json:"errorMsg"`
+	ErrorCode string `json:"errorCode,omitempty"`
+	Details   any    `json:"details,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
+	Data      any    `json:"data"`
 }
 
 // ── mapping 函数 ─────────────────────────────────────────────────────────────
@@ -993,7 +1007,7 @@ func usagePricingSnapshotIdentity(value string) usagePricingSnapshotIdentityResu
 	if strings.TrimSpace(value) == "" {
 		return usagePricingSnapshotIdentityResult{}
 	}
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := json.Unmarshal([]byte(value), &payload); err != nil {
 		return usagePricingSnapshotIdentityResult{}
 	}
@@ -1003,7 +1017,7 @@ func usagePricingSnapshotIdentity(value string) usagePricingSnapshotIdentityResu
 	}
 }
 
-func stringSnapshotField(payload map[string]interface{}, key string) string {
+func stringSnapshotField(payload map[string]any, key string) string {
 	value, ok := payload[key]
 	if !ok {
 		return ""
@@ -1019,7 +1033,7 @@ func sanitizeUsagePricingSnapshotJSON(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "{}"
 	}
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := json.Unmarshal([]byte(value), &payload); err != nil {
 		return "{}"
 	}
@@ -1031,18 +1045,18 @@ func sanitizeUsagePricingSnapshotJSON(value string) string {
 	return string(result)
 }
 
-func deleteUpstreamNameSnapshotFields(payload map[string]interface{}, parentKey string) {
+func deleteUpstreamNameSnapshotFields(payload map[string]any, parentKey string) {
 	for key, value := range payload {
 		if isUpstreamNameSnapshotField(key, parentKey) {
 			delete(payload, key)
 			continue
 		}
 		switch child := value.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			deleteUpstreamNameSnapshotFields(child, key)
-		case []interface{}:
+		case []any:
 			for _, item := range child {
-				if itemMap, ok := item.(map[string]interface{}); ok {
+				if itemMap, ok := item.(map[string]any); ok {
 					deleteUpstreamNameSnapshotFields(itemMap, key)
 				}
 			}
@@ -1132,6 +1146,7 @@ func toModelPricingResponse(item appbilling.ModelPricingView) ModelPricingRespon
 		InputUSDPerMTokens:          nanousdToUSD(item.InputNanousdPerMTokens),
 		CacheReadUSDPerMTokens:      nanousdToUSD(item.CacheReadNanousdPerMTokens),
 		CacheWriteUSDPerMTokens:     nanousdToUSD(item.CacheWriteNanousdPerMTokens),
+		CacheWritePriceBasis:        item.CacheWritePriceBasis,
 		OutputUSDPerMTokens:         nanousdToUSD(item.OutputNanousdPerMTokens),
 		CallUSDPerCall:              nanousdToUSD(item.CallNanousdPerCall),
 		DurationUSDPerSecond:        nanousdToUSD(item.DurationNanousdPerSecond),
@@ -1156,6 +1171,7 @@ func modelPricingInputFromRequest(req UpsertModelPricingRequest) appbilling.Mode
 		InputNanousdPerMTokens:      usdToNanousd(*req.InputUSDPerMTokens),
 		CacheReadNanousdPerMTokens:  usdToNanousd(*req.CacheReadUSDPerMTokens),
 		CacheWriteNanousdPerMTokens: usdToNanousd(*req.CacheWriteUSDPerMTokens),
+		CacheWritePriceBasis:        req.CacheWritePriceBasis,
 		OutputNanousdPerMTokens:     usdToNanousd(*req.OutputUSDPerMTokens),
 		CallNanousdPerCall:          usdToNanousd(*req.CallUSDPerCall),
 		DurationNanousdPerSecond:    usdToNanousd(*req.DurationUSDPerSecond),

@@ -104,7 +104,7 @@ func (r *Repo) PatchNote(ctx context.Context, userID uint, id uint, patch reposi
 			return translateError(err)
 		}
 
-		updates := map[string]interface{}{}
+		updates := map[string]any{}
 		if patch.Title != nil {
 			updates["title"] = strings.TrimSpace(*patch.Title)
 		}

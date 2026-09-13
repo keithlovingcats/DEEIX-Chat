@@ -48,13 +48,13 @@ type NotePageResponseDoc struct {
 
 // NoteResponseDoc 用于 Swagger 展示单条响应。
 type NoteResponseDoc struct {
-	ErrorMsg string          `json:"errorMsg"`
+	ErrorMsg string           `json:"errorMsg"`
 	Data     NoteDataResponse `json:"data"`
 }
 
 // NoteDeleteResponseDoc 用于 Swagger 展示删除响应。
 type NoteDeleteResponseDoc struct {
-	ErrorMsg string                `json:"errorMsg"`
+	ErrorMsg string                 `json:"errorMsg"`
 	Data     NoteDeleteDataResponse `json:"data"`
 }
 
