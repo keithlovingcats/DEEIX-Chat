@@ -81,14 +81,6 @@ function isSameSlot(current: ChatArtifact, previous: ChatArtifact): boolean {
   return current.kind === previous.kind && current.blockIndex === previous.blockIndex;
 }
 
-function isSameLogicalArtifact(current: ChatArtifact, previous: ChatArtifact): boolean {
-  if (current.id === previous.id) return true;
-  if (!isSameSlot(current, previous)) return false;
-  if (current.runID && previous.runID && current.runID === previous.runID) return true;
-  if (current.messageID === previous.messageID || current.messageKey === previous.messageKey) return true;
-  return hasRelatedCode(current.code, previous.code);
-}
-
 function findLatestArtifactInSameSlot(artifacts: ChatArtifact[], previous: ChatArtifact): ChatArtifact | null {
   for (let index = artifacts.length - 1; index >= 0; index -= 1) {
     const artifact = artifacts[index];
@@ -121,10 +113,8 @@ export function useChatArtifacts({ scopeKey, transient = false, messages }: UseC
   const artifacts = React.useMemo(() => extractArtifactsFromMessages(messages), [messages]);
   const latestArtifact = artifacts.at(-1) ?? null;
   const [activeArtifactID, setActiveArtifactID] = React.useState<string | null>(null);
-  const [dismissedArtifactID, setDismissedArtifactID] = React.useState<string | null>(null);
   const [lastActiveArtifact, setLastActiveArtifact] = React.useState<ChatArtifact | null>(null);
   const [customArtifactRatio, setCustomArtifactRatio] = React.useState<number | null>(null);
-  const dismissedArtifactRef = React.useRef<ChatArtifact | null>(null);
   const previousScopeRef = React.useRef({ key: scopeKey, transient });
   const artifactRatio = customArtifactRatio ?? resolveDefaultRatio(inlineLayout);
   const activeArtifact = React.useMemo(
@@ -151,9 +141,7 @@ export function useChatArtifacts({ scopeKey, transient = false, messages }: UseC
     }
     previousScopeRef.current = { key: scopeKey, transient };
     setLastActiveArtifact(null);
-    dismissedArtifactRef.current = null;
     setActiveArtifactID(null);
-    setDismissedArtifactID(null);
   }, [activeArtifact?.streaming, lastActiveArtifact?.streaming, latestArtifact?.streaming, scopeKey, transient]);
 
   React.useEffect(() => {
@@ -165,8 +153,6 @@ export function useChatArtifacts({ scopeKey, transient = false, messages }: UseC
   React.useEffect(() => {
     if (artifacts.length === 0 && !activeArtifactID) {
       setLastActiveArtifact(null);
-      dismissedArtifactRef.current = null;
-      setDismissedArtifactID(null);
       return;
     }
 
@@ -177,18 +163,6 @@ export function useChatArtifacts({ scopeKey, transient = false, messages }: UseC
     setActiveArtifactID(activeArtifact?.id ?? null);
   }, [activeArtifact, activeArtifactID, artifacts]);
 
-  React.useEffect(() => {
-    if (!isInline || !latestArtifact?.streaming || dismissedArtifactID === latestArtifact.id) {
-      return;
-    }
-    if (dismissedArtifactRef.current && isSameLogicalArtifact(latestArtifact, dismissedArtifactRef.current)) {
-      return;
-    }
-    if (activeArtifactID !== latestArtifact.id) {
-      setActiveArtifactID(latestArtifact.id);
-    }
-  }, [activeArtifactID, dismissedArtifactID, isInline, latestArtifact]);
-
   const openArtifact = React.useCallback((message: ChatAreaMessage, input: OpenCodeArtifactInput) => {
     const messageArtifacts = extractArtifactsFromContent(message);
     const selected =
@@ -198,17 +172,12 @@ export function useChatArtifacts({ scopeKey, transient = false, messages }: UseC
 
     if (!selected) return;
 
-    dismissedArtifactRef.current = null;
-    setDismissedArtifactID(null);
     setActiveArtifactID(selected.id);
   }, []);
 
   const closeArtifact = React.useCallback(() => {
-    const dismissedArtifact = activeArtifact ?? latestArtifact;
-    dismissedArtifactRef.current = dismissedArtifact ?? null;
-    setDismissedArtifactID(dismissedArtifact?.id ?? null);
     setActiveArtifactID(null);
-  }, [activeArtifact, latestArtifact]);
+  }, []);
 
   const selectArtifact = React.useCallback((artifactID: string) => {
     setActiveArtifactID(artifactID);
